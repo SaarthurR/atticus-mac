@@ -110,7 +110,7 @@ On macOS with Nix flakes enabled:
 nix run github:SaarthurR/atticus-mac
 ```
 
-The flake packages the source and runs the same `build.sh` as a clone, so macOS 26+ and Apple's command line tools are still required. `nix profile add github:SaarthurR/atticus-mac` installs an `atticus` launcher; run it once to build the app. To use a tagged release, run `nix run github:SaarthurR/atticus-mac/v1.0`.
+The flake runs the standard installer, which keeps the writable clone Atticus uses for updates, so macOS 26+ and Apple's command line tools are still required. `nix profile add github:SaarthurR/atticus-mac` installs an `atticus` launcher; run it to install or update the app.
 
 Working on the code instead? Clone the repo anywhere and run `./build.sh` after each change. A Devbox environment is included for Python regression tests; run `devbox shell`, then `devbox run test`.
 

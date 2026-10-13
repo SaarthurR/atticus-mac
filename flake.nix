@@ -45,7 +45,7 @@
             src=${./.}
             case "''${1:-}" in
               ""|install|--install|build|--build)
-                exec bash "$src/build.sh"
+                exec bash "$src/install.sh"
                 ;;
               --check)
                 python3 -c 'import pathlib, sys; compile(pathlib.Path(sys.argv[1]).read_text(), sys.argv[1], "exec")' "$src/atticus.py"
@@ -61,8 +61,8 @@
             Atticus launcher for macOS.
 
             Usage:
-              atticus              Build and launch Atticus.app
-              atticus --install    Build and launch Atticus.app
+              atticus              Install or update Atticus.app
+              atticus --install    Install or update Atticus.app
               atticus --check      Run packaged source checks
               atticus --version    Print the packaged version
               atticus --help       Show this help
