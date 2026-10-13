@@ -102,7 +102,17 @@ curl -fsSL https://raw.githubusercontent.com/SaarthurR/atticus-mac/main/install.
 
 It checks your Mac, downloads Atticus to `~/.atticus`, builds `~/Applications/Atticus.app`, and opens it. Atticus starts at login and updates itself from there (turn that off in Settings → About & Updates).
 
-Working on the code instead? Clone the repo anywhere and run `./build.sh` after each change.
+### Nix
+
+On macOS with Nix flakes enabled:
+
+```bash
+nix run github:SaarthurR/atticus-mac
+```
+
+The flake packages the source and runs the same `build.sh` as a clone, so macOS 26+ and Apple's command line tools are still required. `nix profile add github:SaarthurR/atticus-mac` installs an `atticus` launcher; run it once to build the app. To use a tagged release, run `nix run github:SaarthurR/atticus-mac/v1.0`.
+
+Working on the code instead? Clone the repo anywhere and run `./build.sh` after each change. A Devbox environment is included for Python regression tests; run `devbox shell`, then `devbox run test`.
 
 The first launch opens a setup window. It checks your Claude plan, then asks for each macOS permission.
 After that, Atticus lives in the menu bar. Open it from Spotlight (⌘Space, "Atticus") for Settings: shortcut, sounds, model, speed, screen, memory and usage.

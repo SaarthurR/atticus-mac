@@ -31,3 +31,9 @@ CLAUDE.local.md
 index.html
 docs/atticus-film.mp4
 docs/film-poster.png
+
+# Nix build result symlinks
+/result
+/result-*
+# Devbox generated artifacts
+.devbox/
