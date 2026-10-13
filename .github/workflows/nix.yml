@@ -1,6 +1,7 @@
+---
 name: Nix flake
 
-on:
+'on':
   workflow_dispatch: {}
   pull_request:
     branches: [main]
@@ -14,7 +15,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: nix-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: >-
+    nix-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -32,12 +34,15 @@ jobs:
             system: x86_64-darwin
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        # v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
 
       - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+        # v23
+        uses: >-
+          DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa
 
       - name: nix flake check --all-systems
         run: nix flake check --all-systems --no-build
