@@ -51,7 +51,7 @@ class BrainTests(unittest.TestCase):
                                     remember_workflow=lambda task, reply, *a: (reply, False), learn=lambda *a: False, tip=lambda *a: None), \
                      patch.object(atticus, 'pref', side_effect=lambda k, d: {'model': model, 'escalate': offer}.get(k, d)), \
                      patch.object(atticus, 'ask_user', return_value=answer) as ask, \
-                     patch.object(atticus, 'start_claude', return_value=object()) as start, \
+                     patch.object(atticus, 'start_ai', return_value=object()) as start, \
                      patch.object(atticus, 'log_turn') as log, patch.object(atticus.threading, 'Thread') as threads, \
                      patch.dict(os.environ, {'ATTICUS_UI': '1'}), patch('sys.argv', ['atticus.py', 'Do fixture']), patch('sys.stdout', io.StringIO()):
                     atticus.main()
@@ -263,12 +263,12 @@ print(json.dumps(atticus.look(cleanup=sys.argv[3] != 'standalone')))
 
     def test_confirmed_instant_command_skips_context_work(self):
         with patch.multiple(atticus, **{name: unittest.mock.DEFAULT for name in
-                            ['start_claude', 'licensed', 'ping', 'fast', 'remember_turn', 'say', 'front', 'stop_claude']}) as mocks, \
+                            ['start_ai', 'licensed', 'ping', 'fast', 'remember_turn', 'say', 'front', 'stop_claude']}) as mocks, \
              patch.object(atticus.threading, 'Thread'), patch.object(atticus.os, 'setpgrp'), \
              patch.object(atticus.signal, 'signal'), patch('sys.argv', ['atticus.py', '--wait']), \
              patch('sys.stdin', io.StringIO('Notes\topen Notes\n')), patch.dict(os.environ, {'ATTICUS_COMMIT': ''}):
             # Even without a CLI, --wait must read the request instead of treating its flag as a question.
-            mocks['start_claude'].return_value = None
+            mocks['start_ai'].return_value = None
             mocks['licensed'].return_value = True
             mocks['fast'].return_value = 'Opened Notes.'
             atticus.main()

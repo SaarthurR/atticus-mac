@@ -248,9 +248,10 @@
 
   <section id="brain">
     <h1>Intelligence</h1>
-    <p class="lede">Atticus thinks with Claude, on your Claude plan.</p>
+    <p class="lede" id="brainlede">Atticus thinks with Claude, on your Claude plan.</p>
     <h3>Model</h3>
     <div class="group">
+      <div class="row"><div class="t"><b>AI client</b><span id="clientwhy"></span></div><div class="seg" data-k="client"><button data-v="claude">Claude</button><button data-v="devin">Devin</button></div></div>
       <div class="row"><div class="t"><b>Claude model</b><span id="modelwhy"></span></div><div class="seg" data-k="model"><button data-v="haiku">Haiku</button><button data-v="sonnet">Sonnet</button><button data-v="opus">Opus</button></div></div>
       <div class="row"><div class="t"><b>Offer Sonnet when stuck</b><span>If a task fails on Haiku, Atticus asks to try that one task again with Sonnet. Your other asks stay on Haiku.</span></div><label class="sw"><input type="checkbox" data-k="escalate"></label></div>
       <div class="row"><div class="t"><b>Without asking</b><span>Retry with Sonnet right away. Slower and uses more of your plan, only when a task fails.</span></div><label class="sw"><input type="checkbox" data-k="escalateAuto"></label></div>
@@ -322,11 +323,11 @@
     <h1>Account &amp; Access</h1>
     <p class="lede">What Atticus needs to work.</p>
     <div class="group">
-      <div class="row"><div class="t"><b>Claude</b><span class="status"><i class="dot" id="pdot"></i><span id="ptext">Checking…</span></span></div><button class="btn" data-do="setup" id="pbtn">Set Up</button></div>
+      <div class="row"><div class="t"><b id="planname">Claude</b><span class="status"><i class="dot" id="pdot"></i><span id="ptext">Checking…</span></span></div><button class="btn" data-do="setup" id="pbtn">Set Up</button></div>
     </div>
     <h3>Safety</h3>
     <div class="group">
-      <div class="row"><div class="t"><b>Safe mode</b><span>AI commands use a scratch folder. Deletes, sends, purchases and commands requesting access outside it need your approval.</span></div><label class="sw"><input type="checkbox" data-k="safe"></label></div>
+      <div class="row"><div class="t"><b>Safe mode</b><span id="safenote">AI commands use a scratch folder. Deletes, sends, purchases and commands requesting access outside it need your approval.</span></div><label class="sw"><input type="checkbox" data-k="safe"></label></div>
       <div class="row"><div class="t"><b>Count me as a user</b><span>Once a day, sends a random ID so the maker knows how many people use Atticus. Never your name, your asks or your screen.</span></div><label class="sw"><input type="checkbox" data-k="stats"></label></div>
       <div class="row"><div class="t"><b>Help improve Atticus</b><span>When a task fails, sends what you asked, the steps it took and why, so the next version gets it right. Anonymous. Emails, numbers, file paths and anything typed for you are removed first.</span></div><label class="sw"><input type="checkbox" data-k="improve"></label></div>
     </div>
@@ -358,7 +359,7 @@
       <details class="meeting-controls"><summary>Meeting Copilot settings</summary><div class="group">
       <div class="row"><div class="t"><b>Meeting Copilot</b><span>Hear a call and your microphone in a private panel. On supported calls, listening ends two seconds after the app releases the mic.</span></div><label class="sw"><input type="checkbox" data-k="meeting" aria-label="Meeting Copilot"></label></div>
       <div class="row"><div class="t"><b>Save meeting transcripts</b><span>Keep local transcripts, notes and answers. At the end, choose Save or Don’t save. Turning off offers to keep or delete past meetings.</span></div><label class="sw"><input type="checkbox" data-k="meetingSave" aria-label="Save meeting transcripts"></label></div>
-      <div class="row"><div class="t"><b>AI meeting summaries</b><span>Claude reads the transcript once for a recap and action items. Off: a local recap; no transcript is sent for summaries.</span></div><label class="sw"><input type="checkbox" data-k="meetingSummary" aria-label="AI meeting summaries"></label></div>
+      <div class="row"><div class="t"><b>AI meeting summaries</b><span>Your AI client reads the transcript once for a recap and action items. Off: a local recap; no transcript is sent for summaries.</span></div><label class="sw"><input type="checkbox" data-k="meetingSummary" aria-label="AI meeting summaries"></label></div>
       <div class="row"><div class="t"><b>Get ready before calls</b><span>A minute or two before a call on your calendar, a small card offers to load the invite and notes as context.</span></div><label class="sw"><input type="checkbox" data-k="meetingNudge" aria-label="Get ready before calls"></label></div>
       <div class="row"><div class="t"><b>Notice when you’re in a call</b><span>When Zoom, Meet, Teams, FaceTime, Slack or WhatsApp has used your mic for a few seconds, a small card asks if Atticus should listen.</span></div><label class="sw"><input type="checkbox" data-k="meetingDetect" aria-label="Notice when you’re in a call"></label></div>
       <div class="row"><div class="t"><b>Answer questions on its own</b><span>It spots questions (a “?”, a question word, or your name). “When it’s sure” answers only from your context, the call, or plain facts.</span></div><div class="seg" data-k="meetingAuto" aria-label="Answer questions on its own"><button data-v="sure">When it’s sure</button><button data-v="always">Always</button><button data-v="ask">Ask me first</button></div></div>
@@ -469,6 +470,12 @@
     $('volv').textContent = Math.round(P.volume / .6 * 100) + '%';
     $('delayv').textContent = (+P.aheadDelay).toFixed(1) + ' s';
     $('modelwhy').textContent = WHY[P.model] || '';
+    const devin = P.client === 'devin';
+    $('brainlede').textContent = devin ? 'Atticus thinks with Devin, on your Devin plan.' : 'Atticus thinks with Claude, on your Claude plan.';
+    $('clientwhy').textContent = devin ? 'Devin CLI. Commands auto-approve for now: no sandbox, Allow card or step list yet.' : 'Claude Code. Runs on your Claude plan; no API key.';
+    ['model', 'escalate', 'escalateAuto'].forEach(k => document.querySelector(`[data-k=${k}]`).closest('.row').hidden = devin);
+    $('planname').textContent = devin ? 'Devin' : 'Claude';
+    $('safenote').textContent = devin ? 'Applies to Claude. On Devin, commands auto-approve.' : 'AI commands use a scratch folder. Deletes, sends, purchases and commands requesting access outside it need your approval.';
     $('meetingDemo').disabled = !P.meeting;
     document.querySelector('[data-k=aheadDelay]').closest('.row').style.opacity = P.ahead ? 1 : .45;
   }
@@ -633,7 +640,7 @@
     },
     allowDone() { asking = 0; post({ do: 'apps' }); },
     load(d) {
-      P = {talkMode: 'hold', meetingSave: true, meetingSummary: true, ...d.prefs}; recording = false;
+      P = {talkMode: 'hold', meetingSave: true, meetingSummary: true, client: 'claude', ...d.prefs}; recording = false;
       $('shortcut').classList.remove('rec'); $('change').textContent = 'Change Shortcut';
       if (d.icon) $('icon').src = $('bigicon').src = d.icon;
       $('ver').textContent = $('aboutver').textContent = d.version ? 'Version ' + d.version : 'Atticus';

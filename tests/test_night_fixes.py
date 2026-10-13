@@ -112,7 +112,7 @@ class NightTests(unittest.TestCase):
     def test_remaining_words_keep_fast_path_and_complete_context_for_fallback(self):
         request = {'front': 'Fixture', 'task': 'Fixture left, Other right', 'remaining': ', Other right', 'done': ['Fixture: left.']}
         brain = Mock(return_value=('Handled remainder.', 0, [])); brain.ok = True; brain.cmds = brain.ran = []
-        with patch.multiple(atticus, start_claude=lambda: None, licensed=lambda: True, ping=lambda: None,
+        with patch.multiple(atticus, start_ai=lambda: None, licensed=lambda: True, ping=lambda: None,
                             front=lambda: ('Fixture', ''), osa=lambda *a: '', screens=lambda: [], describe=lambda *a: '',
                             selection_context=lambda: '', me_line=lambda: '', relevant_rules=lambda _: '', workflows=lambda *a: '',
                             recent=lambda: [], screen_for=lambda *a: None, wait_commit=lambda: True, run=brain,

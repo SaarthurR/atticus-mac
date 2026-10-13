@@ -10,7 +10,7 @@
 </p>
 
 - **Fast.** Simple asks skip the AI: an app opens in 0.08 s. Ask for an action once and Atticus learns it, so next time it runs in a blink, with no AI and for free.
-- **No API key.** It runs on the Claude Pro or Max plan you already have, through Claude Code. Nothing to sign up for, no key to paste, no extra bill.
+- **No API key.** It runs on the Claude Pro or Max plan you already have, through Claude Code — or on your Devin plan through the Devin CLI (Settings → AI client). Nothing to sign up for, no key to paste, no extra bill.
 - **Remembers you.** Say "remember…" and every ask after that knows it. It picks up who you are (your name, your apps) and fixes its own mistakes when you correct it.
 
 > **On Windows?** [@FindlayHi](https://github.com/FindlayHi) built **[Atticus for Windows](https://github.com/FindlayHi/atticus-windows)**, with integrations for Home Assistant, Jellyfin, Immich and more.
@@ -90,7 +90,7 @@ Choose **Report Feedback…** in the menu bar, **Report feedback** in Settings, 
 
 You need:
 - **macOS 26** or later (Atticus uses Apple's new on-device speech)
-- **A paid Claude plan** (Pro or Max) and [Claude Code](https://claude.com/claude-code). No Claude Code yet? The setup window installs it and signs you in.
+- **A paid Claude plan** (Pro or Max) and [Claude Code](https://claude.com/claude-code) — or the [Devin CLI](https://docs.devin.ai/cli) signed in to a Devin plan. Pick the AI client in Settings → Intelligence. No client yet? The setup window installs it and signs you in.
 - Apple's command line tools: `xcode-select --install`
 - Accessibility permission enables native clicks, scrolling, menus, keys, dragging and field typing.
 
@@ -104,9 +104,9 @@ It checks your Mac, downloads Atticus to `~/.atticus`, builds `~/Applications/At
 
 Working on the code instead? Clone the repo anywhere and run `./build.sh` after each change.
 
-The first launch opens a setup window. It checks your Claude plan, then asks for each macOS permission.
+The first launch opens a setup window. It checks your AI plan, then asks for each macOS permission.
 After that, Atticus lives in the menu bar. Open it from Spotlight (⌘Space, "Atticus") for Settings: shortcut, sounds, model, speed, screen, memory and usage.
-If you sign out of Claude later, the setup window comes back by itself.
+If you sign out of your AI client later, the setup window comes back by itself.
 To see it again: `defaults delete com.atticus.app onboarded`, then restart the app.
 
 Test: `python3 atticus.py --selftest` on macOS, plus `python3 -m unittest discover -s tests -v` for offline regressions. After building, `~/Applications/Atticus.app/Contents/MacOS/Atticus --selftest` checks native transcript matching without opening the app. Node, when installed, also checks embedded JavaScript syntax. For the UI interaction checks, run `python3 -m http.server 8765 --bind 127.0.0.1` from the repo and open `http://127.0.0.1:8765/tests/ui.html`; it uses a mock native bridge and makes no Mac actions or AI calls.

@@ -1248,14 +1248,18 @@ final class Onboarding: NSObject, WKScriptMessageHandler, NSWindowDelegate {
         }
     }
 
-    // The Claude row's button: install Claude Code, sign in, or upgrade, in a Terminal window the user can watch.
+    // The plan row's button: install the AI client, sign in, or upgrade, in a Terminal window the user can watch.
     func fixPlan() {
         Onboarding.plan { [weak self] c in
             let need = c["need"] as? String ?? ""
+            let devin = (c["client"] as? String) == "devin"
             if need == "upgrade" { NSWorkspace.shared.open(URL(string: "https://claude.ai/upgrade")!); return }
-            let cmd = need == "install" ? "curl -fsSL https://claude.ai/install.sh | bash && ~/.local/bin/claude auth login" : "claude auth login"
-            let f = NSTemporaryDirectory() + "atticus-claude.command"
-            try? "#!/bin/zsh\nexport PATH=\"$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"\necho 'Atticus: setting up Claude Code'\n\(cmd)\necho; echo 'Done. You can close this window.'\n".write(toFile: f, atomically: true, encoding: .utf8)
+            let cmd = need == "install"
+                ? devin ? "curl -fsSL https://cli.devin.ai/install.sh | bash && devin auth login"
+                        : "curl -fsSL https://claude.ai/install.sh | bash && ~/.local/bin/claude auth login"
+                : devin ? "devin auth login" : "claude auth login"
+            let f = NSTemporaryDirectory() + (devin ? "atticus-devin.command" : "atticus-claude.command")
+            try? "#!/bin/zsh\nexport PATH=\"$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"\necho 'Atticus: setting up \(devin ? "Devin" : "Claude Code")'\n\(cmd)\necho; echo 'Done. You can close this window.'\n".write(toFile: f, atomically: true, encoding: .utf8)
             chmod(f, 0o755)
             NSWorkspace.shared.open(URL(fileURLWithPath: f))
             self?.checkPlan()

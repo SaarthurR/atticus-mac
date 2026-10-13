@@ -384,8 +384,9 @@
       { $('hint').textContent = 'That’s it. Atticus is on it.'; $('hint').classList.add('yes'); }
       $('try-skip').hidden = true; $('try-next').hidden = false;
     },
-    plan(c) {   // Claude Code: installed, signed in, paid plan? The row says which, the button fixes it
+    plan(c) {   // the AI client (Claude Code or Devin): installed, signed in, paid plan? The row says which, the button fixes it
       planOK = !!c.ok;
+      $('p-claude').querySelector('.txt b').textContent = c.client === 'devin' ? 'Devin' : 'Claude Plan';
       $('p-claude').querySelector('.txt span').textContent = c.text;
       $('p-claude').querySelector('.allow').textContent = { install: 'Install', login: 'Sign In', upgrade: 'Upgrade' }[c.need] || 'Allow';
       if (last) ob.set(last);
