@@ -89,6 +89,27 @@ class MeetingTests(unittest.TestCase):
         self.assertEqual(metrics['usd'], .001)
         self.assertTrue(start.call_args.kwargs['start_new_session'])
 
+    def test_devin_meeting_is_tool_free(self):
+        class Worker:
+            pid = 12345
+            returncode = 0
+            def communicate(self, timeout):
+                return 'November 12.', ''
+        worker = Worker()
+        with patch.object(atticus, 'client', return_value='devin'), patch.object(atticus.subprocess, 'Popen', return_value=worker) as start, \
+             patch.object(atticus, 'stop_claude'), patch.object(atticus.signal, 'signal'), patch.object(atticus.atexit, 'register'), \
+             patch.object(atticus, 'log_turn'):
+            answer, _ = atticus.meeting_call('Stable prefix', 'A question')
+        args = start.call_args.args[0]
+        self.assertNotIn('dangerous', args)
+        self.assertEqual(args[args.index('--permission-mode') + 1], 'normal')
+        config = json.loads(Path(args[args.index('--config') + 1]).read_text())
+        self.assertEqual(config['permissions']['allow'], [])
+        for tool in ('read', 'exec', 'Fetch(*)', 'Write(**)', 'edit', 'mcp__*'):
+            self.assertIn(tool, config['permissions']['deny'])
+        self.assertIn('ATTICUS_TOOLS=0', config['hooks']['PreToolUse'][0]['hooks'][0]['command'])
+        self.assertEqual(answer, 'November 12.')
+
     def test_stop_cancels_claude_group(self):
         class Worker:
             pid = 12345

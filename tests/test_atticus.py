@@ -228,6 +228,93 @@ print(json.dumps(atticus.look(cleanup=sys.argv[3] != 'standalone')))
             atticus.gate()
             self.assertEqual(json.loads(out.getvalue())['hookSpecificOutput']['permissionDecision'], 'deny')
 
+    def test_devin_gate_blocks_before_confirmation_and_records_confirmed_steps(self):
+        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {'ATTICUS_ASK': root}):
+            event = {'tool_name': 'exec', 'tool_input': {'command': 'open -a Notes'}}
+            with patch.object(atticus, 'wait_commit', return_value=False), \
+                 patch('sys.stdin', io.StringIO(json.dumps(event))), patch('sys.stdout', new_callable=io.StringIO) as out:
+                atticus.gate()
+            self.assertEqual(json.loads(out.getvalue())['decision'], 'block')
+            self.assertFalse(Path(root, 'devin-tools.jsonl').exists())
+            with patch.object(atticus, 'wait_commit', return_value=True), patch.object(atticus, 'pref', return_value=False), patch.object(atticus, 'preview_commands'), \
+                 patch('sys.stdin', io.StringIO(json.dumps(event))), patch('sys.stdout', new_callable=io.StringIO):
+                atticus.gate()
+            row = json.loads(Path(root, 'devin-tools.jsonl').read_text())
+            self.assertEqual(row['input']['command'], 'open -a Notes')
+            self.assertTrue(any(p.name.startswith('hands-devin-') for p in Path(root).iterdir()))
+            blocked = {'tool_name': 'write', 'tool_input': {'path': '/tmp/file'}}
+            with patch.object(atticus, 'wait_commit', return_value=True), \
+                 patch('sys.stdin', io.StringIO(json.dumps(blocked))), patch('sys.stdout', new_callable=io.StringIO) as out:
+                atticus.gate()
+            self.assertEqual(json.loads(out.getvalue())['decision'], 'block')
+
+    def test_devin_does_not_start_before_confirmation(self):
+        with tempfile.TemporaryDirectory() as root:
+            fake, marker = Path(root, 'devin'), Path(root, 'started')
+            fake.write_text(f'#!{sys.executable}\nfrom pathlib import Path\nPath({str(marker)!r}).touch()\n')
+            fake.chmod(0o755)
+            with patch.dict(os.environ, {'PATH': root + os.pathsep + os.environ['PATH']}), \
+                 patch.object(atticus, 'wait_commit', return_value=False):
+                reply, _, _ = atticus.run_devin('unconfirmed')
+            self.assertIn('cancelled', reply)
+            self.assertFalse(marker.exists())
+
+    def test_devin_uses_normal_mode_gate_and_deny_rules(self):
+        with tempfile.TemporaryDirectory() as root:
+            fake, log = Path(root, 'devin'), Path(root, 'launch.json')
+            fake.write_text(f'''#!{sys.executable}
+import json, os, sys
+from pathlib import Path
+if sys.argv[1:3] == ['auth', 'status']: raise SystemExit(0)
+Path(os.environ['DEVIN_LOG']).write_text(json.dumps(sys.argv[1:]))
+print('Ready.')
+''')
+            fake.chmod(0o755)
+            previous = signal.getsignal(signal.SIGTERM)
+            try:
+                with patch.dict(os.environ, {'PATH': root + os.pathsep + os.environ['PATH'], 'DEVIN_LOG': str(log)}), \
+                     patch.object(atticus, 'pref', side_effect=lambda k, d: 'devin' if k == 'client' else False if k == 'safe' else d):
+                    self.assertEqual(atticus.run_devin('test')[0], 'Ready.')
+            finally:
+                signal.signal(signal.SIGTERM, previous)
+            args = json.loads(log.read_text())
+            self.assertNotIn('dangerous', args)
+            self.assertEqual(args[args.index('--permission-mode') + 1], 'normal')
+            config = json.loads(Path(args[args.index('--config') + 1]).read_text())
+            self.assertIn('PreToolUse', config['hooks'])
+            self.assertIn('exec', config['permissions']['allow'])
+            self.assertIn('Fetch(*)', config['permissions']['allow'])
+            self.assertTrue(all(f'Exec({cmd})' in config['permissions']['deny'] for cmd in atticus.DENIED))
+            self.assertIn('mcp__*', config['permissions']['deny'])
+
+    def test_failed_devin_output_is_not_success(self):
+        with tempfile.TemporaryDirectory() as root:
+            fake = Path(root, 'devin')
+            fake.write_text(f'''#!{sys.executable}
+import sys
+if sys.argv[1:3] == ['auth', 'status']: raise SystemExit(0)
+print('Claimed success.')
+print('fixture failure', file=sys.stderr)
+raise SystemExit(4)
+''')
+            fake.chmod(0o755)
+            previous = signal.getsignal(signal.SIGTERM)
+            try:
+                with patch.dict(os.environ, {'PATH': root + os.pathsep + os.environ['PATH']}), \
+                     patch.object(atticus, 'pref', side_effect=lambda k, d: 'devin' if k == 'client' else False if k == 'safe' else d):
+                    reply, _, _ = atticus.run_devin('test')
+            finally:
+                signal.signal(signal.SIGTERM, previous)
+            self.assertIn('Devin failed: fixture failure', reply)
+            self.assertFalse(atticus.run.ok)
+
+    def test_devin_auth_uses_status_exit_code(self):
+        ok = subprocess.CompletedProcess([], 0, stdout='localized output')
+        bad = subprocess.CompletedProcess([], 1, stdout='Logged in')
+        with patch.object(atticus.shutil, 'which', return_value='/fake/devin'), patch.object(atticus.subprocess, 'run', side_effect=[ok, bad]):
+            self.assertTrue(atticus.devin_plan()['ok'])
+            self.assertFalse(atticus.devin_plan()['ok'])
+
     def test_cancelled_parent_cannot_use_leftover_commit(self):
         with patch.dict(os.environ, {'ATTICUS_COMMIT': '/fake/commit'}), \
              patch.object(atticus.os, 'getppid', side_effect=[100, 101]), \
@@ -350,6 +437,37 @@ print(json.dumps(atticus.look(cleanup=sys.argv[3] != 'standalone')))
             finally:
                 atticus.stop_claude(p)
                 p.wait(timeout=3)
+
+    def test_devin_sigterm_stops_its_descendant(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            ready, survived = root / 'ready', root / 'survived'
+            child = f'import time; from pathlib import Path; Path({str(ready)!r}).touch(); time.sleep(.6); Path({str(survived)!r}).touch()'
+            fake = root / 'devin'
+            fake.write_text(f'''#!{sys.executable}
+import subprocess, sys, time
+if sys.argv[1:3] == ['auth', 'status']: raise SystemExit(0)
+subprocess.Popen([sys.executable, '-c', {child!r}])
+time.sleep(30)
+''')
+            fake.chmod(0o755)
+            runner = root / 'run.py'
+            runner.write_text("import atticus\natticus.pref=lambda k,d: 'devin' if k=='client' else False if k=='safe' else d\natticus.run_devin('test')\n")
+            p = subprocess.Popen([sys.executable, str(runner)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                 env={**os.environ, 'PATH': str(root) + os.pathsep + os.environ['PATH'],
+                                      'ATTICUS_DIR': str(root), 'PYTHONPATH': str(Path(atticus.ME).parent)})
+            try:
+                deadline = time.monotonic() + 3
+                while not ready.exists() and time.monotonic() < deadline:
+                    time.sleep(.01)
+                self.assertTrue(ready.exists(), 'fake Devin never started')
+                p.send_signal(signal.SIGTERM)
+                p.wait(timeout=3)
+                time.sleep(.7)
+                self.assertFalse(survived.exists(), 'Devin child survived Stop')
+            finally:
+                if p.poll() is None:
+                    p.kill(); p.wait(timeout=3)
 
     def test_fast_worker_sigterm_stops_its_action_group(self):
         with tempfile.TemporaryDirectory() as root:

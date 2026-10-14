@@ -472,10 +472,10 @@
     $('modelwhy').textContent = WHY[P.model] || '';
     const devin = P.client === 'devin';
     $('brainlede').textContent = devin ? 'Atticus thinks with Devin, on your Devin plan.' : 'Atticus thinks with Claude, on your Claude plan.';
-    $('clientwhy').textContent = devin ? 'Devin CLI. Commands auto-approve for now: no sandbox, Allow card or step list yet.' : 'Claude Code. Runs on your Claude plan; no API key.';
+    $('clientwhy').textContent = devin ? 'Devin CLI. Tools wait for confirmed words; commands use Atticus’s safety check and appear as steps.' : 'Claude Code. Runs on your Claude plan; no API key.';
     ['model', 'escalate', 'escalateAuto'].forEach(k => document.querySelector(`[data-k=${k}]`).closest('.row').hidden = devin);
     $('planname').textContent = devin ? 'Devin' : 'Claude';
-    $('safenote').textContent = devin ? 'Applies to Claude. On Devin, commands auto-approve.' : 'AI commands use a scratch folder. Deletes, sends, purchases and commands requesting access outside it need your approval.';
+    $('safenote').textContent = devin ? 'Safe mode makes every Devin command wait for approval. Direct file-edit, MCP and subagent tools stay off.' : 'AI commands use a scratch folder. Deletes, sends, purchases and commands requesting access outside it need your approval.';
     $('meetingDemo').disabled = !P.meeting;
     document.querySelector('[data-k=aheadDelay]').closest('.row').style.opacity = P.ahead ? 1 : .45;
   }
