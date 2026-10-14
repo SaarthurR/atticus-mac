@@ -149,17 +149,10 @@ Show me where (on): when the user asks where something is or how to do something
 DENIED = ('rm', 'rmdir', 'sudo', 'dd', 'diskutil', 'shutdown', 'reboot', 'halt', 'git push', 'srm')
 DENY = [f'Bash({c}:*)' for c in DENIED]
 
-# The AI clients Atticus can think with, picked in Settings ('client' in settings.json, 'claude' default).
-AI_CLIENTS = {
-    'claude': {'name': 'Claude', 'plan': 'Claude plan', 'tools': 'Bash,Read,WebSearch,WebFetch'},
-    'devin': {'name': 'Devin', 'plan': 'Devin plan'},
-}
-
-
 def client():
     """The configured AI client name; anything unrecognized falls back to 'claude'."""
     c = pref('client', 'claude')
-    return c if c in AI_CLIENTS else 'claude'
+    return c if c in ('claude', 'devin') else 'claude'
 
 # Safe mode (Settings, on by default): Claude Code's sandbox lets the AI's commands write only in a throwaway folder.
 # App control can't work inside it (Apple Events, opening apps), so those run outside, and the gate below checks every command.
@@ -230,7 +223,7 @@ def gate():
     Allowed = it runs for real, outside the sandbox. The AI asking to leave the sandbox by itself asks too."""
     event = json.load(sys.stdin)
     inp = event.get('tool_input', {})
-    devin = bool(event.get('tool_name'))
+    devin = os.environ.get('ATTICUS_CLIENT') == 'devin'
 
     def decision(ok, reason):
         if devin:
@@ -244,7 +237,7 @@ def gate():
     if not wait_commit():
         decision(False, 'The request was cancelled before the transcript was confirmed.')
         return
-    if devin and (os.environ.get('ATTICUS_TOOLS') == '0' or event['tool_name'] not in ('read', 'grep', 'glob', 'exec', 'webfetch')):
+    if devin and event['tool_name'] not in ('read', 'grep', 'glob', 'exec', 'webfetch'):
         decision(False, 'This tool is disabled by Atticus.')
         return
     if devin and os.environ.get('ATTICUS_ASK'):
@@ -334,6 +327,8 @@ def set_switch(words, on):
         o = max(options, key=lambda o: len(stem(on) & stem(o + ' ' + options[o])))
         if not stem(words) & stem(name) or not stem(on) & stem(o + ' ' + options[o]):
             return print('No such setting. Choices: ' + '; '.join(f'{n}: {", ".join(o)}' for n, o in rows.values()) + '. Switches (on|off): ' + ', '.join(switches().values()))
+        if k == 'client':
+            return print('Only the user can change the AI client in Settings.')
         if os.environ.get('ATTICUS_ASK'):
             ask_user({'set': k, 'value': options[o]}, 5)
         return print(f'{name} is now {o}.')
@@ -1844,27 +1839,43 @@ def devin_plan():
     return {'ok': True, 'need': '', 'text': 'Using your Devin plan.'}
 
 
-def devin_config(directory, tools=True):
-    """An isolated Devin project: only the Claude-equivalent tools, with every call gated; meetings get none."""
+def devin_config(directory):
+    """An isolated Devin project with only the Claude-equivalent tools, every call gated."""
     folder = os.path.join(directory, '.devin')
     os.makedirs(folder)
     available = ['read', 'grep', 'glob', 'exec', 'Fetch(*)']
     deny = ['edit', 'Write(**)', 'mcp__*']
     config = {
         'read_config_from': {name: False for name in ('agents_standard', 'cursor', 'windsurf', 'claude', 'copilot', 'opencode', 'zed')},
-        'permissions': {'allow': available if tools else [],
-                        'deny': deny + [f'Exec({cmd})' for cmd in DENIED] if tools else
-                                ['read', 'edit', 'grep', 'glob', 'exec', 'Write(**)', 'Fetch(*)', 'mcp__*']},
+        'permissions': {'allow': available, 'deny': deny + [f'Exec({cmd})' for cmd in DENIED]},
     }
-    prefix = '' if tools else 'ATTICUS_TOOLS=0 '
     config['hooks'] = {'PreToolUse': [{'matcher': '.*', 'hooks': [{
-        'type': 'command', 'command': f'{prefix}"{sys.executable}" "{ME}" --gate', 'timeout': 140}]}]}
+        'type': 'command', 'command': f'ATTICUS_CLIENT=devin "{sys.executable}" "{ME}" --gate || exit 2', 'timeout': 140}]}]}
     path = os.path.join(folder, 'config.json')
     with open(path, 'w') as f:
         json.dump(config, f)
-    with open(os.path.join(folder, 'mcp_config.json'), 'w') as f:
-        json.dump({}, f)
     return path
+
+
+def delete_devin_session(directory):
+    """Delete the one CLI session created in this per-ask working directory."""
+    try:
+        result = subprocess.run(['devin', 'list', '--format', 'json'], cwd=directory, capture_output=True, text=True, timeout=10)
+        if result.returncode:
+            return False
+        rows = json.loads(result.stdout)
+        rows = rows.get('sessions', []) if isinstance(rows, dict) else rows
+        row = next((r for r in rows if os.path.realpath(r.get('cwd') or '') == os.path.realpath(directory)), None)
+        session = (row or {}).get('id') or (row or {}).get('session_id')
+        return bool(session) and not subprocess.run(
+            ['devin', 'rm', session, '--force'], cwd=directory, capture_output=True, timeout=10).returncode
+    except (OSError, ValueError, TypeError, AttributeError, subprocess.TimeoutExpired):
+        return False
+
+
+def stop_devin(p, directory):
+    stop_claude(p)
+    delete_devin_session(directory)
 
 
 def stop_claude(p):
@@ -1908,7 +1919,7 @@ def start_claude(model=None):
     settings['hooks'] = {'PreToolUse': [{'matcher': '.*', 'hooks': [{'type': 'command', 'command': f'"{sys.executable}" "{ME}" --gate', 'timeout': 140}]}]}
     errors = tempfile.TemporaryFile(mode='w+')   # draining a pipe only after wait() can deadlock
     p = subprocess.Popen(['claude', '-p', '--input-format', 'stream-json', '--model', model or pref('model', 'haiku'), '--effort', 'low', '--system-prompt', system,
-                          '--tools', AI_CLIENTS['claude']['tools'], '--permission-mode', 'bypassPermissions', '--disallowedTools', *DENY, '--settings', json.dumps(settings),
+                          '--tools', 'Bash,Read,WebSearch,WebFetch', '--permission-mode', 'bypassPermissions', '--disallowedTools', *DENY, '--settings', json.dumps(settings),
                           '--setting-sources', '', '--no-session-persistence', '--strict-mcp-config', '--disable-slash-commands', '--output-format', 'stream-json', '--verbose'],
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errors, text=True, cwd=tempfile.gettempdir(), start_new_session=True,
                          env={**os.environ, 'ATTICUS_ASK': ask})
@@ -2051,8 +2062,8 @@ def run_devin(task, shots=()):
                          env={**os.environ, 'ATTICUS_ASK': ask})
     p.ask, p.errors = ask, errors
     atexit.register(errors.close)
-    atexit.register(stop_claude, p)
-    signal.signal(signal.SIGTERM, lambda *_: (stop_claude(p), stop_workers()))
+    atexit.register(stop_devin, p, ask)
+    signal.signal(signal.SIGTERM, lambda *_: (stop_devin(p, ask), stop_workers()))
     p.relay_thread = threading.Thread(target=relay, args=(p,), daemon=True)   # pick/set/point cards, as for Claude
     p.relay_thread.start()
     try:
@@ -2066,6 +2077,7 @@ def run_devin(task, shots=()):
         reply = 'Devin timed out before finishing. Please try again.'
     reply = reply.strip()
     p.relay_thread.join(.3)
+    deleted = delete_devin_session(ask)
     rows = read_rows(os.path.join(ask, 'devin-tools.jsonl'))
     steps = [row.get('step', '') for row in rows if row.get('step')]
     run.ran = [row['input']['command'] for row in rows if row.get('tool') == 'exec' and row.get('input', {}).get('command')]
@@ -2076,7 +2088,10 @@ def run_devin(task, shots=()):
         p.errors.seek(0)
         detail = p.errors.read(200).strip() or reply[:200]
         reply = c['text'] + ' Atticus setup is open to fix it.' if not c['ok'] else f'Devin failed: {detail}'
-    run.ok = bool(reply and not p.returncode)
+    if not deleted:
+        warning = 'Atticus could not delete Devin’s saved session. Remove it in Devin before continuing.'
+        reply = f'{reply} {warning}' if p.returncode else warning
+    run.ok = bool(reply and not p.returncode and deleted)
     return reply or 'No answer came back. Please try again.', 0, steps
 
 
@@ -2321,7 +2336,7 @@ def meeting_prompt(data):
 
 def meeting_call(system, request, image=None):
     if client() == 'devin':
-        return meeting_devin(system, request, image)
+        raise RuntimeError('Meeting Copilot stays on this Mac when Devin is selected.')
     content = ([{'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/jpeg', 'data': image}}] if image else []) + [{'type': 'text', 'text': request}]
     payload = json.dumps({'type': 'user', 'message': {'role': 'user', 'content': content}}) + '\n'
     started = time.monotonic()
@@ -2345,35 +2360,6 @@ def meeting_call(system, request, image=None):
         os.makedirs(DIR, exist_ok=True)
         log_turn('Meeting Copilot', '', time.time() - metrics['secs'], metrics['usd'])
         return result['result'], metrics
-    finally:
-        stop_claude(p)
-
-
-def meeting_devin(system, request, image=None):
-    """Meeting Copilot through a deny-all Devin project; meeting material can never reach a tool."""
-    started = time.monotonic()
-    prompt = system + '\n\n' + request
-    ask = tempfile.mkdtemp(prefix='atticus-meeting-')
-    atexit.register(shutil.rmtree, ask, True)
-    if image:
-        shot = os.path.join(ask, 'screen.jpg')
-        with open(shot, 'wb') as f:
-            f.write(base64.b64decode(image))
-        prompt += f'\nImage: {shot}'
-    config = devin_config(ask, tools=False)
-    p = subprocess.Popen(['devin', '-p', prompt, '--permission-mode', 'normal', '--config', config, '--respect-workspace-trust', 'false'],
-                         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                         cwd=ask, start_new_session=True)
-    atexit.register(stop_claude, p)
-    signal.signal(signal.SIGTERM, lambda *_: (stop_claude(p), sys.exit(0)))
-    try:
-        out, err = p.communicate(timeout=45)
-        if p.returncode or not out.strip():
-            raise RuntimeError('Could not answer. Check Devin in Settings.')
-        metrics = {'secs': round(time.monotonic() - started, 3), 'usd': 0, 'usage': {}}
-        os.makedirs(DIR, exist_ok=True)
-        log_turn('Meeting Copilot', '', time.time() - metrics['secs'], 0)
-        return out.strip(), metrics
     finally:
         stop_claude(p)
 

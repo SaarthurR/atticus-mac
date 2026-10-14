@@ -228,8 +228,15 @@ print(json.dumps(atticus.look(cleanup=sys.argv[3] != 'standalone')))
             atticus.gate()
             self.assertEqual(json.loads(out.getvalue())['hookSpecificOutput']['permissionDecision'], 'deny')
 
+    def test_claude_payload_with_tool_name_uses_claude_gate(self):
+        event = {'tool_name': 'Bash', 'tool_input': {'command': 'echo hi'}}
+        with patch.dict(os.environ, {'ATTICUS_CLIENT': 'claude'}), patch.object(atticus, 'preview_commands'), \
+             patch('sys.stdin', io.StringIO(json.dumps(event))), patch('sys.stdout', new_callable=io.StringIO) as out:
+            atticus.gate()
+        self.assertEqual(out.getvalue(), '')
+
     def test_devin_gate_blocks_before_confirmation_and_records_confirmed_steps(self):
-        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {'ATTICUS_ASK': root}):
+        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {'ATTICUS_ASK': root, 'ATTICUS_CLIENT': 'devin'}):
             event = {'tool_name': 'exec', 'tool_input': {'command': 'open -a Notes'}}
             with patch.object(atticus, 'wait_commit', return_value=False), \
                  patch('sys.stdin', io.StringIO(json.dumps(event))), patch('sys.stdout', new_callable=io.StringIO) as out:
@@ -261,18 +268,22 @@ print(json.dumps(atticus.look(cleanup=sys.argv[3] != 'standalone')))
 
     def test_devin_uses_normal_mode_gate_and_deny_rules(self):
         with tempfile.TemporaryDirectory() as root:
-            fake, log = Path(root, 'devin'), Path(root, 'launch.json')
+            fake, log, removed = Path(root, 'devin'), Path(root, 'launch.json'), Path(root, 'removed')
             fake.write_text(f'''#!{sys.executable}
 import json, os, sys
 from pathlib import Path
 if sys.argv[1:3] == ['auth', 'status']: raise SystemExit(0)
+if sys.argv[1:3] == ['list', '--format']:
+    print(json.dumps([{{'id': 'fixture-session', 'cwd': os.getcwd()}}])); raise SystemExit(0)
+if sys.argv[1:2] == ['rm']:
+    Path(os.environ['DEVIN_REMOVED']).write_text(' '.join(sys.argv[1:])); raise SystemExit(0)
 Path(os.environ['DEVIN_LOG']).write_text(json.dumps(sys.argv[1:]))
 print('Ready.')
 ''')
             fake.chmod(0o755)
             previous = signal.getsignal(signal.SIGTERM)
             try:
-                with patch.dict(os.environ, {'PATH': root + os.pathsep + os.environ['PATH'], 'DEVIN_LOG': str(log)}), \
+                with patch.dict(os.environ, {'PATH': root + os.pathsep + os.environ['PATH'], 'DEVIN_LOG': str(log), 'DEVIN_REMOVED': str(removed)}), \
                      patch.object(atticus, 'pref', side_effect=lambda k, d: 'devin' if k == 'client' else False if k == 'safe' else d):
                     self.assertEqual(atticus.run_devin('test')[0], 'Ready.')
             finally:
@@ -286,13 +297,23 @@ print('Ready.')
             self.assertIn('Fetch(*)', config['permissions']['allow'])
             self.assertTrue(all(f'Exec({cmd})' in config['permissions']['deny'] for cmd in atticus.DENIED))
             self.assertIn('mcp__*', config['permissions']['deny'])
+            self.assertIn('ATTICUS_CLIENT=devin', config['hooks']['PreToolUse'][0]['hooks'][0]['command'])
+            self.assertIn('|| exit 2', config['hooks']['PreToolUse'][0]['hooks'][0]['command'])
+            self.assertEqual(removed.read_text(), 'rm fixture-session --force')
+
+    def test_devin_hook_failure_exits_two(self):
+        with tempfile.TemporaryDirectory() as root:
+            command = json.loads(Path(atticus.devin_config(root)).read_text())['hooks']['PreToolUse'][0]['hooks'][0]['command']
+            result = subprocess.run(command, shell=True, input='{', text=True, capture_output=True)
+        self.assertEqual(result.returncode, 2)
 
     def test_failed_devin_output_is_not_success(self):
         with tempfile.TemporaryDirectory() as root:
             fake = Path(root, 'devin')
             fake.write_text(f'''#!{sys.executable}
-import sys
+import json, sys
 if sys.argv[1:3] == ['auth', 'status']: raise SystemExit(0)
+if sys.argv[1:3] == ['list', '--format']: print(json.dumps([])); raise SystemExit(0)
 print('Claimed success.')
 print('fixture failure', file=sys.stderr)
 raise SystemExit(4)
@@ -445,8 +466,9 @@ raise SystemExit(4)
             child = f'import time; from pathlib import Path; Path({str(ready)!r}).touch(); time.sleep(.6); Path({str(survived)!r}).touch()'
             fake = root / 'devin'
             fake.write_text(f'''#!{sys.executable}
-import subprocess, sys, time
+import json, subprocess, sys, time
 if sys.argv[1:3] == ['auth', 'status']: raise SystemExit(0)
+if sys.argv[1:3] == ['list', '--format']: print(json.dumps([])); raise SystemExit(0)
 subprocess.Popen([sys.executable, '-c', {child!r}])
 time.sleep(30)
 ''')
@@ -626,6 +648,11 @@ class WatchAndBudgetTests(unittest.TestCase):
             with patch.dict(os.environ, {'ATTICUS_ASK': '/fake'}), patch.object(atticus, 'ask_user') as ask, patch('sys.stdout', new_callable=io.StringIO):
                 atticus.set_switch(words, 'off')
             self.assertEqual(ask.call_args.args[0] if ask.called else None, key and {'set': key, 'value': False})
+        with patch.dict(os.environ, {'ATTICUS_ASK': '/fake'}), patch.object(atticus, 'ask_user') as ask, \
+             patch('sys.stdout', new_callable=io.StringIO) as out:
+            atticus.set_switch('AI client', 'devin')
+        ask.assert_not_called()
+        self.assertIn('Only the user', out.getvalue())
 
     def test_unknown_command_never_shows_raw_shell(self):
         self.assertEqual(atticus.label('Bash', {'command': 'cat > /private/var/folders/x/prompt.txt <<EOF'}), 'Working on it')
