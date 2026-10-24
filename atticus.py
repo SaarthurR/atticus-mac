@@ -5494,6 +5494,8 @@ def run_pi(task, shots=(), request=None):
     run.cmds = run.ran = []
     run.error = ''
     run.ok = False
+    run.work = False
+    run.observed = []
     pi = shutil.which('pi')
     if not pi:
         say('!', 'setup')

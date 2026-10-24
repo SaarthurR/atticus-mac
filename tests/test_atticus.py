@@ -836,6 +836,19 @@ print('Ready.')
                 self.assertNotIn('fixture/internal.py', reply)
                 self.assertFalse(atticus.run.ok)
 
+    def test_pi_initializes_shared_run_state(self):
+        for attr in ('work', 'observed'):
+            if hasattr(atticus.run, attr):
+                delattr(atticus.run, attr)
+
+        with patch.object(atticus.shutil, 'which', return_value='/usr/bin/true'), \
+             patch.object(atticus, 'wait_commit', return_value=False):
+            reply, _, _ = atticus.run_pi('unconfirmed')
+
+        self.assertIn('cancelled', reply)
+        self.assertIs(atticus.run.work, False)
+        self.assertEqual(atticus.run.observed, [])
+
     def test_pi_does_not_start_before_confirmation(self):
         with tempfile.TemporaryDirectory() as root:
             fake, marker = Path(root, 'pi'), Path(root, 'started')
