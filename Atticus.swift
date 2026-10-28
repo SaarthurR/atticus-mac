@@ -195,7 +195,7 @@ enum Prefs {
             ["name": "Friendly", "text": "Warm and conversational, like talking to a colleague. Simple words."]],
         "selection": true, "ahead": true, "aheadDelay": 0.7, "live": true, "screen": "auto", "openOn": "here", "workIn": "back", "miniScreen": true, "draw": true, "guideSteps": "auto", "pageJS": false,
         "speak": false, "showAnswers": "stream", "autoCopy": false, "hideWhenSharing": true, "menuIcon": true, "autoUpdate": true,
-        "learn": true, "safe": true, "pointer": false, "meeting": false, "meetingSave": true, "meetingAuto": "sure", "meetingNudge": false, "meetingDetect": true, "learnMe": true, "saveChats": true, "stats": true, "tips": true, "support": true, "comeBack": true, "askMe": true, "meetingSummary": true, "input": "voice", "talkMode": "hold", "speechModel": "speech", "improve": false, "improveAsked": false, "draftInsert": "ask",
+        "learn": true, "safe": true, "pointer": false, "meeting": false, "meetingSave": true, "meetingAuto": "sure", "meetingNudge": false, "meetingDetect": true, "learnMe": true, "saveChats": true, "stats": true, "tips": true, "support": true, "comeBack": true, "askMe": true, "meetingSummary": true, "input": "voice", "talkMode": "hold", "speechModel": "speech", "whisperModel": "turbo", "whisperLanguage": "auto", "improve": false, "improveAsked": false, "draftInsert": "ask",
         "dictateHotkeyCode": -1, "dictateHotkeyMods": 0, "dictateHotkeyLabel": "", "dictateMode": "cleanup", "dictateHistory": true, "dictateLearn": true, "dictateWords": [], "dictateFixes": [String: String](), "boxW": 500, "boxH": 420]
     static let retiredKeys = ["quietAudio", "quietLevel", "autoCopy", "askMe", "corner", "linger", "soundStart", "soundRelease", "soundDone", "soundStop",
         "instant", "live", "ahead", "aheadDelay", "learn", "selection", "guideSteps", "workIn", "openOn", "miniScreen", "draftInsert",
@@ -332,6 +332,231 @@ final class Mic: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         onBuffer(buf)
     }
 }
+// MARK: Whisper
+import CryptoKit   // here, not at the top: tests compile slices of this file that include this block
+// Settings → Speech model → Whisper: local whisper.cpp (Homebrew whisper-server) with a downloaded ggml model, any language.
+// The mic's 16 kHz mono Float32 samples for it, filled on the mic queue and read while the key is held.
+final class WhisperAudio: @unchecked Sendable {
+    private let lock = NSLock(); private var samples: [Float] = []
+    func reset() { lock.lock(); samples = []; lock.unlock() }
+    func append(_ b: AVAudioPCMBuffer) {
+        guard let ch = b.floatChannelData?[0] else { return }
+        lock.lock(); samples.append(contentsOf: UnsafeBufferPointer(start: ch, count: Int(b.frameLength))); lock.unlock()
+    }
+    func snapshot() -> [Float] { lock.lock(); defer { lock.unlock() }; return samples }
+    var seconds: Double { lock.lock(); defer { lock.unlock() }; return Double(samples.count) / 16000 }
+    func take() -> [Float] { lock.lock(); defer { samples = []; lock.unlock() }; return samples }
+}
+
+// Owns one whisper-server on a free 127.0.0.1 port. A tiny sh wrapper kills it when Atticus dies (no orphans);
+// 10 idle minutes stop it too (up to 1.6 GB), and the next key-down starts it again in ~0.4 s.
+final class Whisper: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    static let shared = Whisper()
+    struct Model { let id, name, file, sha256: String; let bytes: Int64 }
+    static var models = [
+        Model(id: "turbo", name: "Turbo", file: "ggml-large-v3-turbo-q5_0.bin", sha256: "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2", bytes: 574041195),
+        Model(id: "large", name: "Large v3", file: "ggml-large-v3-q5_0.bin", sha256: "d75795ecff3f83b5faa89d1900604ad8c780abd5739fae406de19f23ecd98ad1", bytes: 1081140203),
+        Model(id: "small", name: "Small", file: "ggml-small-q5_1.bin", sha256: "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb", bytes: 190085487)]
+    static var base = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/"   // tests point models and base at a local server
+    static func model(_ id: String) -> Model { models.first { $0.id == id } ?? models[0] }
+    static var dir: String { (Prefs.path as NSString).deletingLastPathComponent + "/whisper" }
+    static func path(_ m: Model) -> String { dir + "/" + m.file }
+    static func serverPath() -> String? {
+        let fixed = ["/opt/homebrew/bin", "/usr/local/bin", NSString(string: "~/.nix-profile/bin").expandingTildeInPath, "/run/current-system/sw/bin"]
+        let path = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map(String.init)
+        return (fixed + path).map { $0 + "/whisper-server" }.first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+    struct Failed: LocalizedError { let errorDescription: String?; init(_ why: String) { errorDescription = why } }
+    static let offline = "Download failed. Check your connection and try again."
+
+    private struct Download { let task: URLSessionDownloadTask, changed: @Sendable () -> Void; var progress = 0.0, pinged = Date.distantPast }
+    private let lock = NSLock()
+    private var proc: Process?, port = 0, serving: String?, up: Task<Bool, Never>?, idle: DispatchWorkItem?
+    private var server: String?, have: Set<String> = [], downloads: [String: Download] = [:], error: String?
+    private lazy var session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)   // touched under lock
+
+    private override init() {
+        super.init(); refresh()
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in self?.stop() }
+    }
+
+    // File checks happen here (settings open, downloads, deletes); `ready` runs on key-down and only reads the cache.
+    private func refresh() {
+        let s = Self.serverPath(), h = Set(Self.models.filter { FileManager.default.fileExists(atPath: Self.path($0)) }.map(\.id))
+        lock.lock(); server = s; have = h; lock.unlock()
+    }
+    var ready: Bool {   // a miss looks again: whisper.cpp may have been installed, or a model downloaded, since
+        let ok = { self.lock.withLock { self.server != nil && self.have.contains(Self.model(Prefs.str("whisperModel")).id) } }
+        if ok() { return true }
+        refresh(); return ok()
+    }
+
+    func status() -> [String: Any] {
+        refresh()
+        lock.lock(); defer { lock.unlock() }
+        return ["server": server != nil, "model": Self.model(Prefs.str("whisperModel")).id, "running": proc?.isRunning == true, "error": error ?? NSNull(),
+                "models": Self.models.map { m -> [String: Any] in
+                    ["id": m.id, "name": m.name, "size": ByteCountFormatter.string(fromByteCount: m.bytes, countStyle: .file), "have": have.contains(m.id),
+                     "progress": downloads[m.id].map { $0.progress as Any } ?? NSNull()] }]
+    }
+
+    // Downloads to <file>.part, checks its sha256, then renames it into place: a half or wrong file never looks installed.
+    func download(_ id: String, changed: @escaping @Sendable () -> Void) {
+        guard let m = Self.models.first(where: { $0.id == id }), let url = URL(string: Self.base + m.file) else { return }
+        lock.lock()
+        guard downloads[id] == nil, !have.contains(id) else { lock.unlock(); return }
+        let t = session.downloadTask(with: url); t.taskDescription = id
+        downloads[id] = Download(task: t, changed: changed); error = nil
+        lock.unlock()
+        t.resume(); changed()
+    }
+    func cancel(_ id: String) {
+        lock.lock(); let d = downloads.removeValue(forKey: id); lock.unlock()
+        guard let d else { return }
+        d.task.cancel(); try? FileManager.default.removeItem(atPath: Self.path(Self.model(id)) + ".part"); d.changed()
+    }
+    func delete(_ id: String) {
+        guard let m = Self.models.first(where: { $0.id == id }) else { return }
+        lock.lock(); let using = serving == id; error = nil; lock.unlock()
+        if using { stop() }
+        try? FileManager.default.removeItem(atPath: Self.path(m)); refresh()
+    }
+
+    func urlSession(_ s: URLSession, downloadTask t: URLSessionDownloadTask, didWriteData _: Int64, totalBytesWritten done: Int64, totalBytesExpectedToWrite all: Int64) {
+        guard let id = t.taskDescription else { return }
+        lock.lock()
+        guard var d = downloads[id], d.task === t else { lock.unlock(); return }
+        d.progress = min(1, Double(done) / Double(all > 0 ? all : Self.model(id).bytes))
+        let ping = Date().timeIntervalSince(d.pinged) >= 0.25   // ≤4 page updates a second
+        if ping { d.pinged = Date() }
+        downloads[id] = d; lock.unlock()
+        if ping { d.changed() }
+    }
+    func urlSession(_ s: URLSession, downloadTask t: URLSessionDownloadTask, didFinishDownloadingTo tmp: URL) {
+        guard let id = t.taskDescription else { return }
+        let m = Self.model(id), dest = Self.path(m), part = dest + ".part", fm = FileManager.default
+        var why: String?
+        if (t.response as? HTTPURLResponse)?.statusCode != 200 { why = Self.offline } else {
+            try? fm.createDirectory(atPath: Self.dir, withIntermediateDirectories: true); try? fm.removeItem(atPath: part)
+            if (try? fm.moveItem(at: tmp, to: URL(fileURLWithPath: part))) == nil { why = "Couldn’t save the model. Check free space and try again." }
+            else if Self.sha256(part) != m.sha256 { why = "The download didn’t match. Try again." }
+        }
+        lock.lock(); let live = downloads[id]?.task === t; if live { error = why }; lock.unlock()   // cancelled meanwhile: drop it
+        if !live || why != nil || rename(part, dest) != 0 { try? fm.removeItem(atPath: part) }
+    }
+    func urlSession(_ s: URLSession, task t: URLSessionTask, didCompleteWithError e: Error?) {
+        guard let id = t.taskDescription else { return }
+        lock.lock()
+        guard let d = downloads[id], d.task === t else { lock.unlock(); return }
+        downloads[id] = nil
+        if e != nil { error = Self.offline }
+        lock.unlock()
+        refresh(); d.changed()
+    }
+    static func sha256(_ path: String) -> String? {   // streamed: a 1 GB model never sits in memory
+        guard let f = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? f.close() }
+        var h = SHA256()
+        while let chunk = try? f.read(upToCount: 1 << 22), !chunk.isEmpty { h.update(data: chunk) }
+        return h.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
+    func warm() { _ = try? ensure() }
+    func restart() { lock.lock(); let was = proc != nil; lock.unlock(); stop(); if was { warm() } }   // only a running server moves to the new model
+    func stop() {
+        lock.lock(); defer { lock.unlock() }
+        idle?.cancel(); idle = nil; up?.cancel(); up = nil
+        proc?.terminate(); proc = nil; serving = nil   // the wrapper's trap takes its server down with it
+    }
+
+    private func ensure() throws -> (Task<Bool, Never>, Int) {
+        lock.lock(); defer { lock.unlock() }
+        let m = Self.model(Prefs.str("whisperModel")), file = Self.path(m)
+        touch()
+        if let up, proc?.isRunning == true, serving == m.id { return (up, port) }
+        guard let bin = Self.serverPath() else { throw Failed("whisper-server isn’t installed. Run brew install whisper.cpp.") }
+        guard FileManager.default.fileExists(atPath: file) else { throw Failed("The \(m.name) model isn’t downloaded.") }
+        guard let free = Self.freePort() else { throw Failed("No free port for whisper-server.") }
+        up?.cancel(); proc?.terminate()   // only the server this Atticus started; other whisper-servers are left alone
+        let p = Process(); p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = ["-c", """
+            "$0" -m "$1" --host 127.0.0.1 --port \(free) -t \(Self.threads) -nt & s=$!
+            trap 'kill $s 2>/dev/null; exit 0' TERM INT
+            while kill -0 \(getpid()) 2>/dev/null && kill -0 $s 2>/dev/null; do sleep 1 & wait $!; done
+            kill $s 2>/dev/null
+            """, bin, file]
+        p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
+        try p.run()
+        proc = p; port = free; serving = m.id
+        let t = Task.detached { await Self.waitReady(free) }
+        up = t; return (t, free)
+    }
+    private func touch() {   // caller holds lock
+        idle?.cancel()
+        let w = DispatchWorkItem { [weak self] in self?.stop() }
+        idle = w; DispatchQueue.main.asyncAfter(deadline: .now() + 600, execute: w)
+    }
+    static var threads: Int {   // performance cores: efficiency cores slow every step down to their pace
+        var n: Int32 = 0, size = MemoryLayout<Int32>.size
+        return sysctlbyname("hw.perflevel0.physicalcpu", &n, &size, nil, 0) == 0 && n > 0 ? Int(n) : 4
+    }
+    static func freePort() -> Int? {   // the kernel picks an unused port; the server binds it right after
+        let s = socket(AF_INET, SOCK_STREAM, 0); guard s >= 0 else { return nil }
+        defer { close(s) }
+        var a = sockaddr_in(); a.sin_len = UInt8(MemoryLayout<sockaddr_in>.size); a.sin_family = sa_family_t(AF_INET); a.sin_addr.s_addr = inet_addr("127.0.0.1")
+        var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let ok = withUnsafeMutablePointer(to: &a) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(s, $0, len) == 0 && getsockname(s, $0, &len) == 0 } }
+        return ok ? Int(UInt16(bigEndian: a.sin_port)) : nil
+    }
+    private static func waitReady(_ port: Int) async -> Bool {
+        let url = URL(string: "http://127.0.0.1:\(port)/")!
+        for _ in 0..<200 {   // 20 s: a cold disk read of the 1 GB model
+            if Task.isCancelled { return false }
+            var r = URLRequest(url: url); r.timeoutInterval = 0.5
+            if let (_, resp) = try? await URLSession.shared.data(for: r), (resp as? HTTPURLResponse)?.statusCode == 200 { return true }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        return false
+    }
+
+    func transcribe(_ pcm: [Float], prompt: String) async throws -> String {
+        // under 0.3 s is a tap; silence gets an invented "Thank you." / "Terima kasih." from Whisper
+        guard pcm.count > 16000 * 3 / 10, pcm.contains(where: { abs($0) > 0.01 }) else { return "" }
+        let (up, port) = try ensure()
+        guard await up.value else { stop(); throw Failed("whisper-server didn’t start.") }   // the next try starts a fresh one
+        let boundary = "atticus-\(UUID().uuidString)", lang = Prefs.str("whisperLanguage")
+        var body = Data()
+        func field(_ name: String, _ value: String) { body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".utf8)) }
+        field("response_format", "verbose_json"); field("temperature", "0"); field("language", lang.isEmpty ? "auto" : lang)
+        if !prompt.isEmpty { field("prompt", prompt) }
+        body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.wav\"\r\nContent-Type: audio/wav\r\n\r\n".utf8))
+        body.append(Self.wav(pcm)); body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+        var r = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/inference")!)
+        r.httpMethod = "POST"; r.timeoutInterval = 60
+        r.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        let (data, resp) = try await URLSession.shared.upload(for: r, from: body)
+        lock.withLock { touch() }
+        guard (resp as? HTTPURLResponse)?.statusCode == 200, let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw Failed(String(decoding: data.prefix(200), as: UTF8.self))
+        }
+        // segments Whisper itself rates as probably not speech are its hallucinations
+        let segments = json["segments"] as? [[String: Any]] ?? []
+        let text = segments.isEmpty ? json["text"] as? String ?? ""
+            : segments.filter { ($0["no_speech_prob"] as? Double ?? 0) < 0.6 }.compactMap { $0["text"] as? String }.joined()
+        return text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+    static func wav(_ pcm: [Float]) -> Data {   // 16 kHz mono 16-bit PCM
+        var d = Data(capacity: 44 + pcm.count * 2)
+        func u32(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
+        func u16(_ v: UInt16) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
+        d.append(Data("RIFF".utf8)); u32(UInt32(36 + pcm.count * 2)); d.append(Data("WAVEfmt ".utf8))
+        u32(16); u16(1); u16(1); u32(16000); u32(32000); u16(2); u16(16)
+        d.append(Data("data".utf8)); u32(UInt32(pcm.count * 2))
+        for v in pcm { u16(UInt16(bitPattern: Int16(max(-1, min(1, v)) * 32767))) }
+        return d
+    }
+}
+// MARK: end Whisper
 func microphoneChoices() -> [[String: String]] { microphones().map { ["uid": $0.uid, "name": $0.name] } }
 
 struct AudioVolumeSnapshot: Codable, Equatable {
@@ -1799,6 +2024,11 @@ final class App: NSObject, WKScriptMessageHandler {
     var nextFeed: AsyncStream<AnalyzerInput>.Continuation?, nextAnalyzer: SpeechAnalyzer?, nextReading: Task<Void, Never>?
     var nextSpeechInputID: UUID?, nextSpeechSegment = 0, nextSpeechRollover = 50.0
     var speechFormat: AVAudioFormat?, preparingSpeech = false   // what the model wants (found at launch and when the model changes)
+    // Whisper: the mic fills whisperAudio; the listen timer re-transcribes it about every second for live words, and a segment
+    // closes on a pause after 25 s (hard at 30 s) so each pass stays short. Final passes queue on whisperChain, in order.
+    let whisperAudio = WhisperAudio()
+    var whisperListen = false, whisperBusy = false, whisperAsk = 0, whisperSent = 0.0, whisperQueued = 0.0, whisperPrompt = ""
+    var whisperAsked = Date.distantPast, whisperVoice = Date.distantPast, whisperChain: Task<Void, Never>?
     // Settings → Speech model: Apple's newer SpeechTranscriber, or the Dictation model the keyboard mic uses.
     // Dictation drops fastResults / frequentFinalization (Apple: faster but less accurate); asks keep them for live commands.
     func speechModule(dictate: Bool = false) -> any SpeechModule {
@@ -1811,6 +2041,8 @@ final class App: NSObject, WKScriptMessageHandler {
             : SpeechTranscriber(locale: locale, preset: .progressiveTranscription)
     }
     func prepareSpeech() {   // make sure the speech model is installed, and learn its audio format
+        if Prefs.str("speechModel") == "whisper" { Whisper.shared.warm(); return }   // local whisper-server: no Apple asset; start() records 16 kHz mono for it
+        Whisper.shared.stop()
         guard !preparingSpeech else { return }
         preparingSpeech = true
         let m = speechModule()
@@ -2667,6 +2899,49 @@ final class App: NSObject, WKScriptMessageHandler {
         }
     }
 
+    func beginWhisperSegment(_ base: String) {
+        speechSegment += 1; activeSpeechSegment = speechSegment; speechText[speechSegment] = (base, "", ""); whisperSent = 0
+    }
+    // Every 0.15 s while Whisper listens: close a long segment on a pause, else re-transcribe it for live words about every
+    // second (sooner once the voice stops, so commands and the early AI start see the whole phrase).
+    func whisperTick(_ listeningID: Int) {
+        guard !whisperBusy else { return }
+        let secs = whisperAudio.seconds, quiet = Date().timeIntervalSince(whisperVoice)
+        if secs >= 30 || secs >= 25 && quiet >= 0.4 {
+            return whisperFinal(listeningID) { [weak self] _ in
+                guard let self, engine.isRunning else { return }
+                whisperBusy = false; beginWhisperSegment(text)
+            }
+        }
+        guard secs - whisperSent >= 0.5, Date().timeIntervalSince(whisperAsked) >= 1 || quiet >= 0.3 && whisperVoice > whisperAsked else { return }
+        let pcm = whisperAudio.snapshot(), segment = activeSpeechSegment, prompt = whisperPrompt
+        whisperAsk += 1; let ask = whisperAsk; whisperBusy = true; whisperAsked = Date(); whisperSent = Double(pcm.count) / 16000
+        Task { [weak self] in
+            let r = try? await Whisper.shared.transcribe(pcm, prompt: prompt)   // a failed live pass only skips a beat
+            await MainActor.run {
+                guard let self, self.whisperAsk == ask else { return }   // a final pass or a new listen took over
+                self.whisperBusy = false
+                if let r { self.speechPiece(r, final: false, segment: segment, listeningID: listeningID) }
+            }
+        }
+    }
+    // The rest of the segment's audio, transcribed for good; passes run one after another so text stays in order.
+    func whisperFinal(_ listeningID: Int, then: @escaping (Bool) -> Void) {
+        let pcm = whisperAudio.take(), segment = activeSpeechSegment, prompt = whisperPrompt, prev = whisperChain, secs = Double(pcm.count) / 16000
+        whisperAsk += 1; whisperBusy = true; whisperQueued += secs
+        whisperChain = Task { [weak self] in
+            await prev?.value
+            let r = try? await Whisper.shared.transcribe(pcm, prompt: prompt)
+            await MainActor.run {
+                guard let self, self.listenID == listeningID else { return }   // cancelled, hushed or timed out meanwhile
+                self.whisperQueued -= secs
+                if let r { self.speechPiece((self.speechText[segment]?.done.isEmpty ?? true) || r.isEmpty ? r : " " + r, final: true, segment: segment, listeningID: listeningID) }
+                else { self.speechFailed = true }
+                then(r != nil)
+            }
+        }
+    }
+
     func start(dictate: Bool) {
         if dictate && !AXIsProcessTrusted() {
             pill(true); show()
@@ -2717,7 +2992,12 @@ final class App: NSObject, WKScriptMessageHandler {
         guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
             if replying { stopOfferInput() } else { hush() }; js("msg", "Allow Atticus in System Settings → Privacy & Security → Microphone."); hide(after: 6); return
         }
-        guard dictate || SFSpeechRecognizer.authorizationStatus() == .authorized else {
+        let whisper = Prefs.str("speechModel") == "whisper"   // runs on this Mac outside Apple's speech service: no Speech Recognition permission
+        guard !whisper || Whisper.shared.ready else {
+            if replying { stopOfferInput() } else { hush() }; js("msg", "Whisper isn’t set up yet. Open Settings → General to download a model."); hide(after: 6)
+            Atticus.settings.open(tab: "general"); return
+        }
+        guard whisper || dictate || SFSpeechRecognizer.authorizationStatus() == .authorized else {
             if replying { stopOfferInput() } else { hush() }; js("msg", "Allow Atticus in System Settings → Privacy & Security → Speech Recognition."); hide(after: 6); return
         }
         guard let device = listenMic().flatMap({ AVCaptureDevice(uniqueID: $0.uid) }) ?? AVCaptureDevice.default(for: .audio) else {
@@ -2728,9 +3008,17 @@ final class App: NSObject, WKScriptMessageHandler {
         quietAudio.begin(Prefs.bool("quietAudio"), level: Float32(Prefs.num("quietLevel")))
         listenID += 1; let listeningID = listenID; began = Date()   // key-down until the mic is ready; a release in that gap is a tap
         speechInputs = SpeechInputs(); speechText = [:]; speechSegment = 0; nextSpeechRollover = 50
-        let first = beginSpeechSegment("", listeningID: listeningID)
-        feed = first.feed; speechInputID = first.inputID; analyzer = first.analyzer; reading = first.reading; activeSpeechSegment = first.segment
-        let want = speechFormat ?? AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)!
+        whisperListen = whisper; whisperBusy = false; whisperAsk += 1; whisperQueued = 0; whisperVoice = .distantPast; whisperAudio.reset()
+        if whisper {
+            feed = nil; speechInputID = nil; analyzer = nil; reading = nil
+            Whisper.shared.warm(); whisperPrompt = String(hints.joined(separator: ", ").prefix(600))   // hints read app folders: once per listen, not per pass
+            beginWhisperSegment("")
+        } else {
+            let first = beginSpeechSegment("", listeningID: listeningID)
+            feed = first.feed; speechInputID = first.inputID; analyzer = first.analyzer; reading = first.reading; activeSpeechSegment = first.segment
+        }
+        let want = whisper ? AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)! : speechFormat ?? AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)!
+        let pcm = whisperAudio   // Whisper takes raw samples: AnalyzerInput traps on a plain 16 kHz Float32 buffer
         var conv: AVAudioConverter?, convFrom: AVAudioFormat?
         var n = 0
         let onBuffer: (AVAudioPCMBuffer) -> Void = { [weak self] buf in
@@ -2741,16 +3029,16 @@ final class App: NSObject, WKScriptMessageHandler {
                     if given { status.pointee = .noDataNow; return nil }
                     given = true; status.pointee = .haveData; return buf
                 }
-                self?.speechInputs?.yield(AnalyzerInput(buffer: out))
+                if whisper { pcm.append(out) } else { self?.speechInputs?.yield(AnalyzerInput(buffer: out)) }
             } else {
-                self?.speechInputs?.yield(AnalyzerInput(buffer: buf))
+                if whisper { pcm.append(buf) } else { self?.speechInputs?.yield(AnalyzerInput(buffer: buf)) }
             }
             n += 1
             guard n % 2 == 0, let ch = buf.floatChannelData?[0], buf.frameLength > 0 else { return }
             var sum: Float = 0
             for i in 0..<Int(buf.frameLength) { sum += ch[i] * ch[i] }
             let v = Double(min(1, sqrt(sum / Float(buf.frameLength)) * 14))
-            DispatchQueue.main.async { if self?.listenID == listeningID, self?.engine.isRunning == true { self?.js("level", v) } }
+            DispatchQueue.main.async { if self?.listenID == listeningID, self?.engine.isRunning == true { self?.js("level", v); if whisper && v > 0.1 { self?.whisperVoiced() } } }
         }
         engine.start(device, sampleRate: want.sampleRate, onBuffer) { [weak self] result in
             guard let self, listenID == listeningID else { return }
@@ -2760,7 +3048,9 @@ final class App: NSObject, WKScriptMessageHandler {
                 guard let self, listenID == listeningID, engine.isRunning else { return t.invalidate() }
                 let f = (dictating ? dictateHotkey() : hotkey()).flags, held = Date().timeIntervalSince(began)
                 if clickTalk && text.isEmpty && held > 8 { t.invalidate(); if offerText != nil { stopOfferInput(); return }; hush(); js("stopped", ""); return hide(after: 3) }   // nothing said: stop the mic quietly
-                if dictating && held >= nextSpeechRollover { nextSpeechRollover += 50; rolloverSpeech(listeningID: listeningID) }
+                if whisper && clickTalk && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && Date().timeIntervalSince(whisperVoice) >= 1.3 { t.invalidate(); return stop() }   // heard() is too late for the 1.3 s pause
+                if whisper { whisperTick(listeningID) }
+                else if dictating && held >= nextSpeechRollover { nextSpeechRollover += 50; rolloverSpeech(listeningID: listeningID) }
                 if !dictating && held > 60 { t.invalidate(); recordingLimit(); return }
                 if !toggleTalk && !clickTalk && !f.isEmpty && !NSEvent.modifierFlags.isSuperset(of: f) { if dictating { dictateShortcut(false) } else { t.invalidate(); stop() } }
             }
@@ -2773,32 +3063,40 @@ final class App: NSObject, WKScriptMessageHandler {
         if dictating { scheduleDictateAhead(); return }   // cleanup starts on a pause; the pill still shows only the wave
         if offerText != nil {
             js(drawingReply ? "words" : "draft", now)
-            if clickTalk { quiet?.cancel(); let q = DispatchWorkItem { [weak self] in self?.stop() }; quiet = q; DispatchQueue.main.asyncAfter(deadline: .now() + 1.3, execute: q) }
+            if clickTalk && !whisperListen { quiet?.cancel(); let q = DispatchWorkItem { [weak self] in self?.stop() }; quiet = q; DispatchQueue.main.asyncAfter(deadline: .now() + 1.3, execute: q) }
             return   // card replies never enter live commands or early AI thinking
         }
         js("words", text)
+        let wait = pauseWait()   // nil: Whisper still hears a voice
         if consumed > 0 && transcriptKey(words().prefix(consumed).joined(separator: " ")) != consumedText { liveRevised = true }
         if Prefs.bool("live") {   // instant commands (open, move, search, play) run mid-sentence; the AI still waits for confirmed words
             pause?.cancel()   // only after a pause: "search amazon" mid-word is the start of "search amazon for e-bikes"
             let item = DispatchWorkItem { [weak self] in self?.tryFast() }
             pause = item
-            DispatchQueue.main.asyncAfter(deadline: .now() + Prefs.num("aheadDelay"), execute: item)
+            if let wait { DispatchQueue.main.asyncAfter(deadline: .now() + wait, execute: item) }
         }
-        if clickTalk {   // no keys to let go of: a 1.3 s pause ends it
+        if clickTalk && !whisperListen {   // no keys to let go of: a 1.3 s pause ends it (Whisper: the listen timer, on the audio)
             quiet?.cancel(); let q = DispatchWorkItem { [weak self] in self?.stop() }; quiet = q
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.3, execute: q)
         }
         if !ahead.isEmpty && transcriptKey(rest()) != transcriptKey(ahead) { dropAhead() }   // the user kept talking: that start was for half a sentence
         aheadItem?.cancel()   // a longer pause = the user is probably done: start the AI now, keys still held
-        guard Prefs.bool("ahead") else { return }
+        guard Prefs.bool("ahead"), let wait else { return }
         let go = DispatchWorkItem { [weak self] in self?.startAhead() }
         aheadItem = go
-        DispatchQueue.main.asyncAfter(deadline: .now() + Prefs.num("aheadDelay"), execute: go)
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait, execute: go)
     }
+    // Whisper's live words trail the voice by about a second: wait out only what is left of the pause, and none while still talking.
+    func pauseWait() -> Double? {
+        guard whisperListen else { return Prefs.num("aheadDelay") }
+        let quiet = Date().timeIntervalSince(whisperVoice)
+        return quiet < 0.3 ? nil : max(0.05, Prefs.num("aheadDelay") - quiet)
+    }
+    func whisperVoiced() { whisperVoice = Date(); pause?.cancel(); aheadItem?.cancel(); dictateAheadItem?.cancel() }   // still talking: nothing pause-based fires
 
     func scheduleDictateAhead() {
         dictateAheadItem?.cancel()
-        guard dictateCleanup, engine.isRunning else { return }
+        guard dictateCleanup, engine.isRunning, pauseWait() != nil else { return }
         let go = DispatchWorkItem { [weak self] in
             guard self?.engine.isRunning == true else { return }
             self?.startDictateAhead(early: true)
@@ -2863,7 +3161,8 @@ final class App: NSObject, WKScriptMessageHandler {
         guard engine.isRunning, !clickTalk || text.isEmpty == false else { return }
         let inputs = speechInputs
         if dictating { dictateSeconds = Date().timeIntervalSince(began); dictateReleased = Date(); startDictateAhead() }   // cleanup runs while the last words finalize
-        engine.stop { inputs?.finishAll() }
+        var whisperFlush: (() -> Void)?   // Whisper's last pass waits for the mic's last buffer
+        engine.stop { inputs?.finishAll(); whisperFlush?() }
         quietAudio.end()
         clickTalk = false; toggleTalk = false; quiet?.cancel()
         busy = true
@@ -2884,6 +3183,15 @@ final class App: NSObject, WKScriptMessageHandler {
                 if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { hush(); js("msg", ""); return hide(after: 0.2) }   // nothing to review
                 review("Couldn’t confirm your words. Check them and press Return.")
             }
+        }
+        if whisperListen {   // Whisper: one last pass over the audio no final pass has taken; the wait grows with the audio left
+            let id = listenID, wait = min(15, 4 + 0.15 * (whisperAudio.seconds + whisperQueued))
+            whisperFlush = { [weak self] in self?.whisperFinal(id) { ok in once(ok && self?.speechFailed == false) } }
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
+                guard let self, g == stops else { return }
+                once(false)
+            }
+            return
         }
         Task {   // let the model finish the last words, then act
             guard let an else { return await MainActor.run { once(false) } }
@@ -4756,7 +5064,7 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
         Onboarding.connectors { [weak self] c in self?.send("connectors", c) }
         timer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in   // System Settings changes them behind our back
             self?.send("agents", ["count": agentsUI.count])   // the live count beside Settings
-            DispatchQueue.global().async { self?.send("perms", Onboarding.perms()); self?.send("mics", microphoneChoices()); self?.send("globe", globeKeyTaken()) }
+            DispatchQueue.global().async { self?.send("perms", Onboarding.perms()); self?.send("mics", microphoneChoices()); self?.send("globe", globeKeyTaken()); self?.send("whisper", Whisper.shared.status()) }   // brew install finishes in Terminal
         }
     }
 
@@ -4769,6 +5077,7 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
     func push() {   // the settings, and the app icon for the sidebar
         send("agents", ["count": agentsUI.count])
         send("dictation", DictationData.state())
+        send("whisper", Whisper.shared.status())
         js("st.motion(\(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion))")
         var d: [String: Any] = ["prefs": Prefs.d, "mics": microphoneChoices(), "version": Updater.version, "update": Updater.status, "managedUpdates": Updater.managedByNix, "sharingUnavailable": ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27,
                                 "hotkeyTaken": !hotkeyRegistered, "dictateHotkeyTaken": !Prefs.str("dictateHotkeyLabel").isEmpty && !dictateHotkeyRegistered, "globeTaken": globeKeyTaken()]
@@ -4905,6 +5214,17 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
         }
     }
 
+    // Whisper's "Install" button: brew install whisper.cpp in a Terminal window the user can watch; no Homebrew = its install page.
+    func whisperInstall() {
+        guard ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"].contains(where: FileManager.default.isExecutableFile) else {
+            NSWorkspace.shared.open(URL(string: "https://github.com/ggml-org/whisper.cpp")!); return
+        }
+        let f = NSTemporaryDirectory() + "atticus-whisper.command"
+        try? "#!/bin/zsh\nexport PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"\necho 'Atticus: installing whisper.cpp'\nbrew install whisper.cpp\necho; echo 'Done. You can close this window.'\n".write(toFile: f, atomically: true, encoding: .utf8)
+        chmod(f, 0o755)
+        NSWorkspace.shared.open(URL(fileURLWithPath: f))
+    }
+
     func apply(_ k: String, _ v: Any) {   // one setting changed, from this window or by voice (atticus.py --set)
         if k == "meetingSave", v as? Bool == false, Prefs.bool("meetingSave") {
             guard Prefs.set(k, false) else { push(); send("notice", ["text": "Couldn’t save that change, so the old setting is back."]); return }
@@ -4929,6 +5249,7 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
             }
         }
         if k == "speechModel" { app.prepareSpeech() }
+        if k == "whisperModel" { Whisper.shared.restart(); send("whisper", Whisper.shared.status()) }
         if k == "improve" { Prefs.set("improveAsked", true) }   // any answer, here or in setup or the card, is the answer
         if k == "speak", v as? Bool == false { app.shush() }
         if k == "hideWhenSharing" { NSApp.windows.forEach(applySharing) }
@@ -4955,6 +5276,10 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
         case "feedbackInvalidate": feedbackJob += 1; feedbackURL = nil
         case "feedbackPreview": feedbackPreview(b["include"] as? Bool ?? false, b["text"] as? String ?? "", b["revision"] as? Int ?? 0)
         case "feedbackOpen": if let feedbackURL { NSWorkspace.shared.open(feedbackURL) }
+        case "whisperDownload": Whisper.shared.download(b["id"] as? String ?? "") { [weak self] in Task { @MainActor in self?.send("whisper", Whisper.shared.status()) } }   // progress arrives off the main thread
+        case "whisperCancel": Whisper.shared.cancel(b["id"] as? String ?? "")
+        case "whisperDelete": Whisper.shared.delete(b["id"] as? String ?? ""); send("whisper", Whisper.shared.status())
+        case "whisperInstall": whisperInstall()
         case "meetings": meetings(["action": "list", "query": b["query"] as? String ?? ""])
         case "meetingOpen": if let id = b["id"] as? String { meetings(["action": "get", "id": id]) }
         case "meetingDelete": if let id = b["id"] as? String { meetings(["action": "delete", "id": id]) }

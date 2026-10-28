@@ -172,7 +172,7 @@ print("hidden rewrite target kept")
         finish = self.swift[self.swift.index("    func finish() {"):self.swift.index("    // atticus.py --wait, started")]
         self.assertNotIn("Didn't catch that", finish)
         self.assertIn('if did.isEmpty { js("msg", ""); return hide(after: 0.2) }', finish)
-        stop = self.swift[self.swift.index("    func stop() {"):self.swift.index("    func applyReplacement()")]
+        stop = self.swift[self.swift.index("    func stop() {", self.swift.index("final class App")):self.swift.index("    func applyReplacement()")]
         quiet = 'if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { hush(); js("msg", ""); return hide(after: 0.2) }'
         self.assertLess(stop.index(quiet), stop.index("review(\"Couldn’t confirm your words."))
         typing = self.swift[self.swift.index('if b["type"] != nil {'):self.swift.index('if let s = b["link"]')]
@@ -189,7 +189,7 @@ print("hidden rewrite target kept")
         self.assertIn('js("hover", false)', gone)
 
     def test_unconfirmed_drawing_reply_does_not_leave_the_box_busy(self):
-        stop = self.swift[self.swift.index("    func stop() {"):self.swift.index("    func applyReplacement()")]
+        stop = self.swift[self.swift.index("    func stop() {", self.swift.index("final class App")):self.swift.index("    func applyReplacement()")]
         branch = stop[stop.index("if let old = offerText"):stop.index("return }", stop.index("if let old = offerText"))]
         self.assertIn("busy = proc?.isRunning == true", branch)
 

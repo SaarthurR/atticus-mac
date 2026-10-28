@@ -377,6 +377,38 @@ print("single delivery fallback ok")
         self.assertIn('SpeechTranscriber(locale: en, transcriptionOptions: [], reportingOptions: [.volatileResults]', module)
         self.assertIn('transcriptionOptions: [.punctuation], reportingOptions: [.volatileResults]', module)
 
+    def test_whisper_feeds_raw_samples_and_skips_apple_speech(self):
+        # Oct 28, 2026: AnalyzerInput traps inside Speech.framework on a plain 16 kHz Float32 buffer, so Whisper gets raw samples.
+        source = (ROOT / 'Atticus.swift').read_text()
+        start = source[source.index('    func start(dictate: Bool)'):source.index('    func heard(')]
+        self.assertIn('guard whisper || dictate || SFSpeechRecognizer.authorizationStatus() == .authorized', start)
+        self.assertLess(start.index('guard !whisper || Whisper.shared.ready'), start.index('listenID += 1'))
+        self.assertIn('if whisper { pcm.append(out) } else { self?.speechInputs?.yield(AnalyzerInput(buffer: out)) }', start)
+        self.assertIn('if whisper { pcm.append(buf) } else { self?.speechInputs?.yield(AnalyzerInput(buffer: buf)) }', start)
+        self.assertIn('if whisper { whisperTick(listeningID) }', start)   # live words, and long segments close on a pause
+        prepare = source[source.index('    func prepareSpeech()'):source.index('    var text =')]
+        self.assertLess(prepare.index('Whisper.shared.warm(); return'), prepare.index('AssetInventory'))
+
+    def test_whisper_results_from_an_old_listen_are_dropped(self):
+        source = (ROOT / 'Atticus.swift').read_text()
+        tick = source[source.index('    func whisperTick('):source.index('    func start(dictate: Bool)')]
+        self.assertIn('guard let self, self.whisperAsk == ask else { return }', tick)
+        self.assertIn('guard let self, self.listenID == listeningID else { return }', tick)
+        self.assertIn('await prev?.value', tick)   # final passes stay in order
+        stop = source[source.index('    func stop()', source.index('final class App')):source.index('    func applyReplacement(')]
+        self.assertIn('engine.stop { inputs?.finishAll(); whisperFlush?() }', stop)
+        self.assertIn('min(15, 4 + 0.15 * (whisperAudio.seconds + whisperQueued))', stop)
+        self.assertLess(stop.index('if whisperListen'), stop.index('Finalizing can hang'))
+
+    def test_whisper_settings_bridge(self):
+        source = (ROOT / 'Atticus.swift').read_text()
+        settings = source[source.index('final class SettingsWindow'):]
+        for case in ['case "whisperDownload"', 'case "whisperCancel"', 'case "whisperDelete"', 'case "whisperInstall"']:
+            self.assertIn(case, settings)
+        self.assertIn('send("whisper", Whisper.shared.status())', settings[settings.index('    func push()'):])
+        self.assertIn('brew install whisper.cpp', settings[settings.index('    func whisperInstall()'):])
+        self.assertIn('if k == "whisperModel" { Whisper.shared.restart()', settings)
+
     def test_fn_and_modifier_only_shortcuts_use_flags_events(self):
         source = (ROOT / 'Atticus.swift').read_text()
         helpers = source[source.index('let atticusFnKey'):source.index('func configuredHotkey')]
