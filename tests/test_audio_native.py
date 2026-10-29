@@ -105,6 +105,12 @@ precondition(say(pick(unknown, os: 26)) == (["--", "hi"], false), "macOS 26 lost
 precondition(say(pick(unknown, os: 26, installed: [])) == (["--", "hi"], false))
 precondition(say(pick(unknown, os: 27)) == (["-v", "US Premium", "--", "hi"], false), "macOS 27 skipped the installed natural voice")
 precondition(say(pick(unknown, os: 27, installed: [])) == (["--", "hi"], true))
+let siri: [Any] = ["de", ["voiceId": "com.apple.siri.natural.de-DE-C"], "en", ["voiceId": "tessa"]]
+for os in [26, 27] {
+    precondition(say(pick(siri, os: os, language: "de")) == (["--", "hi"], false), "a German answer lost the saved Siri voice on \\(os)")
+}
+precondition(pick(siri, language: "en") == "Tessa (Enhanced)", "an English answer used the German Siri voice")
+precondition(pick(["de", ["voiceId": "com.apple.siri.natural.de-DE-C"]], language: "fr") == "US Premium", "a French answer used the German Siri voice")
 precondition(pick(["unexpected schema"], os: 26) == "US Premium")
 precondition(pick([], selected: "deleted voice", os: 26) == "US Premium")
 precondition(pick(["unexpected schema"]) == "US Premium")

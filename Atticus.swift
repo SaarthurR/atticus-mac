@@ -729,6 +729,8 @@ func preferredReadAloudVoice(_ selections: [Any], voices: [ReadAloudVoice], name
         else if let id = (entry as? [String: Any])?["voiceId"] as? String, byLanguage[key] == nil { byLanguage[key] = id }
     }
     let saved = [base(language), "en"].compactMap { byLanguage[$0] }   // the answer's language first, then English
+    // Siri voices are never listed, but bare say still speaks them on macOS 27: don't fall back to another language's voice.
+    if let id = byLanguage[base(language)], id.hasPrefix("com.apple.siri.") { return "" }
     for id in saved {
         if let voice = voices.first(where: { $0.identifier == id }), let name = sayName(voice) { return name }
     }
