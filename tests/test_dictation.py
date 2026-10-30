@@ -606,6 +606,9 @@ let box = Harness(); box.pillOn = false; box.pinned = true; box.hide(after: 0); 
 precondition(box.log.isEmpty, "a pinned box changed: \(box.log)")
 for words in ["Atticus", "HEY ATTICUS!", "hello, Atticus, help", "atticus’s"] { precondition(Harness.hasWakeWord(words), words) }
 for words in ["hey", "attic", "atticuses", "xatticus", "atticus2", "éatticus", "atticus_foo"] { precondition(!Harness.hasWakeWord(words), words) }
+for words in ["hey Jarvis", "JARVIS!"] { precondition(Harness.hasWakeWord(words, word: "jarvis"), words) }
+for words in ["Atticus", "jarvisx"] { precondition(!Harness.hasWakeWord(words, word: "jarvis"), words) }
+precondition(Harness.hasWakeWord("ok hey computer now", word: "hey computer") && !Harness.hasWakeWord("heyxcomputer", word: "hey.computer"), "phrases match as plain text")
 print("pill gives the box back")
 '''
         self.assertIn('pill gives the box back', run_swift(self, swift))

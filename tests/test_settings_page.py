@@ -75,6 +75,14 @@ class SettingsPageTests(unittest.TestCase):
         self.assertEqual(out['result'], [False, False, True, True])
         self.assertIn({'do': 'set', 'k': 'wakeWord', 'v': True}, out['posts'])
 
+    def test_wake_word_name_saves_trimmed_and_shows_saved(self):
+        out = self.page("""const name=document.querySelector('[data-k=wakeWordName]');
+            st.load({prefs:{hotkeyLabel:'⌃⌥Space',wakeWordName:'Jarvis'}}); const shown=name.value;
+            name.value='  Friday '; name.dispatchEvent(new Event('change')); await tick(20);
+            return shown;""")
+        self.assertEqual(out['result'], 'Jarvis')
+        self.assertIn({'do': 'set', 'k': 'wakeWordName', 'v': 'Friday'}, out['posts'])
+
     def test_sharing_compatibility_notice_preserves_saved_choice(self):
         out = self.page("""st.load({prefs:{hotkeyLabel:'⌃⌥Space',hideWhenSharing:true},sharingUnavailable:true});
             const before=[!$('sharingUnavailable').hidden,document.querySelector('[data-k=hideWhenSharing]').checked];

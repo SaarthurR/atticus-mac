@@ -324,7 +324,7 @@
     <div class="group">
       <div class="row"><div class="t"><b>Shortcut opens</b></div><div class="seg" data-k="input"><button data-v="voice">Voice</button><button data-v="type">Typing</button></div></div>
       <div class="row"><div class="t"><b id="talklabel">Shortcut behavior</b><span id="talkhint">Esc cancels.</span></div><div class="seg" data-k="talkMode" role="group" aria-labelledby="talklabel"><button data-v="hold">Hold to talk</button><button data-v="toggle">Press to toggle</button></div></div>
-      <div class="row"><div class="t"><b>Wake word: say “Atticus”</b><span>Listen on this Mac. Close the box to end hands-free chat.</span></div><label class="sw"><input type="checkbox" data-k="wakeWord"></label></div>
+      <div class="row"><div class="t"><b>Wake word</b><span>Listen on this Mac. Close the box to end hands-free chat.</span></div><input class="field" style="flex:0 0 110px" data-k="wakeWordName" maxlength="40" placeholder="Atticus" spellcheck="false" aria-label="Wake word to say"><label class="sw"><input type="checkbox" data-k="wakeWord"></label></div>
     </div>
     <h3>Dictation</h3>
     <div class="group">
@@ -637,6 +637,7 @@
   [['wdownload', 'whisperDownload'], ['wcancel', 'whisperCancel'], ['wdelete', 'whisperDelete']].forEach(([b, d]) => $(b).onclick = () => post({ do: d, id: wid() }));
   document.querySelectorAll('.seg[data-k]').forEach(g => g.querySelectorAll('button').forEach(b => b.onclick = () => set(g.dataset.k, b.dataset.v)));
   document.querySelectorAll('.sw input[data-k]').forEach(i => i.onchange = () => set(i.dataset.k, i.checked));
+  document.querySelector('[data-k=wakeWordName]').onchange = e => set('wakeWordName', e.target.value.trim());
   document.querySelectorAll('input[type=range]').forEach(r => {
     r.oninput = () => { P[r.dataset.k] = +r.value; paint(); };
     r.onchange = () => { set(r.dataset.k, +r.value); if (r.dataset.k === 'volume') post({ do: 'preview', sound: P.soundDone === 'None' ? 'Glass' : P.soundDone }); };
@@ -675,6 +676,8 @@
     $('talkhint').textContent = P.talkMode === 'toggle' ? 'Pauses keep listening.' : 'Esc cancels.';
     document.querySelector('[data-k=talkMode]').closest('.row').hidden = P.input === 'type';
     document.querySelectorAll('.sw input[data-k]').forEach(i => i.checked = !!P[i.dataset.k]);
+    const wakeName = document.querySelector('[data-k=wakeWordName]');
+    if (document.activeElement !== wakeName) wakeName.value = P.wakeWordName || '';
     document.querySelectorAll('select').forEach(s => {
       const value = P[s.dataset.k];
       s.value = s.dataset.k === 'microphone' && ![...s.options].some(o => o.value === value) ? 'automatic' : value;

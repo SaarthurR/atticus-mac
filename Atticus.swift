@@ -187,7 +187,7 @@ enum Prefs {
     static let path = (ProcessInfo.processInfo.environment["ATTICUS_DIR"] ?? NSString(string: "~/.config/atticus").expandingTildeInPath) + "/settings.json"
     static let defaults: [String: Any] = ["hotkeyCode": 49, "hotkeyMods": controlKey | optionKey, "hotkeyLabel": "⌃⌥Space", "login": true, "paused": false, "corner": "top-left", "linger": "normal",
         "soundStart": "Pop", "soundRelease": "Bottle", "soundDone": "Glass", "soundStop": "Tink", "volume": 0.16, "client": "claude", "model": "haiku", "instant": true,
-        "wakeWord": false, "microphone": "automatic", "quietAudio": false, "quietLevel": 0.18, "agentModel": "sonnet", "agentUserTools": true, "fixSetup": false,
+        "wakeWord": false, "wakeWordName": "Atticus", "microphone": "automatic", "quietAudio": false, "quietLevel": 0.18, "agentModel": "sonnet", "agentUserTools": true, "fixSetup": false,
         "meetingStyle": "Direct", "meetingCustom": "", "meetingStyles": [
             ["name": "Direct", "text": "Lead with the answer in plain words. No hedging or filler."],
             ["name": "Persuasive", "text": "Speak to feelings first: why it matters to them and what it means for them, a vivid picture or short story, then the fact that backs it."],
@@ -2042,8 +2042,12 @@ final class App: NSObject, WKScriptMessageHandler {
     var wakeTask: SFSpeechRecognitionTask?, wakeRequest: SFSpeechAudioBufferRecognitionRequest?
     var wakeID = 0, wakeRetry = Date.distantPast, wakeBegan = Date.distantPast, wakeDevice = ""
     var wakeBackoff = 1.0, wakePermissionID = 0, wakeWhy = "?"
-    static func hasWakeWord(_ text: String) -> Bool {
-        text.range(of: #"(?i)(?<![\p{L}\p{N}_])atticus(?![\p{L}\p{N}_])"#, options: .regularExpression) != nil
+    static var wakeName: String {   // blank would match everything, so it falls back
+        let name = Prefs.str("wakeWordName").trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? "Atticus" : name
+    }
+    static func hasWakeWord(_ text: String, word: String = "Atticus") -> Bool {
+        text.range(of: #"(?i)(?<![\p{L}\p{N}_])"# + NSRegularExpression.escapedPattern(for: word) + #"(?![\p{L}\p{N}_])"#, options: .regularExpression) != nil
     }
     func stopWake() {
         wakeID += 1
@@ -2084,12 +2088,13 @@ final class App: NSObject, WKScriptMessageHandler {
               recognizer.isAvailable, recognizer.supportsOnDeviceRecognition else { NSLog("Wake word: no on-device recognizer or mic, retry in 30 s"); wakeRetry = Date().addingTimeInterval(30); return }
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.requiresOnDeviceRecognition = true; request.shouldReportPartialResults = true
+        request.contextualStrings = [Self.wakeName]   // helps it hear names that are not everyday words
         wakeRecognizer = recognizer; wakeRequest = request; wakeID += 1; let id = wakeID
         wakeBegan = Date(); wakeDevice = device.uniqueID
         wakeTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             DispatchQueue.main.async { [weak self] in
                 guard let self, wakeID == id else { return }
-                if let result, Self.hasWakeWord(result.bestTranscription.formattedString) {
+                if let result, Self.hasWakeWord(result.bestTranscription.formattedString, word: Self.wakeName) {
                     wakeBackoff = 1
                     stopWake(); handsFree = true; clickMicrophone()
                 } else if error != nil || result?.isFinal == true {
