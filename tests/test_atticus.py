@@ -182,6 +182,20 @@ print(json.dumps({{"type": "result", "is_error": True, "result": "Authentication
         self.assertEqual(reply, 'Your custom server rejected its credentials. Check its key in Settings.')
         self.assertFalse(any(call.args[:2] == ('!', 'setup') for call in say.call_args_list))
 
+    def test_custom_server_payment_and_other_failures_have_appropriate_replies(self):
+        for detail, expected in [('API Error: 402 {"error":{"code":"insufficient_balance"}}', 'balance or billing'),
+                                 ('exit code -9', 'custom server stopped: exit code -9')]:
+            with self.subTest(detail=detail):
+                p = unittest.mock.Mock(ask='', returncode=1, stdin=io.StringIO(), errors=io.StringIO())
+                p.stdout = [json.dumps({'type': 'result', 'is_error': True, 'result': detail})]
+                with patch.object(atticus, 'server', return_value={'ANTHROPIC_BASE_URL': 'https://fixture.invalid'}), \
+                     patch.object(atticus, 'models', return_value=[]), patch.object(atticus, 'say') as say:
+                    reply, _, _ = atticus.run('Fixture task', p)
+                self.assertIn(expected, reply)
+                self.assertNotIn('{', reply)
+                self.assertFalse(atticus.run.ok)
+                self.assertEqual(any(call.args[:2] == ('!', 'setup') for call in say.call_args_list), detail != 'API Error: 402 {"error":{"code":"insufficient_balance"}}')
+
     def test_custom_server_retries_an_image_rejection_without_images(self):
         class Input(io.StringIO):
             def close(self): pass
@@ -1958,7 +1972,11 @@ class WatchAndBudgetTests(unittest.TestCase):
         ask.assert_not_called()
         opened.assert_called_once_with(['open', '-a', 'Atticus'], capture_output=True)
         self.assertIn('Atticus Settings is open; change it there', out.getvalue())
-        self.assertIn('Unsupported: open -a Atticus; say change it there', atticus.SYSTEM)
+        self.assertIn('Open Atticus Settings: open -a Atticus.', atticus.SYSTEM)
+        swift = (Path(atticus.ME).parent / 'Atticus.swift').read_text()
+        reopen = swift.split('func applicationShouldHandleReopen(', 1)[1].split('// The menu bar icon:', 1)[0]
+        self.assertIn('settings.open() : onboarding.open()', reopen)
+        self.assertIn('@objc func openSettings() { settings.open() }', swift)
 
     def test_unknown_command_never_shows_raw_shell(self):
         self.assertEqual(atticus.label('Bash', {'command': 'cat > /private/var/folders/x/prompt.txt <<EOF'}), 'Working on it')

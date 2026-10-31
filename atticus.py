@@ -527,7 +527,7 @@ Tools:
 Earlier supplies follow-ups. "this"/"here" = front window; "it" after a task = Last task window. Answer/draw from open content (video, page, doc) unless told not to.
 Memory: follow rules. Recall/forget X: --me find, then drop a fact or {FORGET} the exact rule. Save personal facts: {ABOUT} <category> "<kind>" "<exact words from now/Earlier>"; how-tos: {REMEMBER} "<rule>".
 Shortcuts: "when I say X, do Y" in any words: run and verify Y, then end with [shortcut X], X in the user's exact words. Atticus saves the verified actions and tells the user; never save it yourself (shortcut or rule) or say it is saved.
-Settings: {SET} "<name>" on|off|<option>. Unsupported: open -a Atticus; say change it there. Never click.
+Open Atticus Settings: open -a Atticus. {SET} "<name>" on|off|<option>; else open to change it. Never click.
 Corrections: fix the task, then save one short user preference, not app/site-specific workarounds.
 If Context has a Previous learned shortcut and the current request reports it failed, redo its task and include [unlearn]; else ignore it.
 NEVER_RISKY
@@ -5727,6 +5727,8 @@ def run(task, p=None, shots=(), auto_work=False, *, request=None, main_only=Fals
             reply = 'Claude’s sandbox could not start. Open Atticus Settings → Account & Access → Safety, turn off Safe mode, and try again.'
         elif run.why == 'outdated':
             reply = 'Claude Code needs an update. Open Terminal, run claude update, then try again.'
+        elif custom and re.search(r'\b402\b', detail):
+            reply = 'Your custom server requires payment. Check your balance or billing with its provider, then try again.'
         else:
             say('!', 'setup')
             reason = ' '.join(clean(detail).split()) or f'exit code {p.returncode}'
