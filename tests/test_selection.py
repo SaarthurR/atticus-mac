@@ -113,7 +113,8 @@ reset(); let count = pb.changeCount; h.apply("", valid: { true }) { ok = $0 }; p
 precondition(ok && pb.changeCount == count && Array(keys.suffix(2)) == [51, 51], "delete key/clipboard regressed")
 reset(); pb.failWrite = true; h.apply("draft", valid: { true }) { ok = $0 }; pump(0.2)
 precondition(!ok && pb.pasteboardItems?.first?.data(forType: .rich) != nil, "failed write lost clipboard")
-reset(); deaf = true; ok = false; var answered = false; let hidBefore = hidEvents; h.apply("draft", valid: { true }) { ok = $0; answered = true }; pump(2, until: { answered })
+reset(); var receipt = ""; deaf = true; ok = false; var answered = false; let hidBefore = hidEvents; h.apply("draft", receipt: { receipt = $0 }, valid: { true }) { ok = $0; answered = true }; pump(2, until: { answered })
+precondition(receipt == "unverified", "stale readback was reported verified")
 precondition(ok && hidEvents == hidBefore + 2 && pb.pasteboardItems?.first?.data(forType: .rich) == Data("rich original".utf8), "a sent paste whose field reads back stale was not counted, was retried, or kept the draft on the clipboard")
 var readonly = h; readonly.pastable = false; let before = events
 answered = false; readonly.apply("", valid: { true }) { ok = $0; answered = true }; pump(2, until: { answered }); precondition(!ok && events == before, "read-only delete posted")
@@ -144,7 +145,12 @@ answered = false; keyboard.apply("private", preserveFocus: true, valid: { NSWork
 precondition(!ok && events == movedEvents, "keyboard fallback pasted after the front app changed")
 print("paste safety ok")
 '''
-        self.assertIn('paste safety ok', run_swift(self, swift))
+        import subprocess
+        from unittest.mock import patch
+        import tests
+        # The extracted harness above has no app/window APIs; run its stubs on the host.
+        with patch.object(subprocess.Popen, '__init__', getattr(tests, '_popen_init', subprocess.Popen.__init__)):
+            self.assertIn('paste safety ok', run_swift(self, swift, timeout=20))
 
     def test_typing_capture_accepts_empty_fields_but_never_secure_fields(self):
         source = (ROOT / 'Atticus.swift').read_text()

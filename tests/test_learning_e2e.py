@@ -29,14 +29,14 @@ class Ask(unittest.TestCase):
     def setUp(self):
         self.root = scratch_dir(self)
         self.show = Mock(side_effect=lambda target, bg=False: f'opened {target} ' + ('in the background' if bg else 'in front'))
-        self.place = Mock(side_effect=lambda args: ' '.join(args) + ' -> placed')
+        self.place = Mock(side_effect=lambda args: ' '.join(args) + ' window -> full of Laptop')
         self.shell = Mock(return_value=subprocess.CompletedProcess([], 0, '', ''))
         for p in [patch.object(atticus, 'SKILLS', str(self.root / 'skills.json')), patch.object(atticus, 'RECENT', str(self.root / 'recent.jsonl')),
                   patch.object(atticus, 'WORKED', str(self.root / 'worked.json')), patch.object(atticus, 'ME_FILE', str(self.root / 'me.json')),
                   patch.object(atticus, 'MEMORY', str(self.root / 'memory.md')), patch.object(atticus, 'LAST', str(self.root / 'last_app')),
                   patch.dict(os.environ, {'ATTICUS_ASK': str(self.root), 'ATTICUS_FRONT': 'Other Fixture', 'ATTICUS_FOCUS_GUARD': '1'}, clear=True),
                   patch.object(atticus.threading, 'Thread', NoThread), patch.object(atticus.subprocess, 'run', self.shell),
-                  patch.multiple(atticus, show=self.show, place_many=self.place, place=lambda *a: 'placed', installed_apps=lambda: set(APPS), proc_of=lambda a: a,
+                  patch.multiple(atticus, show=self.show, place_many=self.place, place=lambda *a: 'Fixture window -> full of Laptop', installed_apps=lambda: set(APPS), proc_of=lambda a: a,
                                  app_id=lambda a: 'com.example.' + str(a).lower().replace(' ', ''), app_running=lambda bid: True,
                                  free_focus=lambda *a, **k: None, preview_commands=lambda *a, **k: None, preview_app=lambda *a, **k: None,
                                  licensed=lambda: True, ping=lambda: None, front=lambda: ('Other Fixture', 'Scratch'), osa=lambda *a, **k: '',

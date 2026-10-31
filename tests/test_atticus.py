@@ -1911,12 +1911,13 @@ class WatchAndBudgetTests(unittest.TestCase):
         def osa(script, *args):   # System Events can't see it, so the app's own window list answers
             calls.append(script)
             return '0, 0, 800, 600' if 'get bounds' in script else ''
-        with patch.object(atticus, 'osa', side_effect=osa), patch.object(atticus.subprocess, 'run') as run, patch.object(atticus, 'preview_app'), \
+        with patch.object(atticus, 'placement_window', return_value=('Ch4-Study-Guide copy.pdf', None)), \
+             patch.object(atticus, 'osa', side_effect=osa), patch.object(atticus.subprocess, 'run') as run, patch.object(atticus, 'preview_app'), \
              patch.object(atticus, 'screens', return_value=[('Built-in', 0, 0, 1470, 956, True), ('Acer', 1470, 0, 1920, 1080, False)]):
             run.return_value.returncode = 0
             atticus.place('Preview', 'full', 'laptop', 'Ch4-Study-Guide copy.pdf')
         app = [c for c in calls if 'get bounds' in c] + [run.call_args.args[0][2]]
-        self.assertTrue(all('whose name contains "Ch4-Study-Guide copy"' in c and 'window 1' not in c for c in app))
+        self.assertTrue(all('whose name is "Ch4-Study-Guide copy.pdf"' in c and 'window 1' not in c for c in app))
 
     def test_place_keeps_quotes_in_app_and_title_inside_the_applescript_string(self):
         payload = 'Report" & (do shell script "id") & "'
@@ -1924,7 +1925,8 @@ class WatchAndBudgetTests(unittest.TestCase):
         def osa(script, *args):
             calls.append(script)
             return '0, 0, 800, 600' if 'get bounds' in script else ''
-        with patch.object(atticus, 'osa', side_effect=osa), patch.object(atticus.subprocess, 'run') as run, patch.object(atticus, 'preview_app'), \
+        with patch.object(atticus, 'placement_window', return_value=(payload, None)), \
+             patch.object(atticus, 'osa', side_effect=osa), patch.object(atticus.subprocess, 'run') as run, patch.object(atticus, 'preview_app'), \
              patch.object(atticus, 'screens', return_value=[('Built-in', 0, 0, 1470, 956, True)]):
             run.return_value.returncode = 0
             atticus.place(payload, 'full', 'laptop', payload)
@@ -2011,7 +2013,7 @@ class BoxLookTests(unittest.TestCase):
         self.assertEqual(out.call_args_list[1].args[0], '▸ Reading the page')
         self.assertIn('line.dropFirst(2).replacingOccurrences(of: "\\u{2028}", with: "\\n")', self.SOURCE)   # the app turns them back once
         self.assertIn('LaTeX math: $inline$, $$display$$.', atticus.SYSTEM)
-        self.assertIn('Drawn text is plain Unicode, no LaTeX.', atticus.DRAW_HELP)   # read only when drawing
+        self.assertIn('TeX math inside $…$ or $$…$$', atticus.DRAW_HELP)   # read only when drawing
         self.assertIn('≤3 short sentences, more if asked', atticus.SYSTEM)   # concise by default; detail only on request
         self.assertNotIn('plain text', atticus.SYSTEM.split('Final:', 1)[1].split('\n', 1)[0])
 

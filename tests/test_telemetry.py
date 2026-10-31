@@ -84,7 +84,7 @@ class TelemetryTests(unittest.TestCase):
         self.assertEqual(payload['properties']['tools'], ['place', 'web'])
         self.assertEqual(payload['properties']['status'], 'ok')
         self.assertEqual(set(payload['properties']), {'$process_person_profile', 'version', 'commit', 'path', 'model', 'secs', 'steps',
-                                                      'tools', 'status', 'escalated', 'macos', 'client'})
+                                                      'tools', 'status', 'escalated', 'outcome', 'macos', 'client'})
         self.assertNotIn('Private', json.dumps(payload))
 
     def test_ask_done_maps_terminal_states(self):

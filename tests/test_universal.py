@@ -283,7 +283,7 @@ class UniversalTests(unittest.TestCase):
         saved = {'work mode': {'cmds': [f'{atticus.PLACE} Safari full current'], 'reply': 'Work mode ready.', 'at': '2026-10-01'}}
         ok = subprocess.CompletedProcess([], 0)
         with patch.multiple(atticus, app_named=app_named, proc_of=lambda app: app, request_screen=lambda: 'current',
-                            place=lambda app, where='full', screen='current', title='': f'{app} window -> {where}',
+                            place=lambda app, where='full', screen='current', title='': f'{app} window -> {where} of {screen}',
                             show=lambda target, bg=False: f'opened {target}', skills=lambda: saved, save_skills=lambda _: None,
                             fast_hands=lambda _: None, free_focus=lambda **_: None, LAST=str(self.root / 'last_app')), \
              patch.object(atticus.subprocess, 'run', return_value=ok):

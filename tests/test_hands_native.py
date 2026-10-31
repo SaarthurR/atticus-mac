@@ -319,7 +319,7 @@ print("hands Quartz spies ok")
         header = header.replace('AXUIElement','TestElement')
         header = header.replace('ProcessInfo.processInfo.environment', '["ATTICUS_DIR":CommandLine.arguments[1], "ATTICUS_AX_ONLY":"1"]')
         names = ['documentIdentity','identify','read','children','array','name','capture','save','load','at','point','picturePoint','visibleFrame','resolve','menuItem','menu','screenLease',
-                 'pixelsChanged','contentMoved','pageKeysAllowed','scrollArea','scroll','findText','scrollTo','stringValue','selectedRange','insertionTarget','insertAfter','typeText',
+                 'pixelsChanged','contentMoved','pageKeysAllowed','scrollArea','scroll','findText','scrollTo','stringValue','selectedRange','ownedEdits','saveOwnedEdits','editKey','editField','insertionTarget','insertAfter','typeText','fieldFocused',
                  'settle','validate','clickOptions','targets','freshIDs','checked','selftest','windowElement','root','windowNumber','userWindowLists','keepTaskWindow','targetWindow','windowAt','windowsAt','lease','unlock','submitReceipt','keysReachTask',
                  'isShortcut','menuShortcut','webFocused']
         matches = list(re.finditer(r'^    static func (\w+)\(', section, re.M))
@@ -629,7 +629,7 @@ precondition(try! Hands.settle(app,seconds:0.5))
 let sentBefore=try Hands.capture(app); var badge=sentBefore; badge.texts.append("3 unread")
 precondition(!Hands.submitReceipt("Hello","Hello","Hello",sentBefore,badge), "an unrelated window update counted as a sent message")
 precondition(!Hands.submitReceipt("Hello","Hello\\n","Hello",sentBefore,sentBefore), "a new line in the field counted as a sent message")
-precondition(Hands.submitReceipt("Hello","","Hello",sentBefore,sentBefore) && Hands.submitReceipt("Hello",nil,"Hello",sentBefore,sentBefore))
+precondition(Hands.submitReceipt("Hello","","Hello",sentBefore,sentBefore) && !Hands.submitReceipt("Hello",nil,"Hello",sentBefore,sentBefore))
 var posted=sentBefore; posted.texts.append("Hello"); precondition(Hands.submitReceipt("Hello","Hello","Hello",sentBefore,posted))
 print("hands in-memory AX fixture ok")
 '''

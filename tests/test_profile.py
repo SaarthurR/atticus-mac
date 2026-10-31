@@ -194,7 +194,7 @@ atticus.remember_rule(sys.argv[1])
         context = atticus.profile_context('Complete the worksheet', 'Controls: Full name; Email')
         self.assertIn('Sam Example', context)
         self.assertIn('sam@example.test', context)
-        self.assertIn('fill its labelled field, personal ones from About you', atticus.SYSTEM)
+        self.assertIn('fill labelled fields (personal: About you)', atticus.SYSTEM)
         self.assertIn('Filling never authorizes submission', atticus.SYSTEM)
 
     def test_profile_prompt_cost_is_small_for_three_common_asks(self):

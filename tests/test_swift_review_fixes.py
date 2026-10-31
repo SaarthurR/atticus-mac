@@ -5,6 +5,7 @@ import subprocess
 import unittest
 
 from tests import run_swift
+from tests.test_drawing_math_page import MATH_STUB
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -78,7 +79,7 @@ print("special shortcuts stay distinct")
         callout = self.swift[self.swift.index("final class DrawingCalloutView"):self.swift.index("final class ScreenDrawing")]
         self.assertIn("NSScrollView", callout)
         self.assertNotIn("scrollToEndOfDocument", callout)   # one step per callout: read it from the top
-        harness = "import Cocoa\n" + callout + r'''
+        harness = "import Cocoa\n" + MATH_STUB + callout + r'''
 let words = String(repeating: "A readable instruction needs enough words to wrap. ", count: 20)
 let size = DrawingCalloutView.size(words, total: 12)
 let view = DrawingCalloutView(frame: CGRect(x: 0, y: 0, width: size.width + 24, height: size.height + 24),

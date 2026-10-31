@@ -1,0 +1,22 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'">
+<style>
+html,body { margin:0; background:transparent; overflow:hidden; }
+#text { display:inline-block; box-sizing:border-box; padding:3px; font-family:-apple-system,sans-serif; font-weight:500; line-height:1.4; overflow-wrap:anywhere; }
+p { margin:0; } math { font-size:1em; } math[display=block] { margin:0.25em 0; }
+.tex { white-space:pre-wrap; } a { color:inherit; text-decoration:none; }
+</style>
+<div id="text"></div>
+<script type="module">
+/*ORBS*/
+window.drawingMath = (text, size, color, width) => {
+  const body = document.getElementById('text');
+  body.style.fontSize = size + 'px'; body.style.color = color; body.style.maxWidth = width + 'px';
+  body.replaceChildren(markdown(text));
+  const rect = body.getBoundingClientRect();
+  return {width: Math.ceil(Math.max(rect.width, body.scrollWidth)), height: Math.ceil(Math.max(rect.height, body.scrollHeight))};
+};
+window.webkit.messageHandlers.drawingMath?.postMessage({action:'ready'});
+window.webkit.messageHandlers.agents?.postMessage({action:'ready'});
+</script>

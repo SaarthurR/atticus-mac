@@ -265,7 +265,8 @@ class AgentTests(unittest.TestCase):
             p.waiting.clear()
             for i in range(5):move.record({'type':'assistant','message':{'content':[{'type':'tool_use','id':str(i),'name':'Read','input':{'file_path':'fixture'}}]}})
             move.poll();self.assertFalse(move.moved)   # many quick steps: a short task is nearly done
-            move.elapsed=15;move.poll();self.assertTrue(move.moved);self.assertNotIn('offer',output.getvalue())
+            move.elapsed=15;move.poll();self.assertFalse(move.moved)   # the slow write finishes before the ask moves
+            move.record({'type':'user','message':{'content':[{'type':'tool_result','tool_use_id':'slow','content':'done'}]}});move.poll();self.assertTrue(move.moved);self.assertNotIn('offer',output.getvalue())
         other=atticus.MainMove('Work',p);self.addCleanup(other.close);other.last=0
         other.record({'message':{'content':[{'type':'tool_use','id':'read','name':'Read','input':{}}]}})
         with patch.object(atticus,'stop_claude'),patch.object(atticus.time,'monotonic',return_value=15),contextlib.redirect_stdout(io.StringIO()):other.poll()
@@ -411,7 +412,7 @@ class AgentTests(unittest.TestCase):
 
     def test_accepted_move_stops_foreground_and_preserves_completed_and_uncertain_work(self):
         worker=Path(self.root.name)/'moving.py'
-        worker.write_text('import json,sys,time\njson.loads(sys.stdin.readline())\nfor i in range(2):\n print(json.dumps({"type":"assistant","message":{"content":[{"type":"tool_use","id":str(i),"name":"Bash","input":{"command":"fixture action "+str(i)}}]}}),flush=True)\n if i<1:print(json.dumps({"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":str(i),"content":"Verified result "+str(i)}]}}),flush=True)\ntime.sleep(30)\n')
+        worker.write_text('import json,sys,time\njson.loads(sys.stdin.readline())\nfor i in range(2):\n print(json.dumps({"type":"assistant","message":{"content":[{"type":"tool_use","id":str(i),"name":"Bash" if i<1 else "Read","input":{"command":"fixture action "+str(i)}}]}}),flush=True)\n if i<1:print(json.dumps({"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":str(i),"content":"Verified result "+str(i)}]}}),flush=True)\ntime.sleep(30)\n')
         p=subprocess.Popen([sys.executable,str(worker)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,start_new_session=True)
         p.ask=self.root.name;result=[]
         self.addCleanup(lambda:atticus.stop_claude(p) if p.poll() is None else None)
@@ -1241,7 +1242,7 @@ class AgentTests(unittest.TestCase):
             self.assertTrue(atticus.skills()['focus time']['mine'])
             self.assertEqual(atticus.skills()['focus time']['cmds'],[commands[0].removeprefix('python3 ')])
             self.assertEqual(self.events[-1]['agent']['learned'],'focus time')
-            with patch.object(atticus,'place_many',return_value='Both windows in place.') as place,patch.object(atticus,'start_ai') as ai:
+            with patch.object(atticus,'place_many',return_value='Editor window -> fullscreen of Monitor\nBrowser window -> fullscreen of Laptop') as place,patch.object(atticus,'start_ai') as ai:
                 self.assertEqual(atticus.fast('Focus time.'),'Both windows are in place.')
                 place.assert_called_once();ai.assert_not_called()
             # A follow-up must not inherit the previous completion's learned feedback.

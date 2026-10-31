@@ -233,7 +233,7 @@ class NightTests(unittest.TestCase):
                 self.assertIsNotNone(atticus.learn('quiet time',[command],'Placed.'))
                 # Old explicit shortcuts also need repair when loaded, independent of cwd.
                 atticus.save_skills({'quiet time':{'cmds':[command],'reply':'Placed.','mine':True}})
-                with patch.object(atticus,'place_many',return_value='Placed.') as place,patch.object(atticus.subprocess,'run') as shell:
+                with patch.object(atticus,'place_many',return_value='Fixture window -> fullscreen of Monitor') as place,patch.object(atticus.subprocess,'run') as shell:
                     self.assertEqual(atticus.fast('Quiet time.'),'Placed.')
                     place.assert_called_once_with(['Fixture','fullscreen','monitor']);shell.assert_not_called()
         self.assertIsNone(atticus.learn('other setup',['python3 /tmp/atticus.py --place Fixture full laptop'],'Placed.'))
@@ -241,7 +241,7 @@ class NightTests(unittest.TestCase):
     def test_named_shortcuts_allow_spoken_prefixes_but_not_other_instructions(self):
         for request in ('Okay, when I say quiet time, open fixture on the left', 'Um, can you, when I say quiet time, open fixture on the left'):
             with patch.object(atticus,'app_named',side_effect=lambda s:'Fixture' if s=='fixture' else None),patch.object(atticus,'proc_of',side_effect=lambda s:s), \
-                 patch.object(atticus,'place',return_value='Placed.'),patch.object(atticus.subprocess,'run',return_value=subprocess.CompletedProcess([],0)),patch.object(atticus,'cached_hands',return_value=None):
+                 patch.object(atticus,'place',return_value='Fixture window -> left of Laptop'),patch.object(atticus.subprocess,'run',return_value=subprocess.CompletedProcess([],0)),patch.object(atticus,'cached_hands',return_value=None):
                 self.assertEqual(atticus.fast(request),'Fixture: left.')
                 self.assertIn('quiet time',atticus.skills())
         self.assertIsNone(atticus.named_shortcut('Do not save when I say quiet time, open fixture'))
@@ -257,7 +257,7 @@ class NightTests(unittest.TestCase):
 
     def test_fullscreen_and_maximize_teach_their_distinct_native_actions(self):
         with patch.object(atticus,'app_named',side_effect=lambda s:'Fixture' if s=='fixture' else None),patch.object(atticus,'proc_of',side_effect=lambda s:s), \
-             patch.object(atticus,'place',return_value='Placed.') as place,patch.object(atticus,'cached_hands',return_value=None):
+             patch.object(atticus,'place',return_value='Fixture window -> full of Monitor') as place,patch.object(atticus,'cached_hands',return_value=None):
             self.assertEqual(atticus.fast('Okay, when I say quiet time, full screen fixture on my monitor'),'Fixture: full screen on monitor.')
             place.assert_called_with('Fixture','fullscreen','monitor')
             self.assertEqual(atticus.skills()['quiet time']['cmds'],[atticus.PLACE+' Fixture fullscreen monitor'])
@@ -274,7 +274,7 @@ class NightTests(unittest.TestCase):
                     if 'return {position, size}' in script: return '0, 25, 1000, 775'
                     if 'get value of attribute "AXFullScreen"' in script: return entered
                     return ''
-                with patch.object(atticus,'osa',side_effect=osa),patch.object(atticus,'free_focus'),patch.object(atticus,'preview_app'), \
+                with patch.object(atticus,'placement_window',return_value=('Fixture',None)),patch.object(atticus,'osa',side_effect=osa),patch.object(atticus,'free_focus'),patch.object(atticus,'preview_app'), \
                      patch.object(atticus,'screens',return_value=[('Request display',0,0,1000,800,True)]),patch.object(atticus.time,'sleep'),patch.object(atticus.subprocess,'run') as shell:
                     reply=atticus.place('Fixture','fullscreen','laptop')
                 self.assertEqual(reply.startswith('NOT DONE'),entered=='false')
@@ -289,7 +289,7 @@ class NightTests(unittest.TestCase):
             if 'get value of attribute "AXFullScreen"' in script: return 'true'
             return ''
         displays = [('Built in', 0, 0, 1000, 800, True), ('External', 1000, 0, 1000, 800, False)]
-        with patch.object(atticus,'osa',side_effect=osa),patch.object(atticus,'free_focus'),patch.object(atticus,'preview_app'), \
+        with patch.object(atticus,'placement_window',return_value=('Fixture',None)),patch.object(atticus,'osa',side_effect=osa),patch.object(atticus,'free_focus'),patch.object(atticus,'preview_app'), \
              patch.object(atticus,'screens',return_value=displays),patch.object(atticus.time,'sleep'),patch.object(atticus.subprocess,'run'):
             self.assertEqual(atticus.place('Fixture','fullscreen','laptop'), 'NOT DONE: Fixture entered full screen on the wrong display.')
 
@@ -301,19 +301,20 @@ class NightTests(unittest.TestCase):
             if 'return {position, size}' in script: return '0, 0, 1000, 800'
             if 'get value of attribute "AXFullScreen"' in script: return 'true' if len(asked) > 1 else 'false'   # the first one came mid-animation
             return ''
-        with patch.object(atticus,'osa',side_effect=osa),patch.object(atticus,'free_focus'),patch.object(atticus,'preview_app'), \
+        with patch.object(atticus,'placement_window',return_value=('Fixture',None)),patch.object(atticus,'osa',side_effect=osa),patch.object(atticus,'free_focus'),patch.object(atticus,'preview_app'), \
              patch.object(atticus,'screens',return_value=[('Laptop',0,0,1000,800,True)]),patch.object(atticus.time,'sleep'),patch.object(atticus.subprocess,'run'):
             self.assertEqual(atticus.place('Fixture','fullscreen','laptop'), 'Fixture window -> fullscreen of Laptop')
         self.assertEqual(len(asked), 2)
 
-    def test_place_cli_status_distinguishes_failures_from_an_unverified_success(self):
-        for output in ('NOT DONE: wrong display.', 'no window found for "Fixture"', 'where must be left, right, full, fullscreen or center'):
+    def test_place_cli_status_fails_everything_but_a_checked_receipt(self):
+        for output in ('NOT DONE: wrong display.', 'no window found for "Fixture"', 'where must be left, right, full, fullscreen or center',
+                       'Moved Fixture, but could not check where its window is. Look at the screen before saying it worked.'):
             with self.subTest(output=output), patch('sys.argv',['atticus.py','--place','Fixture']), \
                  patch.object(atticus,'place_many',return_value=output),patch('builtins.print'):
                 with self.assertRaises(SystemExit) as stopped:
                     atticus.main()
                 self.assertEqual(stopped.exception.code,1)
-        for output in ('Fixture window -> full', 'Moved Fixture, but could not check where its window is. Look at the screen before saying it worked.'):
+        for output in ('Fixture window -> full of Laptop',):
             with self.subTest(output=output), patch('sys.argv',['atticus.py','--place','Fixture']), \
                  patch.object(atticus,'place_many',return_value=output),patch('builtins.print'):
                 self.assertIsNone(atticus.main())
@@ -329,7 +330,7 @@ class NightTests(unittest.TestCase):
             if 'return {position, size}' in script: return next(reads)
             if 'get value of attribute "AXFullScreen"' in script: return 'true'
             return ''
-        with patch.object(atticus,'osa',side_effect=osa),patch.object(atticus,'free_focus'),patch.object(atticus,'preview_app'), \
+        with patch.object(atticus,'placement_window',return_value=('Fixture',None)),patch.object(atticus,'osa',side_effect=osa),patch.object(atticus,'free_focus'),patch.object(atticus,'preview_app'), \
              patch.object(atticus,'screens',return_value=[('Laptop',0,0,1000,800,True)]), \
              patch.object(atticus.time,'sleep') as sleep,patch.object(atticus.subprocess,'run'):
             self.assertEqual(atticus.place('Fixture','fullscreen','laptop'), 'Fixture window -> fullscreen of Laptop')
@@ -340,7 +341,7 @@ class NightTests(unittest.TestCase):
         def osa(script, *args):
             calls.append(script)
             return 'false, false, 0, 0, 800, 600' if 'AXFullScreen' in script else '0, 25, 500, 775'
-        with patch.object(atticus, 'osa', side_effect=osa), patch.object(atticus, 'free_focus'), \
+        with patch.object(atticus, 'placement_window', return_value=('Fixture', None)), patch.object(atticus, 'osa', side_effect=osa), patch.object(atticus, 'free_focus'), \
              patch.object(atticus, 'screens', return_value=[('Request display', 0, 0, 1000, 800, True)]), \
              patch.object(atticus.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)), \
              patch.object(atticus, 'preview_app') as preview, patch.object(atticus.time, 'sleep') as sleep:

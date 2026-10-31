@@ -1,4 +1,5 @@
 """Screen drawing boundaries and coordinate mapping; native windows run only through the VM runner."""
+from tests.test_drawing_math_page import MATH_STUB
 import copy
 import json
 import os
@@ -80,6 +81,42 @@ class DrawingTests(unittest.TestCase):
                             {'screen':2,'say':'Side by side.','shapes':[{'kind':'text','text':'membrane: flexible gate, every cell','at':[940,330]},
                                 {'kind':'text','text':'wall: rigid, outside, stops bursting'}]}]}
         for value in (logged,diagram): self.assertTrue(atticus.drawing(value,mapping)['teaching'])   # both valid: only the help tells them apart
+
+    def test_explanation_captions_match_visible_geometry(self):
+        whole = {'kind':'rect','rect':[100,100,180,180]}
+        upper = {'kind':'rect','rect':[100,100,180,60],'color':'blue','fill':True}
+        lower = {'kind':'rect','rect':[100,160,180,120],'color':'green','fill':True}
+        payload = {'steps':[
+            {'say':'The whole region is a square.','shapes':[whole]},
+            {'say':'The upper region fills one third of the whole region; the lower region fills two thirds.',
+             'shapes':[upper,lower,{'kind':'label','at':[300,130],'text':'upper region: 1/3'},
+                       {'kind':'label','at':[300,220],'text':'lower region: 2/3'}]},
+        ]}
+        # Fixture oracle: named parts require geometry, not merely matching label text.
+        required = [{'whole region':whole}, {'whole region':whole,'upper region':upper,'lower region':lower}]
+
+        def validate(value):
+            visible = []
+            for step, parts in zip(atticus.drawing(value)['steps'], required):
+                visible.extend(step['shapes'])
+                for name, mark in parts.items():
+                    self.assertIn(name,step['say'])
+                    self.assertIn(mark,visible,f'Caption names {name} without its geometry')
+
+        validate(payload)
+        for mutation in ('missing','misplaced','label_only','future'):
+            bad = copy.deepcopy(payload)
+            shapes = bad['steps'][1]['shapes']
+            if mutation == 'missing': shapes.pop(1)
+            elif mutation == 'misplaced': shapes[1]['rect'][1] += 20
+            elif mutation == 'label_only': shapes.pop(0); shapes.pop(0)
+            else: bad['steps'].reverse()
+            with self.subTest(mutation=mutation), self.assertRaisesRegex(AssertionError,'without its geometry'):
+                validate(bad)
+        for rule in ('Each caption must describe marks already visible in that step',
+                     'Labels and equations alone do not show a geometric relationship',
+                     'Check positions, sizes, proportions and connections against the caption'):
+            self.assertIn(rule,atticus.DRAW_HELP)
 
     def test_follow_up_sees_the_drawing_and_a_selected_mark(self):
         drawn = {'steps':[{'say':'The shared x.','shapes':[{'kind':'circle','rect':[600,170,60,60],'color':'red'}]}],'shown':1}
@@ -284,7 +321,7 @@ class DrawingTests(unittest.TestCase):
     def test_teaching_steps_keep_order_and_visible_captions(self):
         data = {'steps':[
             {'id':'triangle','say':'Draw the right triangle.','shapes':[{'kind':'path','points':[[10,10],[10,80],[90,80],[10,10]]}]},
-            {'id':'labels','say':'Label the three sides.','shapes':[{'kind':'label','at':[20,50],'text':'a'}]},
+            {'id':'labels','say':'Label one side.','shapes':[{'kind':'label','at':[20,50],'text':'a'}]},
             {'id':'formula','say':'Now use a² + b² = c².','shapes':[{'kind':'label','at':[20,20],'text':'a² + b² = c²'}]},
             {'id':'example','say':'For 3 and 4, c is 5.','shapes':[{'kind':'label','at':[20,35],'text':'3² + 4² = 5²'}]},
         ]}
@@ -328,14 +365,14 @@ class DrawingTests(unittest.TestCase):
     def test_guide_steps_callouts_and_voice_policy(self):
         source = (ROOT/'Atticus.swift').read_text()
         drawing = source.split('final class ScreenDrawing {',1)[1].split('// The box can take typing',1)[0]
-        self.assertIn('r.steps[..<index].enumerated().map { view.render($0.element.shapes,animate:false,previous:nil,append:true,dim:true,step:$0.offset) }',drawing)
+        self.assertIn('r.steps[..<index].enumerated().map { view.render($0.element.shapes,animate:false,previous:nil,append:true,occupied:textObstacles,dim:true,step:$0.offset) }',drawing)
         for wiring in ('callout.onClose = { [weak self] in self?.clear() }','callout.onNext = { [weak self] in self?.next() }',
                        'callout.onBack = { [weak self] in self?.back() }'):
             self.assertIn(wiring,drawing)
         self.assertIn('guard step.wait != true || hit?.contains(point) == true',drawing)
         self.assertIn('deadline = r.teaching ? .distantFuture',drawing)
         self.assertIn('else if !r.teaching { clear() }',drawing)
-        self.assertIn('if !words.isEmpty, speechEnabled()',drawing)
+        self.assertIn('if !mathOnly, !words.isEmpty, speechEnabled()',drawing)
         self.assertIn('shown = active && (!r.teaching || calloutPanel?.isVisible == true)',drawing)
         self.assertIn('!manual, autoSteps()',drawing.split('func tick()',1)[1])
         self.assertNotIn('status?(words)',drawing)   # step text lives beside its marks, never in the ask box
@@ -599,7 +636,7 @@ class NativeDrawingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             source = (ROOT/'Atticus.swift').read_text()
-            drawing = source[source.index('// Screen drawings use Quartz'):source.index('// The box can take typing')]
+            drawing = MATH_STUB + source[source.index('// Screen drawings use Quartz'):source.index('// The box can take typing')]
             (root/'main.swift').write_text(HARNESS.replace('__DRAWING__',drawing))
             result = subprocess.run(['swiftc',str(root/'main.swift'),'-o',str(root/'fixture')],capture_output=True,text=True)
             self.assertEqual(result.returncode,0,result.stderr)
@@ -673,7 +710,7 @@ precondition(!keep[0].intersects(onTarget) && area.contains(onTarget),"A label c
 precondition(ScreenDrawing.labelBox(tag,at:CGPoint(x:500,y:500),keepOff:keep,in:area).origin == CGPoint(x:512,y:470),"A free label moved")
 precondition(area.contains(ScreenDrawing.labelBox(tag,at:CGPoint(x:995,y:2),keepOff:[],in:area)),"A label left the screen")
 let square = CGRect(x:300,y:300,width:200,height:200), inside = ScreenDrawing.labelBox(tag,at:CGPoint(x:380,y:420),keepOff:[square],in:area)
-precondition(inside.origin == CGPoint(x:392,y:390),"An area-model label was pushed out of its box")
+precondition(!inside.intersects(square),"An area-model label covered its mark")
 let edgeLabel = ScreenDrawing.labelBox(tag,at:CGPoint(x:490,y:420),keepOff:[square],in:area)
 precondition(!edgeLabel.intersects(square) || square.insetBy(dx:2*gap,dy:2*gap).contains(edgeLabel),"A label crossed a mark's edge")
 
@@ -716,7 +753,7 @@ let earlier = CGRect(x:310,y:0,width:300,height:400)
 (card, side) = ScreenDrawing.calloutFrame(size,marks:marks,avoid:[earlier],in:area)
 precondition(side != nil && !card.intersects(earlier) && !card.intersects(marks) && area.contains(card),"Callout covered an earlier step")
 (card, side) = ScreenDrawing.calloutFrame(size,marks:area.insetBy(dx:10,dy:10),avoid:[],in:area)
-precondition(side == nil && area.contains(card),"No-room fallback left the screen")
+precondition(side == nil && card.isNull,"No-room fallback covered its marks")
 
 func buttons(_ v: NSView) -> [NSButton] { v.subviews.compactMap { $0 as? NSButton } }
 func labels(_ v: NSView) -> [String] { v.subviews.compactMap { ($0 as? NSTextField)?.stringValue } }
@@ -801,5 +838,5 @@ class GuideGeometryTests(unittest.TestCase):
     def test_marks_and_callouts_stay_clear_of_targets(self):
         from tests import run_swift
         source = (ROOT/'Atticus.swift').read_text()
-        drawing = source[source.index('// Screen drawings use Quartz'):source.index('// The box can take typing')]
+        drawing = MATH_STUB + source[source.index('// Screen drawings use Quartz'):source.index('// The box can take typing')]
         self.assertIn('Guide geometry',run_swift(self,GEOMETRY.replace('__DRAWING__',drawing),timeout=20))
