@@ -359,6 +359,7 @@ final class Whisper: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
         Model(id: "small", name: "Small", file: "ggml-small-q5_1.bin", sha256: "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb", bytes: 190085487)]
     static var base = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/"   // tests point models and base at a local server
     static func model(_ id: String) -> Model { models.first { $0.id == id } ?? models[0] }
+    static var installing = false   // Settings → Install runs brew in the background
     static var dir: String { (Prefs.path as NSString).deletingLastPathComponent + "/whisper" }
     static func path(_ m: Model) -> String { dir + "/" + m.file }
     static func serverPath() -> String? {
@@ -372,7 +373,7 @@ final class Whisper: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     private struct Download { let task: URLSessionDownloadTask, changed: @Sendable () -> Void; var progress = 0.0, pinged = Date.distantPast }
     private let lock = NSLock()
     private var proc: Process?, port = 0, serving: String?, up: Task<Bool, Never>?, idle: DispatchWorkItem?
-    private var server: String?, have: Set<String> = [], downloads: [String: Download] = [:], error: String?
+    private var heard: String?, server: String?, have: Set<String> = [], downloads: [String: Download] = [:], error: String?
     private lazy var session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)   // touched under lock
 
     private override init() {
@@ -394,7 +395,7 @@ final class Whisper: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     func status() -> [String: Any] {
         refresh()
         lock.lock(); defer { lock.unlock() }
-        return ["server": server != nil, "model": Self.model(Prefs.str("whisperModel")).id, "running": proc?.isRunning == true, "error": error ?? NSNull(),
+        return ["server": server != nil, "installing": Self.installing, "model": Self.model(Prefs.str("whisperModel")).id, "running": proc?.isRunning == true, "error": error ?? NSNull(),
                 "models": Self.models.map { m -> [String: Any] in
                     ["id": m.id, "name": m.name, "size": ByteCountFormatter.string(fromByteCount: m.bytes, countStyle: .file), "have": have.contains(m.id),
                      "progress": downloads[m.id].map { $0.progress as Any } ?? NSNull()] }]
@@ -524,10 +525,12 @@ final class Whisper: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
         guard pcm.count > 16000 * 3 / 10, pcm.contains(where: { abs($0) > 0.01 }) else { return "" }
         let (up, port) = try ensure()
         guard await up.value else { stop(); throw Failed("whisper-server didn’t start.") }   // the next try starts a fresh one
-        let boundary = "atticus-\(UUID().uuidString)", lang = Prefs.str("whisperLanguage")
+        let boundary = "atticus-\(UUID().uuidString)", lang = Prefs.str("whisperLanguage"), auto = lang.isEmpty || lang == "auto"
+        // under 1.5 s auto-detect guesses wildly (a flash of Chinese): use the language last heard clearly, else the Mac's
+        let language = !auto ? lang : pcm.count >= 24000 ? "auto" : lock.withLock { heard } ?? Locale.current.language.languageCode?.identifier ?? "auto"
         var body = Data()
         func field(_ name: String, _ value: String) { body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".utf8)) }
-        field("response_format", "verbose_json"); field("temperature", "0"); field("language", lang.isEmpty ? "auto" : lang)
+        field("response_format", "verbose_json"); field("temperature", "0"); field("language", language)
         if !prompt.isEmpty { field("prompt", prompt) }
         body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.wav\"\r\nContent-Type: audio/wav\r\n\r\n".utf8))
         body.append(Self.wav(pcm)); body.append(Data("\r\n--\(boundary)--\r\n".utf8))
@@ -538,6 +541,9 @@ final class Whisper: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
         lock.withLock { touch() }
         guard (resp as? HTTPURLResponse)?.statusCode == 200, let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw Failed(String(decoding: data.prefix(200), as: UTF8.self))
+        }
+        if auto, pcm.count >= 32000, let top = (json["language_probabilities"] as? [String: Double])?.max(by: { $0.value < $1.value }), top.value > 0.8 {
+            lock.withLock { heard = top.key }
         }
         // segments Whisper itself rates as probably not speech are its hallucinations
         let segments = json["segments"] as? [[String: Any]] ?? []
@@ -2287,7 +2293,7 @@ final class App: NSObject, WKScriptMessageHandler {
         if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined { AVCaptureDevice.requestAccess(for: .audio) { _ in speech() } }
         else { speech() }
     }
-    // Whisper: the mic fills whisperAudio; the listen timer re-transcribes it about every second for live words, and a segment
+    // Whisper: the mic fills whisperAudio; the listen timer re-transcribes it about every 0.6 s for live words, and a segment
     // closes on a pause after 25 s (hard at 30 s) so each pass stays short. Final passes queue on whisperChain, in order.
     let whisperAudio = WhisperAudio()
     var whisperListen = false, whisperBusy = false, whisperAsk = 0, whisperSent = 0.0, whisperQueued = 0.0, whisperPrompt = ""
@@ -3216,7 +3222,7 @@ final class App: NSObject, WKScriptMessageHandler {
                 whisperBusy = false; beginWhisperSegment(text)
             }
         }
-        guard secs - whisperSent >= 0.5, Date().timeIntervalSince(whisperAsked) >= 1 || quiet >= 0.3 && whisperVoice > whisperAsked else { return }
+        guard secs - whisperSent >= 0.4, Date().timeIntervalSince(whisperAsked) >= 0.6 || quiet >= 0.3 && whisperVoice > whisperAsked else { return }
         let pcm = whisperAudio.snapshot(), segment = activeSpeechSegment, prompt = whisperPrompt
         whisperAsk += 1; let ask = whisperAsk; whisperBusy = true; whisperAsked = Date(); whisperSent = Double(pcm.count) / 16000
         Task { [weak self] in
@@ -5538,10 +5544,19 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
         guard ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"].contains(where: FileManager.default.isExecutableFile) else {
             NSWorkspace.shared.open(URL(string: "https://github.com/ggml-org/whisper.cpp")!); return
         }
-        let f = NSTemporaryDirectory() + "atticus-whisper.command"
-        try? "#!/bin/zsh\nexport PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"\necho 'Atticus: installing whisper.cpp'\nbrew install whisper.cpp\necho; echo 'Done. You can close this window.'\n".write(toFile: f, atomically: true, encoding: .utf8)
-        chmod(f, 0o755)
-        NSWorkspace.shared.open(URL(fileURLWithPath: f))
+        guard !Whisper.installing, let brew = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"].first(where: FileManager.default.isExecutableFile) else { return }
+        // in the background, no Terminal: NONINTERACTIVE and no stdin, so brew never waits on a y/n question
+        let p = Process(); p.executableURL = URL(fileURLWithPath: brew); p.arguments = ["install", "whisper.cpp"]
+        var env = ProcessInfo.processInfo.environment; env["NONINTERACTIVE"] = "1"; env["HOMEBREW_NO_ENV_HINTS"] = "1"
+        env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + (env["PATH"] ?? ""); p.environment = env
+        p.standardInput = FileHandle.nullDevice; p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
+        p.terminationHandler = { [weak self] _ in DispatchQueue.main.async {
+            Whisper.installing = false; let s = Whisper.shared.status(); self?.send("whisper", s)
+            self?.send("notice", ["text": s["server"] as? Bool == true ? "whisper.cpp is installed." : "whisper.cpp didn’t install. In Terminal, run: brew install whisper.cpp"])
+        } }
+        Whisper.installing = true
+        do { try p.run() } catch { Whisper.installing = false }
+        send("whisper", Whisper.shared.status())
     }
 
     func apply(_ k: String, _ v: Any) {   // one setting changed, from this window or by voice (atticus.py --set)

@@ -332,7 +332,8 @@
       <div class="row"><div class="t"><b>Speech model</b><span>Speech is best for most people. All stay on this Mac. <i class="info" title="Speech: free, English (US), on this Mac. Dictation: the model your keyboard’s mic uses. Whisper: free, any language, runs whisper.cpp on this Mac.">i</i></span></div><div class="seg" data-k="speechModel"><button data-v="speech">Speech</button><button data-v="dictation">Dictation</button><button data-v="whisper">Whisper</button></div></div>
       <div class="row" data-w hidden><div class="t"><b>Whisper model</b><span>Bigger is slower and more accurate. <i class="info" title="Turbo: fast, very close to Large. Large v3: most accurate, slower. Small: lightest, least accurate. Downloaded once, then runs offline.">i</i></span></div><select data-k="whisperModel"><option value="turbo">Turbo · 574 MB</option><option value="large">Large v3 · 1.1 GB</option><option value="small">Small · 190 MB</option></select></div>
       <div class="row" data-w hidden><div class="t"><b>Language</b><span>Auto-detect works for most people.</span></div><select data-k="whisperLanguage"><option value="auto">Auto-detect</option><option value="en">English</option><option value="id">Indonesian</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="pt">Portuguese</option><option value="it">Italian</option><option value="nl">Dutch</option><option value="ja">Japanese</option><option value="ko">Korean</option><option value="zh">Chinese</option><option value="hi">Hindi</option><option value="ar">Arabic</option><option value="ru">Russian</option><option value="tr">Turkish</option><option value="vi">Vietnamese</option><option value="th">Thai</option><option value="pl">Polish</option><option value="sv">Swedish</option><option value="uk">Ukrainian</option></select></div>
-      <div class="row" data-w hidden><div class="t"><b>Whisper status</b><span class="status"><i class="dot bad" id="wdot"></i><span id="wtext" role="status" aria-live="polite">Checking…</span></span></div><div class="wacts"><button class="btn" id="winstall" hidden>Install</button><button class="btn blue" id="wdownload" hidden>Download</button><button class="btn" id="wcancel" hidden>Cancel</button><button class="btn red" id="wdelete" hidden>Delete</button></div></div>
+      <div class="row" data-w hidden><div class="t"><b>Whisper status</b><span class="status"><i class="dot bad" id="wdot"></i><span id="wtext" role="status" aria-live="polite">Checking…</span></span></div><div class="wacts"><button class="btn" id="winstall" hidden>Install</button><button class="btn blue" id="wdownload" hidden>Download</button><button class="btn" id="wcancel" hidden>Cancel</button></div></div>
+      <div class="row" id="wstored" hidden><div class="t"><b>Downloaded speech models</b><span>Stored on this Mac. Delete one to free its space.</span></div><div class="wacts" id="wstoredb"></div></div>
       <div class="row"><div class="t"><b>Sound volume</b></div><input type="range" min="0" max="0.6" step="0.02" data-k="volume"><span class="val" id="volv"></span></div>
     </div>
     <h3>Answers</h3>
@@ -634,7 +635,7 @@
   document.querySelectorAll('select[data-k^=whisper]').forEach(s => s.onchange = () => set(s.dataset.k, s.value));
   const wid = () => P.whisperModel || 'turbo';
   $('winstall').onclick = () => post({ do: 'whisperInstall' });
-  [['wdownload', 'whisperDownload'], ['wcancel', 'whisperCancel'], ['wdelete', 'whisperDelete']].forEach(([b, d]) => $(b).onclick = () => post({ do: d, id: wid() }));
+  [['wdownload', 'whisperDownload'], ['wcancel', 'whisperCancel']].forEach(([b, d]) => $(b).onclick = () => post({ do: d, id: wid() }));
   document.querySelectorAll('.seg[data-k]').forEach(g => g.querySelectorAll('button').forEach(b => b.onclick = () => set(g.dataset.k, b.dataset.v)));
   document.querySelectorAll('.sw input[data-k]').forEach(i => i.onchange = () => set(i.dataset.k, i.checked));
   document.querySelector('[data-k=wakeWordName]').onchange = e => set('wakeWordName', e.target.value.trim());
@@ -649,12 +650,21 @@
   const dim = (k, off) => { const e = document.querySelector(`[data-k=${k}]`); e.closest('.row').classList.toggle('dim', off); if (e.type === 'range') e.disabled = off; };   // greyed, not hidden: rows below stay put
   let W = null;   // last st.whisper status; the model select repaints from it with no round trip
   function paintWhisper() {
-    const m = W?.models?.find(m => m.id === wid()), dl = m?.progress != null, btn = !W ? '' : dl ? 'wcancel' : !W.server ? 'winstall' : !m?.have ? 'wdownload' : 'wdelete';
-    const text = !W ? 'Checking…' : dl ? `Downloading ${Math.round(m.progress * 100)}%…` : W.error || (!W.server ? 'Needs whisper.cpp.' : !m?.have ? 'Model not downloaded.' : 'Ready. Runs on this Mac.');
+    const m = W?.models?.find(m => m.id === wid()), dl = m?.progress != null, btn = !W || W.installing ? '' : dl ? 'wcancel' : !W.server ? 'winstall' : !m?.have ? 'wdownload' : '';
+    const text = !W ? 'Checking…' : W.installing ? 'Installing whisper.cpp… You can keep using your Mac.' : dl ? `Downloading ${Math.round(m.progress * 100)}%…` : W.error || (!W.server ? 'Needs whisper.cpp.' : !m?.have ? 'Model not downloaded.' : 'Ready. Runs on this Mac.');
     if ($('wtext').textContent !== text) $('wtext').textContent = text;   // same text: no repeat announcement
-    $('wtext').classList.toggle('wait', dl); $('wdot').classList.toggle('bad', !W || dl || !!W.error || !W.server || !m?.have);
-    ['winstall', 'wdownload', 'wcancel', 'wdelete'].forEach(b => $(b).hidden = b !== btn);
+    $('wtext').classList.toggle('wait', dl || !!W?.installing); $('wdot').classList.toggle('bad', !W || dl || !!W.error || !W.server || !m?.have);
+    ['winstall', 'wdownload', 'wcancel'].forEach(b => $(b).hidden = b !== btn);
+    const stored = W?.models?.filter(m => m.have) || [], key = stored.map(m => m.id).join();   // shown under any speech model, so space is always freeable
+    $('wstored').hidden = !stored.length;
+    if ($('wstoredb').dataset.key !== key) {
+      $('wstoredb').dataset.key = key;
+      $('wstoredb').replaceChildren(...stored.map(m => { const b = document.createElement('button'); b.className = 'btn red'; b.textContent = `Delete ${m.name} · ${m.size}`;
+        b.onclick = () => { if (P.speechModel === 'whisper' && m.id === wid()) set('speechModel', 'speech'); post({ do: 'whisperDelete', id: m.id }); };   // the talk key keeps working on Apple Speech
+        return b; }));
+    }
     $('wdownload').textContent = m?.size ? `Download ${m.size}` : 'Download';
+    $('wtext').closest('.row').hidden = P.speechModel !== 'whisper' || !!(W && !W.installing && !dl && !W.error && W.server && m?.have);   // ready: nothing to say or do
   }
   function paint() {
     const devin = P.client === 'devin', pi = P.client === 'pi', other = devin || pi;

@@ -103,22 +103,22 @@ class SettingsPageTests(unittest.TestCase):
         out = self.page("""const rows=()=>[...document.querySelectorAll('[data-w]')].map(r=>!r.hidden);
             const W=(over,models)=>({server:true,model:'turbo',running:false,error:null,models:models||[{id:'turbo',name:'Turbo',size:'574 MB',have:false,progress:null},
               {id:'large',name:'Large v3',size:'1.1 GB',have:true,progress:null},{id:'small',name:'Small',size:'190 MB',have:false,progress:.42}],...over});
-            const shown=()=>[$('wtext').textContent,['winstall','wdownload','wcancel','wdelete'].filter(b=>!$(b).hidden).join()];
+            const shown=()=>[$('wtext').textContent,['winstall','wdownload','wcancel'].filter(b=>!$(b).hidden).join()];
             st.whisper(W({server:false}));
-            const early=rows(); set('speechModel','dictation'); const dictation=rows();
+            const early=rows(); set('speechModel','dictation'); const dictation=rows(), stored=[!$('wstored').hidden,$('wstoredb').textContent];
             document.querySelector('[data-k=speechModel] [data-v=whisper]').click(); const whisper=rows();
-            const states=[shown()];
+            const states=[shown()]; st.whisper(W({server:false,installing:true})); states.push(shown());
             st.whisper(W({server:true})); states.push(shown(), [$('wdownload').textContent]);
             $('wdownload').click();
             document.querySelector('[data-k=whisperModel]').value='small'; document.querySelector('[data-k=whisperModel]').onchange(); states.push(shown()); $('wcancel').click();
-            document.querySelector('[data-k=whisperModel]').value='large'; document.querySelector('[data-k=whisperModel]').onchange(); states.push(shown()); $('wdelete').click();
+            document.querySelector('[data-k=whisperModel]').value='large'; document.querySelector('[data-k=whisperModel]').onchange(); states.push(shown(), [$('wtext').closest('.row').hidden]); $('wstoredb').querySelector('button').click(); const after=P.speechModel;
             document.querySelector('[data-k=whisperModel]').value='turbo'; document.querySelector('[data-k=whisperModel]').onchange();
             st.whisper(W({error:'Download failed. Check your connection and try again.'})); states.push(shown()); $('wdownload').click();
             const lang=document.querySelector('[data-k=whisperLanguage]'); lang.value='id'; lang.onchange();
-            return [early,dictation,whisper,states,P.whisperLanguage,lang.value];""")
+            return [early,dictation,whisper,states,P.whisperLanguage,lang.value,stored,after];""")
         self.assertEqual(out['result'], [[False] * 3, [False] * 3, [True] * 3,
-            [['Needs whisper.cpp.', 'winstall'], ['Model not downloaded.', 'wdownload'], ['Download 574 MB'], ['Downloading 42%…', 'wcancel'],
-             ['Ready. Runs on this Mac.', 'wdelete'], ['Download failed. Check your connection and try again.', 'wdownload']], 'id', 'id'])
+            [['Needs whisper.cpp.', 'winstall'], ['Installing whisper.cpp… You can keep using your Mac.', ''], ['Model not downloaded.', 'wdownload'], ['Download 574 MB'], ['Downloading 42%…', 'wcancel'],
+             ['Ready. Runs on this Mac.', ''], [True], ['Download failed. Check your connection and try again.', 'wdownload']], 'id', 'id', [True, 'Delete Large v3 · 1.1 GB'], 'speech'])
         for m in [{'do': 'set', 'k': 'speechModel', 'v': 'whisper'}, {'do': 'set', 'k': 'whisperModel', 'v': 'small'}, {'do': 'set', 'k': 'whisperLanguage', 'v': 'id'},
                   {'do': 'whisperDownload', 'id': 'turbo'}, {'do': 'whisperCancel', 'id': 'small'}, {'do': 'whisperDelete', 'id': 'large'}]:
             self.assertIn(m, out['posts'])
