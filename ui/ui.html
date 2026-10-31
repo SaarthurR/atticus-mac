@@ -18,7 +18,10 @@
   #fold svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   #fold:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   body.folded #card { padding: 6px 20px; min-height: 0 !important; }
-  body.folded :is(#thread, #comp, #pointbar, #mode, #agents-pill, .e, #grip) { display: none !important; }
+  body.fold-morph #card { transition: padding .25s var(--ease); }
+  body.fold-morph.fold-away #card { padding: 6px 20px; min-height: 0 !important; }
+  body.fold-morph #card > :not(#head) { opacity: 0; pointer-events: none; transition: opacity .25s var(--ease); }
+  body.folded:not(.fold-morph) :is(#thread, #comp, #pointbar, #mode, #agents-pill, .e, #grip) { display: none !important; }
   body.folded #fold { opacity: 0; pointer-events: none; }
   body.folded:is(:hover,.hot) #fold, body.folded #fold:focus-visible { opacity: 1; pointer-events: auto; }
   body.folded #status span:empty::before { content: 'Done'; }
@@ -469,19 +472,54 @@
   $('thread').addEventListener('wheel', e => { if (e.deltaY < 0) atBottom = false; else setTimeout(() => { const t = $('thread'); atBottom = t.scrollHeight - t.scrollTop - t.clientHeight < 90; }, 0); }, { passive: true });
   let defaultEnabled=false,defaultComposing=false;
   function defaultButton(){if(!visible||folded||defaultComposing||$('ask').value.trim()||document.hasFocus()&&document.querySelector('button:focus,select:focus,input:focus:not(#ask),textarea:focus,[contenteditable=true]:focus')||$('thread').querySelector('.pk:not(.gone),.ok:not(.agent-card):not(.gone)'))return null;return $('thread').querySelector('.agent-card .go:not(:disabled)');}
-  let folded = false, foldedScroll = 0;
-  const foldBox = on => {
-    if (folded === on) return;
-    if (on) foldedScroll = $('thread').scrollTop;
+  let folded = false, foldedScroll = 0, foldBeforeQuestion = false, foldAuto = false, foldSeq = 0, foldTimer = 0, foldDone = null;
+  const FOLD_MS = reduced.matches ? 0 : 250;
+  const foldBody = on => {
     folded = on; document.body.classList.toggle('folded', on);
     $('fold').title = on ? 'Expand answer' : 'Minimize answer';
     $('fold').setAttribute('aria-label', $('fold').title); $('fold').setAttribute('aria-expanded', !on);
     $('thread').inert = on; $('comp').inert = on || !$('comp').classList.contains('open');
     if (on) $('ask').blur();
-    fit(false);
-    if (!on) $('thread').scrollTop = foldedScroll;
   };
-  $('fold').onclick = () => foldBox(!folded);
+  const compactHeight = () => { document.body.classList.add('folded'); const h = $('card').offsetHeight; document.body.classList.remove('folded'); return h; };
+  const finishFold = on => {
+    clearTimeout(foldTimer);
+    document.body.classList.remove('fold-morph', 'fold-away');
+    foldBody(on);
+    if (!on) $('thread').scrollTop = foldedScroll;
+    fit(false);
+    const done = foldDone; foldDone = null; done?.();
+  };
+  const foldBox = (on, cb) => {
+    if (folded === on && !document.body.classList.contains('fold-morph')) { cb?.(); return; }
+    foldDone = cb || null;
+    if (on) foldedScroll = $('thread').scrollTop;
+    else if (!foldAuto) foldBeforeQuestion = false;
+    if (FOLD_MS === 0) { finishFold(on); return; }
+    clearTimeout(foldTimer);
+    const id = ++foldSeq;
+    document.body.classList.add('fold-morph');
+    if (on) {
+      document.body.classList.add('fold-away');
+      post({ fold: id, h: compactHeight() }); foldTimer = setTimeout(() => window.ui.foldSettled(id), FOLD_MS + 80);   // no rAF: a hidden box never paints, so it would never settle
+    } else {
+      document.body.classList.remove('folded');
+      post({ fold: id, h: $('card').offsetHeight }); foldTimer = setTimeout(() => window.ui.foldSettled(id), FOLD_MS + 80);
+    }
+  };
+  const refoldIfAsked = () => { if (!foldBeforeQuestion) return; foldBeforeQuestion = false; setTimeout(() => foldBox(true), 360); };
+  const unfoldForAnswer = fn => {
+    if (!folded) { fn?.(); return; }
+    foldBeforeQuestion = true; foldAuto = true;
+    foldBox(false, () => { foldAuto = false; fn?.(); });
+  };
+  const unfoldToEnd = () => folded && foldBox(false, () => { atBottom = true; $('thread').scrollTop = $('thread').scrollHeight; });   // a finished answer opens the box
+  const focusAnswer = () => {
+    const pk = $('thread').querySelector('.pk:not(.gone)');
+    if (pk) (pk.querySelector('.c') || pk.querySelector('.other'))?.focus();
+    else comp(true, true);
+  };
+  $('fold').onclick = () => { if (folded) foldBeforeQuestion = false; foldBox(!folded); };
   const fit = (follow = true) => {
     const card = $('card'); webkit.messageHandlers.h.postMessage(document.body.classList.contains('dictate') ? [card.offsetWidth, card.offsetHeight] : card.offsetHeight);   // the dictation pill sizes its width too
     if (!folded && follow && atBottom) $('thread').scrollTop = $('thread').scrollHeight;
@@ -771,6 +809,7 @@
   document.addEventListener('click', e => { const a = e.target.closest?.('a[href]'); if (a) { e.preventDefault(); e.stopPropagation(); post({ link: a.href }); } }, true);   // links open in the browser, never in the box
   document.addEventListener('keydown',e=>{const b=defaultButton();if(b&&e.key==='Enter'&&!e.isComposing&&!e.target.closest('button,input,textarea,select,a,[contenteditable=true]')){e.preventDefault();e.stopPropagation();b.click();}},true);
   window.ui = {
+    foldSettled(id) { if (id === foldSeq) finishFold(document.body.classList.contains('fold-away')); },
     agentDefaultAction(){defaultButton()?.click();},
     movePending(){turn()?.querySelectorAll('.pk,.ok:not(.agent-card)').forEach(e=>e.remove());status('Moving to an agent…',true);fit();},   // a waiting pick or Allow goes with the ask
     moveSource(){const r=$('orb').getBoundingClientRect();return [r.x,r.y,r.width,r.height];},
@@ -779,15 +818,15 @@
       $('thread').querySelector('.paused')?.remove();
       if(!on){status('Atticus resumed');fit();return}
       const d=document.createElement('div');d.className='ok offer paused';d.innerHTML='<b>Atticus is paused</b><div><button class="go">Resume</button></div>';d.querySelector('button').onclick=()=>post({resume:true});
-      $('thread').append(d);status('Paused');fit();
+      $('thread').append(d);status('Paused');unfoldForAnswer(focusAnswer);fit();
     },
     workerFailed(){
       working=false;clockStop();settle();status('Couldn’t start');
       const d=document.createElement('div');d.className='ok offer worker';d.innerHTML='<b>Atticus’s helper couldn’t start</b><p>Retry, or open Setup & Permissions to repair it.</p><div><button>Open Setup</button><button class="go">Retry</button></div>';
       const [setup,retry]=d.querySelectorAll('button');setup.onclick=()=>post({setup:true});retry.onclick=()=>{retry.disabled=true;status('Starting…',true);post({workerRetry:true})};
-      (turn()||$('thread')).append(d);fit();
+      (turn()||$('thread')).append(d);unfoldForAnswer(focusAnswer);fit();
     },
-    agentDone(row){agentCard(row);},
+    agentDone(row){agentCard(row);unfoldToEnd();},
     agentCancelled(){$('thread').querySelectorAll('.agent-card').forEach(e=>e.remove());if(!working&&!listening&&clockStart===null&&clockHeld===null)status('Ready');fit();},   // dismissing an old agent card does not stop the current ask
     // The box says plainly that an agent took the ask (its orb swims to the chip meanwhile), then fades; the chip shows its steps.
     agentStarted(row){$('thread').querySelectorAll('.agent-card').forEach(e=>{e.classList.add('gone');setTimeout(()=>{e.remove();fit();},360);});working=listening=false;settle();part('q')?.classList.remove('live','hear');setState('breathing');clockStop();
@@ -846,7 +885,7 @@
       fit();
     },
     pointCoach(open) { coachPending = true; if (open) comp(true); else if ($('comp').classList.contains('open')) coachShow(); },   // open: the first ask after setup shows it without a hover
-    finished() { clockStop(); miniFinish(false); unstream(); },
+    finished() { clockStop(); miniFinish(false); unstream(); unfoldToEnd(); },
     dictate(on) { dictateMode(on); },   // the last dictation's wave must not show on the next; its empty turn never reaches the box
     locked(on) { document.body.classList.toggle('locked', !!on); fit(false); },   // a double tap: hands-free until the next press; the pill makes room for the lock
     visible(on) { visible = on; if (!on) { clockStop(); miniClear(); } fit(false); },
@@ -1098,12 +1137,12 @@
       d.querySelectorAll(':scope > div > button').forEach((b, i) => b.onclick = e => {
         e.stopPropagation(); if (d.classList.contains('gone')) return;
         post(retry ? { pick: b.dataset.answer } : { allow: !!i }); clockGo(); status(retry ? (i ? 'Trying again' : 'Not now') : i ? 'Allowed' : 'Not allowed', true); setState('solving');
-        d.classList.add('gone'); follow(360); setTimeout(() => { d.remove(); fit(); }, 360);
+        d.classList.add('gone'); follow(360); setTimeout(() => { d.remove(); fit(); refoldIfAsked(); }, 360);
       });
-      (turn() || $('thread')).append(d); setState('breathing'); status('Waiting for you'); clockHold(); fit();
+      (turn() || $('thread')).append(d); setState('breathing'); status('Waiting for you'); clockHold(); unfoldForAnswer(focusAnswer); fit();
       setTimeout(() => {
         if (!d.isConnected || d.classList.contains('gone')) return;
-        post(retry ? { pick: 'n' } : { allow: false }); clockGo(); d.remove(); status(retry ? 'Offer expired' : 'Approval expired', true); setState('solving'); fit();
+        post(retry ? { pick: 'n' } : { allow: false }); clockGo(); d.remove(); status(retry ? 'Offer expired' : 'Approval expired', true); setState('solving'); fit(); refoldIfAsked();
       }, 60000);
     },
     improve() {   // once, after a task that worked: people who updated never saw setup's question
@@ -1135,7 +1174,7 @@
           st.firstChild.textContent = own ? 'You said: ' + own : 'Picked ' + options[i].label; part('steps').append(st);
         }
         status(s || (i < 0 ? 'None of these' : 'Picked'), true); setState('solving');
-        d.classList.add('gone'); follow(360); setTimeout(() => { d.remove(); fit(); }, 360);
+        d.classList.add('gone'); follow(360); setTimeout(() => { d.remove(); fit(); refoldIfAsked(); }, 360);
       };
       options.forEach((o, i) => {
         const c = document.createElement('button'); c.className = 'c'; c.style.animationDelay = i * 35 + 'ms';
@@ -1164,7 +1203,7 @@
       none.onclick = e => { e.stopPropagation(); done(-1); };
       back.onclick = e => { e.stopPropagation(); view(null); };
       go.onclick = e => { e.stopPropagation(); done([...g.children].indexOf(on)); };
-      (turn() || $('thread')).append(d); setState('breathing'); status('Waiting for you'); clockHold(); fit();
+      (turn() || $('thread')).append(d); setState('breathing'); status('Waiting for you'); clockHold(); unfoldForAnswer(focusAnswer); fit();
       setTimeout(() => d.isConnected && done(-1, 'Pick expired'), 105000);   // the brain stops waiting at 110 s
     },
     mode(safe) { $('mode').classList.toggle('on', !safe); },

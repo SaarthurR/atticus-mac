@@ -229,7 +229,7 @@ ui.line('… Late words');check(words()==='Final answer','a finished answer stay
 a.dataset={};a.replaceChildren();ui.line('✓ Fresh reply');check(a.words().length===2&&a.words().every(w=>w.className==='w'&&w.style.animationDelay),'an answer that did not stream still fades in');
 ''')
         self.assertIn('.a .w { display: inline-block; animation: word', page)   # the streamed words reuse the answer's fade (Reduce Motion turns it off)
-        for call in ('    finished() { clockStop(); miniFinish(false); unstream(); },', "unpin(); unstream();", ".forEach(e => e.remove()); unstream();"):
+        for call in ('    finished() { clockStop(); miniFinish(false); unstream(); unfoldToEnd(); },', "unpin(); unstream();", ".forEach(e => e.remove()); unstream();"):
             self.assertIn(call, page)   # a hand-off, an ask card or a choices card never leaves the provisional text
 
     @unittest.skipUnless(shutil.which('node'), 'Node runs the box handler')

@@ -137,6 +137,8 @@ return {quiet, timeout, gone: document.querySelectorAll('.hf').length, words: th
 
     def test_minimize_keeps_live_work_and_restores_scroll(self):
         got = self.render(r'''
+const tick = ms => new Promise(r => setTimeout(r, ms));
+const settle = () => document.getAnimations().filter(a => a.effect.getTiming().iterations !== Infinity).forEach(a => a.finish());
 ui.listen(true); ui.words('Explain'); ui.think(); ui.mode(false);
 ui.line('… ' + 'A long answer. '.repeat(300));
 const thread = document.getElementById('thread'), fold = document.getElementById('fold');
@@ -144,22 +146,25 @@ const shown = id => getComputedStyle(document.getElementById(id)).display !== 'n
 thread.dispatchEvent(new WheelEvent('wheel', {deltaY: -1})); thread.scrollTop = 45;
 const scroll = thread.scrollTop, height = document.getElementById('card').offsetHeight;
 fold.click();
+await tick(350); settle();
 const out = {compact: [document.body.classList.contains('folded'), document.getElementById('card').offsetHeight < height,
   ...['orb', 'status', 'x'].map(shown), ...['thread', 'comp', 'mode', 'agents-pill', 'grip'].map(shown), fold.getAttribute('aria-expanded')]};
 ui.line('▸ Reading the document'); out.step = document.getElementById('status').textContent;
 ui.tap([30, 20]); ui.hover(true); out.hover = [document.body.classList.contains('folded'), shown('comp')];
 ui.pointer([10, 10]); out.affordance = getComputedStyle(fold).opacity; ui.pointer([]);
-ui.line('✓ ' + 'Finished. '.repeat(300)); ui.finished();
-out.done = [document.body.classList.contains('folded'), getComputedStyle(document.querySelector('#status span'), '::before').content];
-const r = fold.getBoundingClientRect(); ui.pointer([r.x + r.width / 2, r.y + r.height / 2]); ui.tap([r.x + r.width / 2, r.y + r.height / 2]); out.restored = [thread.scrollTop === scroll, shown('mode'), fold.getAttribute('aria-expanded')];
-fold.click(); ui.listen(); out.next = [document.body.classList.contains('folded'), shown('thread')];
-fold.click(); ui.compose(true); out.typing = !document.body.classList.contains('folded');
+ui.line('✓ ' + 'Finished. '.repeat(300));
+const r = fold.getBoundingClientRect(); ui.pointer([r.x + r.width / 2, r.y + r.height / 2]); ui.tap([r.x + r.width / 2, r.y + r.height / 2]); await tick(350); settle(); out.restored = [thread.scrollTop === scroll, shown('mode'), fold.getAttribute('aria-expanded')];
+fold.click(); await tick(350); settle();
+ui.finished(); await tick(350); settle();
+out.done = [document.body.classList.contains('folded'), shown('thread'), thread.scrollHeight - thread.scrollTop - thread.clientHeight < 2];
+fold.click(); await tick(350); settle(); ui.listen(); out.next = [document.body.classList.contains('folded'), shown('thread')];
+fold.click(); await tick(350); settle(); ui.compose(true); out.typing = !document.body.classList.contains('folded');
 return out;
 ''')
         self.assertEqual(got['result'], {
             'compact': [True, True, True, True, True, False, False, False, False, False, 'false'],
             'step': 'Reading the document', 'hover': [True, False], 'affordance': '1',
-            'done': [True, '"Done"'], 'restored': [True, True, 'true'],
+            'done': [False, True, True], 'restored': [True, True, 'true'],
             'next': [False, True], 'typing': True,
         })
         self.assertIn(56, got['posts'])  # the native height bridge shrinks the actual panel

@@ -2697,6 +2697,23 @@ final class App: NSObject, WKScriptMessageHandler {
             // a click on the mini screen = the user wants to see it: the focus guard stands aside
             if b["miniOpen"] != nil { allowUntil = Date().addingTimeInterval(3); allowUserApp = true; userSwitch = Date(); mini.open(); if !busy { mini.reset(); hide(after:3) } }
             if b["miniClear"] != nil { mini.reset() }
+            if let id = b["fold"] as? Int, let h = b["h"] as? NSNumber {
+                var f = panel.frame
+                if !fromTop { f.origin.y = f.maxY - CGFloat(h.doubleValue) }
+                f.size.height = CGFloat(h.doubleValue)
+                guard f != panel.frame else { js("foldSettled", id); return }
+                if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                    frame(f); js("foldSettled", id)
+                } else {
+                    NSAnimationContext.runAnimationGroup({ ctx in
+                        ctx.duration = 0.25
+                        ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                        frame(f, animate: true)
+                    }, completionHandler: { [weak self] in self?.js("foldSettled", id) })
+                }
+                if drawing.active && !stuck && !dragging { avoidDrawing() }
+                return
+            }
             if let h = b["comp"] as? NSNumber { compH = CGFloat(h.doubleValue) }
             if let h = b["boxH"] as? NSNumber { Prefs.d["boxH"] = h.doubleValue }   // saved when the drag ends
             if let f = b["focus"] as? Bool {
@@ -4964,6 +4981,7 @@ if CommandLine.arguments.count >= 3, CommandLine.arguments[1] == "--text" {
         guard let all = try? await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false) else { return }
         // apps keep hidden helper windows: real ones first (normal layer, on screen, biggest), next one if a capture reads nothing
         let ws = all.windows.filter { ($0.owningApplication?.applicationName ?? "").localizedCaseInsensitiveContains(a[2]) && $0.windowLayer == 0 &&
+                $0.owningApplication?.bundleIdentifier != Bundle.main.bundleIdentifier &&
                 (words.isEmpty || ($0.title ?? "").lowercased().contains(words)) && $0.frame.width > 200 && $0.frame.height > 150 }
             .sorted { ($0.isOnScreen ? 1 : 0, $0.frame.width * $0.frame.height) > ($1.isOnScreen ? 1 : 0, $1.frame.width * $1.frame.height) }
         for w in ws.prefix(4) {
@@ -7796,16 +7814,20 @@ enum Hands {
             try validate(input); try trusted()
             if input[0] == "see" { let m = try capture(try app(input.count > 1 ? input[1] : nil)); try save(m); print(m.description); return 0 }
             if input[0] == "menu" {
+                let overlays = systemUI()
                 let a = try app(input[1]), label = try menu(input[2],a,act:false)
                 guard !Prefs.bool("safe") || !(riskyLabel(input[2]) || riskyLabel(label)) else { throw Failure("This menu action needs the user's Allow card. Use the normal hands click path.") }
                 claims = true; if userWindowsFile != nil { _ = try? root(a) }   // a menu command acts in the app's focused window: it claims that one
                 let target = MiniScreen.windowTarget(a,windows:CGWindowListCopyWindowInfo(.optionAll,kCGNullWindowID) as? [[String:Any]] ?? [])   // optional AX metadata must not turn a successful press into a timeout and duplicate action
                 print("Clicked \(quote(try menu(input[2],a,act:true)))")
+                usleep(150_000)
+                if let opened = openedSystemUI(overlays) { print(opened) }
                 if let target,
                    let data = try? JSONSerialization.data(withJSONObject:target.merging(["action":"click"]) { $1 }), let text = String(data:data,encoding:.utf8) { print("▣ " + text) }
                 return 0
             }
             claims = ["click","drag","type","type-after","press"].contains(input[0])
+            let overlays = systemUI()
             let old = try load(), a = try aimed(input, old); var before = try capture(a)
             let check = try checked(input, before, a)
             if input[0] == "press", [36,76].contains(try keys(input[1]).0) {
@@ -7904,14 +7926,17 @@ enum Hands {
             case "wait": result = try settle(a,seconds:input.count > 1 ? Double(input[1])! : 5) ? "Window settled" : "Window did not settle before the timeout"
             default: throw Failure("Unknown hands verb.")
             }
-            if input[0] != "wait" { usleep(25_000) }
+            if input[0] != "wait" { usleep(150_000) }
+            let opened = openedSystemUI(overlays)
+            if let opened { print(opened) }
             let after: Map
             do { after = try capture(a) }
             catch {
+                if opened != nil { print(result); return 0 }
                 if input[0] == "type" { print(result + " Further destination readback unavailable; do not repeat typing or Return."); return 0 }
                 throw error
             }
-            if input[0] == "click" {
+            if input[0] == "click" && opened == nil {
                 let (_, w) = try root(a)
                 var known = before; if known.page.isEmpty { known.page = after.page }   // a page the reader had not reached yet (a browser builds it lazily) is not a change
                 let same = after.signature == known.signature
@@ -7962,6 +7987,34 @@ enum Hands {
 }
 // MARK: - End Hands
 
+// Non-normal UI is observation only; never use these windows for app targeting.
+func systemUI() -> [String:String] {
+    let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly,.excludeDesktopElements],kCGNullWindowID) as? [[String:Any]] ?? []
+    var result: [String:String] = [:]
+    for w in windows {
+        guard let layer = w[kCGWindowLayer as String] as? Int, layer >= 0,
+              layer != Int(CGWindowLevelForKey(.dockWindow)), layer != Int(CGWindowLevelForKey(.mainMenuWindow)),
+              let pid = (w[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value,
+              let app = NSRunningApplication(processIdentifier:pid), (layer > 0 || app.activationPolicy != .regular), app.executableURL != Bundle.main.executableURL,
+              !(Bundle.main.bundleIdentifier.map { $0 == app.bundleIdentifier } ?? false),
+              (w[kCGWindowAlpha as String] as? Double ?? 1) > 0,
+              let f = MiniScreen.bounds(w), f.width > 1, f.height > 1,
+              let screen = NSScreen.screens.first(where: {
+                  CGDisplayBounds($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID ?? CGMainDisplayID()).intersects(f)
+              }), let id = w[kCGWindowNumber as String] as? NSNumber else { continue }
+        // shortcut: thin status strips cannot distinguish persistent menu extras from indicators; inspect pictures for their meaning.
+        if layer == Int(CGWindowLevelForKey(.statusWindow)) && f.height <= 40 && f.width > 100 { continue }
+        result[id.stringValue] = "\(w[kCGWindowOwnerName as String] as? String ?? "System") \(Int(f.width))×\(Int(f.height)) on \(screen.localizedName)"
+    }
+    return result
+}
+func openedSystemUI(_ before: [String:String]) -> String? {
+    let added = systemUI().filter { before[$0.key] != $0.value }.values.sorted()
+    return added.isEmpty ? nil : "New system UI: " + added.joined(separator:"; ") + ". UI opened; user interaction may be required. This does not confirm the requested task completed. Inspect with --look before describing controls or claiming success."
+}
+if CommandLine.arguments.dropFirst() == ["--system-ui"] {
+    if let data = try? JSONSerialization.data(withJSONObject:systemUI()) { print(String(decoding:data,as:UTF8.self)) }; exit(0)
+}
 if CommandLine.arguments == [CommandLine.arguments[0], "--raise"] || CommandLine.arguments == [CommandLine.arguments[0], "--raise", "user"] {
     DistributedNotificationCenter.default().postNotificationName(.init("atticus.raise"), object: CommandLine.arguments.count == 3 ? "user" : nil, deliverImmediately: true); usleep(50_000); exit(0)
 }

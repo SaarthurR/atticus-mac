@@ -129,6 +129,17 @@ expect(md('snake_case_name and _em_'),'<p>snake_case_name and <em>em</em></p>','
         resume = native[native.index('if b["resume"] != nil {'):native.index('if b["kofi"]')]
         self.assertIn('Atticus.settings.apply("paused", false)', resume)
 
+    def test_minimize_animates_via_fold_bridge_and_refolds_after_questions(self):
+        root = Path(__file__).resolve().parents[1]
+        box = (root / 'ui/ui.html').read_text()
+        swift = (root / 'Atticus.swift').read_text()
+        self.assertIn('body.fold-morph', box)
+        self.assertIn('foldBeforeQuestion', box)
+        self.assertIn('unfoldForAnswer(focusAnswer)', box)
+        self.assertIn('refoldIfAsked()', box)
+        self.assertIn('if let id = b["fold"] as? Int, let h = b["h"] as? NSNumber', swift)
+        self.assertIn('js("foldSettled", id)', swift)
+
 
 if __name__ == '__main__':
     unittest.main()

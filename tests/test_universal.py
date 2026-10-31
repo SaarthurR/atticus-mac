@@ -85,6 +85,14 @@ class UniversalTests(unittest.TestCase):
         self.assertIn('OCR (visible window text only)', result)
         self.assertEqual(worker.call_args.args[0], [atticus.APP, '--text', 'Unfamiliar Fixture', ''])
 
+    def test_empty_ocr_falls_back_to_ax_and_never_returns_blank(self):
+        ax = subprocess.CompletedProcess([], 0, '{"text":"Agent tab: RAM check","identity":"window-1"}')
+        with patch.object(atticus, 'hands_call', return_value=ax), patch.object(atticus.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1, '')):
+            self.assertIn('Agent tab: RAM check', atticus.window_text('Other Screen App', ocr=True))
+        with patch.object(atticus, 'hands_call', return_value=subprocess.CompletedProcess([], 0, '{"text":""}')), \
+             patch.object(atticus.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1, '')), patch.object(atticus, 'window_identity', return_value=''):
+            self.assertIn('--front "Other Screen App"', atticus.window_text('Other Screen App', ocr=True))
+
     def test_browser_reader_pins_target_and_passes_offsets(self):
         (self.root / 'window-summary.json').write_text(json.dumps({'app': 'Safari', 'web': True, 'incomplete': True}))
         with patch.object(atticus, 'web', return_value='Question ' * 900 + '\n[Read 0-8000 of 12000 chars; 4000 more chars]') as web:
