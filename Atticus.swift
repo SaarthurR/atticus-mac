@@ -3941,6 +3941,7 @@ final class App: NSObject, WKScriptMessageHandler {
                         self.retryOffer = true; self.askNeed = ["pick": true]; self.askFile = j["a"] as? String ?? ""; self.show(); self.js("pick", j); continue
                     }
                     if line.hasPrefix("▤ ") { self.showAgent = String(line.dropFirst(2)); continue }
+                    if line.hasPrefix("▥ ") { agentsUI.openView(String(line.dropFirst(2))); continue }
                     if line.hasPrefix("⇢ "), let value = try? JSONSerialization.jsonObject(with:Data(line.dropFirst(2).utf8)) as? [String:Any] {   // movable: ⌃⌥↩ moves it / {}: no longer movable
                         self.agentMoveFile = self.busy ? value["a"] as? String ?? "" : ""; continue
                     }
@@ -7432,13 +7433,16 @@ enum Hands {
     }
     static func wheel(_ direction: String, _ spot: CGPoint, _ a: NSRunningApplication, fraction: Double = 1, front: Bool = false) throws {
         guard env["ATTICUS_AX_ONLY"] != "1" else { throw Failure("Quartz mouse actions disabled for this fixture.") }
-        let pid = a.processIdentifier, window = targetWindow(a)
+        let pid = a.processIdentifier, window = windowAt(spot, pid) ?? targetWindow(a)
         if front || window == 0 || MiniScreen.workInFront { return try frontWheel(direction, spot, a, fraction: fraction) }
         guard let source = CGEventSource(stateID: .hidSystemState) else { throw Failure("Could not create scroll event.") }
         let vertical = ["down","up"].contains(direction), amount = Int32(((["down","right"].contains(direction) ? -500.0 : 500.0) * fraction).rounded())
         guard let move = CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: spot, mouseButton: .left),
               let event = CGEvent(scrollWheelEvent2Source: source, units: .pixel, wheelCount: 2, wheel1: vertical ? amount : 0, wheel2: vertical ? 0 : amount, wheel3: 0) else { throw Failure("Could not create scroll event.") }
-        deliver(move, at: spot, pid: pid, window: window); usleep(12_000)   // the wheel goes to whatever the window last saw under the pointer
+        try checkStopped()
+        let restoreOrder = keepOrder(pid); defer { restoreOrder() }
+        focusWithoutRaise(pid, window); defer { focusWithoutRaise(pid, window, on: false) }
+        deliver(move, at: spot, pid: pid, window: window); usleep(12_000)   // primed move + wheel stay in this task window, not the front app on top
         deliver(event, at: spot, pid: pid, window: window)
     }
     static func contentMoved(_ before: Map, _ after: Map) -> Bool {

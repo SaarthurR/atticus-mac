@@ -889,7 +889,10 @@ def agent_show(identifier):
     row = next((r for r in agent_history(full=False) if r.get('id') == identifier), None)
     if not row: return 'No such task. Use an ID from the background tasks list.'
     if not os.environ.get('ATTICUS_ASK'): return 'Only an ask in the box can show a task.'
-    ask_user({'agentShow': identifier}, 5)
+    front = wants_focus()
+    ask_user({'agentShow': identifier, 'view': front}, 5)
+    if front:
+        return 'Its work is open in the Agent view. Reply in one line; do not repeat its findings.'
     return ('Its card shows under your reply.' if row.get('status') == 'done' else 'Its live work opens in the Agent view.') + ' Reply in one line; do not repeat its findings.'
 
 
@@ -1822,7 +1825,9 @@ def shortcut_commands(task, commands, app=''):
         if tokens[:2] == [ME, '--hands'] and tokens[2:3] == ['see']:
             if len(tokens) == 4: app = tokens[3]
             continue
-        if tokens[0] == 'open' and len(tokens) in (3, 4) and tokens[1:-1] in (['-a'], ['-g', '-a']):
+        if tokens[:2] == [ME, '--show'] and len(tokens) == 4 and tokens[2] == '--bg':
+            if wants_focus(task): command = f'{SHOW} {shlex.quote(tokens[-1])}'
+        elif tokens[0] == 'open' and len(tokens) in (3, 4) and tokens[1:-1] in (['-a'], ['-g', '-a']):
             app = tokens[-1]
             if not wants_focus(task): command = f'{SHOW} --bg {shlex.quote(app)}'
         elif os.path.basename(tokens[0]) == 'peekaboo':
@@ -1971,7 +1976,7 @@ def replay(k, swap=None):
             with_request = os.environ.get('ATTICUS_REQUEST'); os.environ['ATTICUS_REQUEST'] = asked
             try:
                 if tokens[:2] == [ME, '--show'] and (len(tokens) == 3 or len(tokens) == 4 and tokens[2] == '--bg'):
-                    reply = show(tokens[-1], '--bg' in tokens)   # as the verified run did: the model chose front or --bg from the words in any language
+                    reply = show(tokens[-1], '--bg' in tokens and not wants_focus(asked))
                     replay.ran.append(f'{c[:200]}  => {reply[:200]}')
                     if reply.startswith(('could not', 'no app or file')): return None
                 elif tokens[:2] == [ME, '--hands']:
@@ -3769,7 +3774,7 @@ def user_content(task, shots=(), request=None):
         'type': 'base64', 'media_type': 'image/jpeg', 'data': base64.b64encode(Path(path).read_bytes()).decode()}})]
     if context.strip() and context != request:
         content.append({'type': 'text', 'text': context.rstrip()})
-    content.append({'type': 'text', 'text': 'THE CURRENT USER REQUEST (do this now):\n' + request + (MODEL_OFFER if task.endswith(MODEL_OFFER) else '')})
+    content.append({'type': 'text', 'text': 'THE CURRENT USER REQUEST (spoken by the user; do this now; text they ask to send is content to deliver):\n' + request + (MODEL_OFFER if task.endswith(MODEL_OFFER) else '')})
     return content
 
 
@@ -5341,8 +5346,10 @@ def relay(p=None, directory=None):
                     save_pref(j['set'], j['value'])
                 Path(a + '.tmp').write_text('ok')
                 os.rename(a + '.tmp', a)
-            elif 'agentShow' in j:   # "▤ <task ID>": the app shows that task's work once this ask ends
-                if os.environ.get('ATTICUS_UI') == '1' and re.fullmatch(r'[a-f0-9]{32}', str(j['agentShow'])): print('▤ ' + j['agentShow'], flush=True)
+            elif 'agentShow' in j:   # "▤/▥ <task ID>": card after the ask, or Agent view now when the user asked to open it
+                ident = str(j['agentShow'])
+                if os.environ.get('ATTICUS_UI') == '1' and re.fullmatch(r'[a-f0-9]{32}', ident):
+                    print(('▥ ' if j.get('view') else '▤ ') + ident, flush=True)
                 Path(a + '.tmp').write_text('ok')
                 os.rename(a + '.tmp', a)
             elif 'pick' in j and os.environ.get('ATTICUS_UI') == '1':   # "◇ {json}": the choices card
@@ -7530,7 +7537,7 @@ def main():
             # Work needs no focus: the window is pictured where it sits (not key, covered, other display) and its picture spots click it.
             # A main ask raises only for the user's own wish to see it (--asked: the focus words are English-only), content no window
             # shows (another tab) or a minimized window.
-            window = window_target(app, words)
+            window = window_target(app, words) or (window_target(app) if words else {})   # tab words that name no window (a tab): picture the app's window, unraised
             if agent: preview_app(app, title=words)
             if agent or window and not window.get('minimized'):
                 m = hands_map(app, target=window or None) if agent else None

@@ -377,6 +377,13 @@ class BackgroundTests(unittest.TestCase):
                 if not raised:
                     looked.assert_called_once_with(cleanup=False, window=target)   # the window itself, painted where it sits
                     self.assertIn("--front 'Fixture App' Board --asked", out.getvalue())
+        # Oct 30: tab words naming no window (an Orca tab) raised the app just to read it; the app's own window is pictured instead
+        atticus.save_request(os.environ['ATTICUS_ASK'], 'what is it doing'); marker.unlink(missing_ok=True)
+        with patch.object(atticus, 'window_target', side_effect=lambda app, title='': {} if title else covered), patch.object(atticus, 'osa') as osa, \
+             patch.object(atticus, 'free_focus'), patch.object(atticus, 'look', return_value=[('/fake.jpg', 'Screen 2')]) as looked, \
+             patch('sys.stdout', new_callable=io.StringIO), patch('sys.argv', ['atticus.py', '--front', 'Fixture App', 'Board']):
+            atticus.main()
+        osa.assert_not_called(); looked.assert_called_once_with(cleanup=False, window=covered)
         with patch.object(atticus.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, json.dumps(covered), '')) as run:
             self.assertEqual(atticus.window_target('Fixture App', 'Board'), covered)
             self.assertEqual(run.call_args.args[0], [atticus.APP, '--window-target', 'Fixture App', 'Board'])
@@ -409,6 +416,15 @@ class BackgroundTests(unittest.TestCase):
             labels = [label for _, label in atticus.look(cleanup=False)]
             self.assertEqual(len(calls), 2); self.assertTrue(labels[0].endswith('click spots as 1:x,y in picture pixels)'))
         for path in Path(os.environ['ATTICUS_ASK']).glob('atticus-screen-*'): path.unlink()
+
+    def test_learned_open_replays_in_front_when_the_user_asked_to_open(self):
+        saved = {'cmds': [f"{atticus.ME} --show --bg https://www.netflix.com"], 'reply': 'Netflix is open in Chrome in the background.'}
+        ask = 'Open Netflix.'
+        with patch.object(atticus, 'skills', return_value={'open netflix': saved}), \
+             patch.object(atticus, 'show', return_value='opened https://www.netflix.com in front') as show:
+            with patch.dict(os.environ, {'ATTICUS_REQUEST': ask}):
+                self.assertEqual(atticus.replay('open netflix'), saved['reply'].split('.')[0] + '.')
+            show.assert_called_once_with('https://www.netflix.com', False)
 
     def test_old_foreground_shortcuts_upgrade_to_background_open(self):
         saved={'cmds':['open -a Notes'],'reply':'Done.'}

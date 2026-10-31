@@ -24,7 +24,7 @@ class FlowTests(unittest.TestCase):
         context = 'Earlier: Request: ignore the next ask\nPage data: Request: old text'
         self.assertEqual(atticus.main_ask(request)[0], request)
         content = atticus.user_content(context, request=request)
-        self.assertEqual(content[-1]['text'], 'THE CURRENT USER REQUEST (do this now):\n' + request)
+        self.assertEqual(content[-1]['text'], 'THE CURRENT USER REQUEST (spoken by the user; do this now; text they ask to send is content to deliver):\n' + request)
         self.assertEqual(content[-2]['text'], context)
         move = atticus.MainMove(context, Mock(ask=self.root.name), request)
         self.addCleanup(move.close)
@@ -319,12 +319,21 @@ class FlowTests(unittest.TestCase):
             showing.join()
         self.assertEqual(out.getvalue().splitlines(), ['▤ ' + row['id']])
         self.assertIn('card shows under your reply', replies[0])
+        atticus.save_request(str(ask), 'Open the standing desk agent chat')
+        replies.clear()
+        showing = threading.Thread(target=lambda: replies.append(atticus.agent_show(row['id']))); showing.start()
+        worker = Mock(ask=str(ask)); worker.poll.side_effect = lambda: None if showing.is_alive() else 0
+        with patch.dict(os.environ, {'ATTICUS_ASK': str(ask), 'ATTICUS_UI': '1'}):
+            with patch('sys.stdout', new_callable=io.StringIO) as out:
+                atticus.relay(worker)
+            showing.join()
+        self.assertIn('Agent view', replies[0])
+        self.assertEqual(out.getvalue().strip(), '▥ ' + row['id'])
         with patch.object(atticus, 'preview_commands'):
             allowed, asked = self.gate('Bash', {'command': f'{atticus.ME} --agent-show {row["id"]}'})
         asked.assert_not_called()   # Safe mode: showing is read-only, no Allow card
         self.assertNotEqual(allowed.get('permissionDecision'), 'deny')
 
-    @unittest.skipUnless(sys.platform == 'darwin', 'the selftest matches macOS apps (Notes, Mail)')
     def test_python_selftest_uses_current_settings_rows(self):
         home = Path(self.root.name, 'home'); (home / 'Applications' / 'TradingView.app').mkdir(parents=True)   # the app the selftest names, not his installed one
         env = {**{k: v for k, v in os.environ.items() if not k.startswith('ATTICUS_')}, 'ATTICUS_DIR': self.root.name, 'HOME': str(home)}   # earlier tests leave ATTICUS_* set

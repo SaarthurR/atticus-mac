@@ -263,6 +263,16 @@ precondition(try! String(contentsOfFile:path, encoding:.utf8) == "y")
             for phrase in ['open the wifi menu in my menu bar', 'open teh wi-fi menu', 'click the battery icon']:
                 self.assertIsNotNone(atticus.fast_hands(phrase), phrase)
 
+    def test_background_wheel_keys_the_task_window_like_mouse(self):
+        source = (Path(__file__).resolve().parents[1] / 'Atticus.swift').read_text()
+        mouse = source[source.index('    static func mouse('):source.index('    static func screenLease(')]
+        wheel = source[source.index('    static func wheel('):source.index('    static func contentMoved(')]
+        for token in ('keepOrder(pid)', 'focusWithoutRaise(pid, window)'):
+            self.assertIn(token, mouse)
+            self.assertIn(token, wheel)
+        self.assertIn('windowAt(from, a.processIdentifier)', mouse)
+        self.assertIn('windowAt(spot, pid)', wheel)
+
     @unittest.skipUnless(sys.platform == 'darwin' and shutil.which('swiftc'), 'macOS Swift matcher')
     def test_background_command_key_runs_its_exact_menu_item(self):
         source = (Path(__file__).resolve().parents[1] / 'Atticus.swift').read_text()

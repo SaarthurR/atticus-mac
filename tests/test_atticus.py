@@ -560,7 +560,7 @@ print(json.dumps({{"type": "result", "is_error": True, "result": "Authentication
         blocks = sent['message']['content']
         self.assertIn('Earlier:', blocks[-2]['text'])
         self.assertNotIn('can you write out', blocks[-2]['text'])
-        self.assertEqual(blocks[-1]['text'], 'THE CURRENT USER REQUEST (do this now):\n'
+        self.assertEqual(blocks[-1]['text'], 'THE CURRENT USER REQUEST (spoken by the user; do this now; text they ask to send is content to deliver):\n'
                          'can you write out a similar equation and work it out on the screen')
 
     def test_on_screen_results_require_fresh_context_and_draw(self):
@@ -861,7 +861,7 @@ print('Ready.')
             self.assertNotIn('dangerous', args)
             prompt = args[args.index('-p') + 1]
             self.assertIn('Context: old Request: distractor', prompt)
-            self.assertTrue(prompt.endswith('THE CURRENT USER REQUEST (do this now):\nWrite a note titled Request: Vacation'))
+            self.assertTrue(prompt.endswith('THE CURRENT USER REQUEST (spoken by the user; do this now; text they ask to send is content to deliver):\nWrite a note titled Request: Vacation'))
             self.assertEqual(Path(atticus.request_file(Path(args[args.index('--config') + 1]).parent.parent)).read_text(), 'Write a note titled Request: Vacation')
             self.assertEqual(args[args.index('--permission-mode') + 1], 'normal')
             config = json.loads(Path(args[args.index('--config') + 1]).read_text())
@@ -1053,7 +1053,7 @@ print(json.dumps({{'type':'message_end','message':{{'role':'assistant','content'
             args = json.loads(log.read_text())
             self.assertEqual(args[-2], '@' + str(frame))
             self.assertIn('Context: old Request: distractor', args[-1])
-            self.assertTrue(args[-1].endswith('THE CURRENT USER REQUEST (do this now):\nWrite a note titled Request: Vacation'))
+            self.assertTrue(args[-1].endswith('THE CURRENT USER REQUEST (spoken by the user; do this now; text they ask to send is content to deliver):\nWrite a note titled Request: Vacation'))
             self.assertEqual(Path(atticus.request_file(Path(args[args.index('--extension') + 1]).parent)).read_text(), 'Write a note titled Request: Vacation')
             self.assertEqual(args[args.index('--mode') + 1], 'json')
             self.assertIn('--no-session', args)
