@@ -90,6 +90,14 @@ class BackgroundTests(unittest.TestCase):
         self.assertEqual(self.gate('osascript -e \'tell application "Notes" to activate\''), 'allow')
         self.assertEqual(self.gate('printf Notes | xargs open -a'), 'allow')
 
+    def test_focus_denial_names_the_helper_that_opens_behind(self):
+        # a bare "--show --bg" was read as flags for open, or as a Bash background-process problem
+        with patch('sys.stdin', io.StringIO(json.dumps({'tool_input': {'command': 'open -a Safari https://example.com'}}))), \
+             patch('sys.stdout', new_callable=io.StringIO) as out, patch.object(atticus, 'preview_app'):
+            atticus.gate()
+        reason = json.loads(out.getvalue())['hookSpecificOutput']['permissionDecisionReason']
+        self.assertIn(f'{atticus.SHOW} --bg', reason); self.assertIn(atticus.HANDS, reason); self.assertNotIn('background', reason)
+
     def test_one_helper_targets_every_app_and_records_last_window(self):
         with patch.object(atticus.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, json.dumps(self.target))) as run:
             for app in ['Spotify', 'Notes', 'Reminders', 'Finder']:

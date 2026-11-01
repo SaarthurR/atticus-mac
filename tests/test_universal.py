@@ -331,6 +331,14 @@ class UniversalTests(unittest.TestCase):
              patch.object(atticus.subprocess, 'Popen', return_value=empty):
             self.assertEqual(atticus.app_named('finder'), 'Finder')
 
+    def test_a_nameless_app_bundle_never_breaks_app_matching(self):
+        found = Mock(returncode=0); found.communicate.return_value = ('/Applications/ .app\n', '')
+        with patch.object(atticus, '_APPS_CACHE', (0, set())), patch.object(atticus.os.path, 'isdir', return_value=True), \
+             patch.object(atticus.os, 'listdir', return_value=['.app', 'Fixture.app']), patch.object(atticus.subprocess, 'Popen', return_value=found):
+            self.assertEqual(atticus.installed_apps(), {'Fixture'})
+            self.assertIsNone(atticus.app_named('unknown words'))
+            self.assertIsNone(atticus.app_heard('unknwn'))
+
     def test_app_discovery_uses_fast_cached_spotlight_results_with_folder_fallback(self):
         found = Mock(returncode=0)
         found.communicate.return_value = ('/Applications/Bundle/Pages.app\n/System/Applications/Notes.app\n', '')

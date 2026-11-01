@@ -815,7 +815,7 @@ def gate():
     recursive = recursive_ask(tokens)
     if ARRANGE.search(cmd): free_focus()
     if recursive or focus_command(cmd) and not wants_focus() and pref('workIn', 'back') != 'front':
-        decision(False, 'Tools cannot start another ask.' if recursive else 'Work in the background. Use --show --bg or hands; focus only when asked.')
+        decision(False, 'Tools cannot start another ask.' if recursive else f'Keep the user\'s window in front: {SHOW} --bg "<url|path|app>" opens it behind, or use {HANDS}; focus only when asked.')
         return
     if (re.search(r'ATTICUS_HANDS_RECEIPT|ATTICUS_\w+\s*=|--hands\s+label\b', cmd) or
         '--hands' in cmd and (APP in cmd or 'ATTICUS_APP' in cmd or re.search(r'(?:^|[/\s\"\'])Atticus(?:-real)?(?:[\s\"\']|$)', cmd)) or
@@ -1634,7 +1634,7 @@ def installed_apps():
         apps = set()
     except OSError:
         apps = set()
-    _APPS_CACHE = (time.monotonic() if apps else time.monotonic() - 3595, apps | fallback)
+    _APPS_CACHE = (time.monotonic() if apps else time.monotonic() - 3595, {a for a in apps | fallback if a.strip()})   # a stray ".app" folder has no name
     return _APPS_CACHE[1]
 
 
