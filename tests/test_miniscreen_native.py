@@ -25,7 +25,23 @@ __NATIVE__
 let app = NSApplication.shared; app.setActivationPolicy(.accessory)
 let activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleDisplaySleepDisabled], reason: "Atticus isolated window fixtures")
 let mode = CommandLine.arguments[1]
-if mode == "cover" || mode == "activation" { app.setActivationPolicy(.regular) }
+if mode == "cover" || mode == "activation" || mode == "exact" { app.setActivationPolicy(.regular) }
+if mode == "exact" {
+    let rect=NSRect(x:40,y:40,width:600,height:375),height=NSScreen.screens.first!.frame.height,pid=ProcessInfo.processInfo.processIdentifier
+    let target=NSWindow(contentRect:rect,styleMask:[.titled],backing:.buffered,defer:false),other=NSWindow(contentRect:rect,styleMask:[.titled],backing:.buffered,defer:false)
+    target.title="Atticus exact target";other.title="Atticus same-frame window"
+    target.orderFrontRegardless();other.makeKeyAndOrderFront(nil)
+    DispatchQueue.main.asyncAfter(deadline:.now()+0.3) {
+        let f=target.frame
+        MiniScreen().open(["pid":pid,"windowID":String(target.windowNumber),"windowFrame":[Double(f.minX),Double(height-f.maxY),Double(f.width),Double(f.height)]])
+        DispatchQueue.main.asyncAfter(deadline:.now()+0.5) {
+            precondition(NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,"Mini click did not bring its app forward")
+            precondition(app.keyWindow === target,"Mini click did not key its exact window: \(app.keyWindow?.title ?? "none")")
+            print("exact window keyed over a same-frame window; AX trusted: \(AXIsProcessTrusted())");exit(0)
+        }
+    }
+    app.run()
+}
 if mode == "cover" {
     let cover=NSWindow(contentRect:NSRect(x:100,y:100,width:300,height:200),styleMask:[.titled],backing:.buffered,defer:false)
     cover.title="Atticus activation cover";cover.makeKeyAndOrderFront(nil)
@@ -34,7 +50,7 @@ if mode == "cover" {
 }
 if mode == "activation" {
     let target=NSWindow(contentRect:NSRect(x:40,y:40,width:600,height:375),styleMask:[.titled],backing:.buffered,defer:false)
-    let other=NSWindow(contentRect:NSRect(x:70,y:70,width:400,height:300),styleMask:[.titled],backing:.buffered,defer:false)
+    let other=NSWindow(contentRect:NSRect(x:40,y:40,width:600,height:375),styleMask:[.titled],backing:.buffered,defer:false)   // same frame: only the window number tells them apart
     target.title="Atticus exact activation target";other.title="Atticus other activation window"
     target.orderFrontRegardless();other.orderFrontRegardless()
     let mini=MiniScreen(),pid=ProcessInfo.processInfo.processIdentifier
@@ -48,9 +64,11 @@ if mode == "activation" {
         DispatchQueue.main.asyncAfter(deadline:.now()+0.3) {
             precondition(NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,"Mini click did not activate its running process")
             if AXIsProcessTrusted() { precondition(app.orderedWindows.first === target,"Mini click raised the wrong window") }
+            let key = app.keyWindow === target
+            precondition(app.keyWindow !== other,"Mini click keyed a different window at the same frame")
             MiniScreen.activate(coverPID)
             precondition(NSWorkspace.shared.frontmostApplication?.processIdentifier == coverPID,"Guard did not restore the working app")
-            print("background process activation, mini handoff and focus restoration ok; AX trusted: \(AXIsProcessTrusted())");exit(0)
+            print("background process activation, mini handoff and focus restoration ok; AX trusted: \(AXIsProcessTrusted()); exact window key: \(key)");exit(0)
         }
     }
     app.run()
@@ -169,6 +187,11 @@ class MiniScreenNativeTests(unittest.TestCase):
             print(result.stdout.strip(),flush=True)
         finally:
             cover.terminate();cover.communicate(timeout=5)
+
+    def test_click_keys_the_exact_window_without_system_events(self):
+        result = subprocess.run([str(self.binary),'exact'],env=self.env,capture_output=True,text=True,timeout=10)
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+        print(result.stdout.strip(),flush=True)
 
     def test_visibility(self):
         result = subprocess.run([str(self.binary),'visibility'],env=self.env,capture_output=True,text=True,timeout=5)

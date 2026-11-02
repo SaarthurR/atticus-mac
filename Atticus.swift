@@ -1960,6 +1960,20 @@ final class MiniScreen: NSObject, SCStreamOutput, SCStreamDelegate {
         DistributedNotificationCenter.default().postNotificationName(.init("atticus.raise"), object: "user", deliverImmediately: true)
         usleep(50_000); activate(app.processIdentifier)
     }
+    static let windowServer = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY)
+    static let postRecord = dlsym(windowServer, "SLPSPostEventRecordTo").map { unsafeBitCast($0, to: (@convention(c) (UnsafeRawPointer, UnsafeRawPointer) -> Int32).self) }
+    static let processForPid = dlsym(dlopen("/System/Library/Frameworks/ApplicationServices.framework/Frameworks/HIServices.framework/HIServices", RTLD_LAZY), "GetProcessForPID").map { unsafeBitCast($0, to: (@convention(c) (pid_t, UnsafeMutableRawPointer) -> Int32).self) }
+    static let setFront = dlsym(windowServer, "_SLPSSetFrontProcessWithOptions").map { unsafeBitCast($0, to: (@convention(c) (UnsafeRawPointer, UInt32, UInt32) -> Int32).self) }
+    // That one window comes forward as key, switching to its Space or display, even when its app is already in front (yabai's focus with raise, as AltTab does).
+    static func front(_ pid: Int32, _ window: UInt32) -> Bool {
+        var psn: [UInt32] = [0, 0], record = [UInt8](repeating: 0, count: 0xF8)
+        guard let setFront, let postRecord, let processForPid, processForPid(pid, &psn) == 0,
+              psn.withUnsafeBytes({ setFront($0.baseAddress!, window, 0x200) }) == 0 else { return false }   // 0x200: user generated
+        record[0x04] = 0xF8; record[0x3A] = 0x10; record.replaceSubrange(0x20..<0x30, with: repeatElement(0xFF, count: 16))
+        withUnsafeBytes(of: window.littleEndian) { record.replaceSubrange(0x3C..<0x40, with: $0) }
+        for kind: UInt8 in [1, 2] { record[0x08] = kind; _ = psn.withUnsafeBytes { p in record.withUnsafeBytes { postRecord(p.baseAddress!, $0.baseAddress!) } } }   // the app makes that window key
+        return true
+    }
     static func bounds(_ info: [String:Any]) -> CGRect? {
         (info[kCGWindowBounds as String] as? NSDictionary).flatMap { CGRect(dictionaryRepresentation:$0) }
     }
@@ -2144,16 +2158,19 @@ final class MiniScreen: NSObject, SCStreamOutput, SCStreamDelegate {
         clip.isHidden = !(live || transitioning) || r[2] <= 0 || r[3] <= 0
         CATransaction.commit()
     }
-    func open() {
-        guard (CGWindowListCopyWindowInfo(.optionAll,kCGNullWindowID) as? [[String:Any]] ?? []).contains(where: {
-            ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value == id && ($0[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid
-        }) else { return }
-        guard let a = NSRunningApplication(processIdentifier:pid), !a.isTerminated, let f = target?["windowFrame"] as? [Double], f.count == 4 else { return }
-        let processID = pid, windowID = id
+    // Shows the previewed window itself (default: this preview's), without starting or stopping a stream. False: the window is gone.
+    @discardableResult func open(_ value: [String:Any]? = nil) -> Bool {
+        guard let value = value ?? target, let processID = (value["pid"] as? NSNumber)?.int32Value, let windowID = UInt32(value["windowID"] as? String ?? ""),
+              let info = (CGWindowListCopyWindowInfo(.optionAll,kCGNullWindowID) as? [[String:Any]] ?? []).first(where: {
+            ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value == windowID && ($0[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == processID
+        }), let frame = Self.bounds(info) else { return false }
+        guard let a = NSRunningApplication(processIdentifier:processID), !a.isTerminated else { return false }
+        let f = [frame.minX,frame.minY,frame.width,frame.height].map(Double.init)
         let raise = {
             let windows = axAttribute(AXUIElementCreateApplication(processID),kAXWindowsAttribute) as? [AXUIElement] ?? []
             let direct = windows.filter { axWindowNumber($0)?.uint32Value == windowID }
             let matches = direct.isEmpty ? windows.filter {
+                guard axWindowNumber($0) == nil else { return false }   // a window known to be another one never stands in for it, even at the same frame
                 guard let p = axAttribute($0,kAXPositionAttribute), let s = axAttribute($0,kAXSizeAttribute), CFGetTypeID(p) == AXValueGetTypeID(), CFGetTypeID(s) == AXValueGetTypeID() else { return false }
                 var origin = CGPoint.zero, size = CGSize.zero
                 guard AXValueGetValue(p as! AXValue,.cgPoint,&origin), AXValueGetValue(s as! AXValue,.cgSize,&size) else { return false }
@@ -2164,10 +2181,12 @@ final class MiniScreen: NSObject, SCStreamOutput, SCStreamDelegate {
                 AXUIElementPerformAction(matches[0],kAXRaiseAction as CFString)
             }
         }
-        Self.activate(processID); raise()
+        if !Self.front(processID, windowID) { Self.activate(processID) }
+        raise()
         DispatchQueue.main.asyncAfter(deadline:.now()+0.3) {   // AX windows on another Space can appear after activation returns
             if NSWorkspace.shared.frontmostApplication?.processIdentifier == processID { raise() }
         }
+        return true
     }
 }
 
@@ -4223,7 +4242,7 @@ final class AgentPanels: NSObject, WKScriptMessageHandler {
     func accept(_ id:String, from:[Double]? = nil) {
         guard !Prefs.bool("paused") else { return }
         guard var row = rows[id] else { return }
-        let full = rows.values.filter { ["running","needs-you","waiting-screen"].contains($0["status"] as? String ?? "") }.count >= 3   // as Agents.running() counts
+        let full = rows.values.filter { ["running","needs-you","waiting-screen"].contains($0["status"] as? String ?? "") && $0["ended"] == nil }.count >= 3   // as Agents.running() counts
         row["status"] = full ? "queued" : "running"; row["step"] = full ? "Queued" : "Starting…"; rows[id] = row
         ensureShelf(); placeShelf(app.panel.isVisible ? app.panel.screen : NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) })
         nearSince = nil; shelf?.alphaValue = 1; shelf?.ignoresMouseEvents = false
@@ -4483,9 +4502,18 @@ final class AgentPanels: NSObject, WKScriptMessageHandler {
         }
         app.allowUntil = Date().addingTimeInterval(3); app.allowUserApp = true   // a click in our own panel never reaches the global monitor, so the focus guard took this for an app raising itself
         if row["destination"] as? String == "meeting" { meeting.open(); meeting.showAgentPrep(row); return }
+        // Its preview, or the page in the tab it worked in: that window itself, in any app. Only a gone window opens the page as a link.
+        let worked = (row["made"] as? [[String:Any]])?.first { $0["tab"] != nil }, page = worked?["url"] as? String
+        let window = row["target"] as? [String:Any], work = ((worked?["tab"] as? [String:Any])?["target"] as? [String:Any]) ?? window
+        if !reveal, let shown = target == nil ? window : target == page ? work : nil, mini.open(shown) {
+            send(target == nil ? ["action":"page","id":id] : ["action":"page","id":id,"url":target!])   // a browser brings its own window across Spaces, tab selected; shown after the task ended, it is his now
+            return
+        }
         let raw = target ?? ((row["made"] as? [[String:Any]])?.first?["url"] as? String) ?? (row["links"] as? [String])?.first   // the main thing it made
         if let raw {
-            if let url = URL(string:raw), ["https","http"].contains(url.scheme?.lowercased() ?? "") { NSWorkspace.shared.open(url); return }
+            if let url = URL(string:raw), ["https","http"].contains(url.scheme?.lowercased() ?? "") {
+                NSWorkspace.shared.open(url); return
+            }
             let path = raw.hasPrefix("file://") ? URL(string:raw)?.path ?? "" : NSString(string:raw).expandingTildeInPath
             let root = row["directory"] as? String ?? ""
             let url = URL(fileURLWithPath:path.hasPrefix("/") ? path : root + "/" + path).standardizedFileURL
@@ -4494,8 +4522,7 @@ final class AgentPanels: NSObject, WKScriptMessageHandler {
             }
         }
         if reveal, let folder = row["directory"] as? String { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath:folder)]); return }
-        if let target = row["target"] as? [String:Any] { mini.receive(target); mini.open(); mini.reset() }
-        else { openView(id) }
+        openView(id)
     }
     func userContentController(_ controller:WKUserContentController,didReceive message:WKScriptMessage) {
         guard let body = message.body as? [String:Any], let action = body["action"] as? String else { return }
@@ -7198,12 +7225,10 @@ enum Hands {
     }
     // An app hands mouse input to a window's content only while it counts that window as key. This window-server focus record makes it so
     // without raising the window, activating the app or taking key from the user's window (yabai's focus without raise, via cua-driver).
-    static let postRecord = dlsym(skyLight, "SLPSPostEventRecordTo").map { unsafeBitCast($0, to: (@convention(c) (UnsafeRawPointer, UnsafeRawPointer) -> Int32).self) }
-    static let processForPid = dlsym(dlopen("/System/Library/Frameworks/ApplicationServices.framework/Frameworks/HIServices.framework/HIServices", RTLD_LAZY), "GetProcessForPID").map { unsafeBitCast($0, to: (@convention(c) (pid_t, UnsafeMutableRawPointer) -> Int32).self) }
     // Off (after the gesture) hands the app back its inactive state.
     static func focusWithoutRaise(_ pid: Int32, _ window: UInt32, on: Bool = true) {
         var psn: [UInt32] = [0, 0], record = [UInt8](repeating: 0, count: 0xF8)
-        guard let postRecord, let processForPid, processForPid(pid, &psn) == 0 else { return }
+        guard let postRecord = MiniScreen.postRecord, let processForPid = MiniScreen.processForPid, processForPid(pid, &psn) == 0 else { return }
         record[0x04] = 0xF8; record[0x08] = 0x0D; record[0x8A] = on ? 1 : 2
         withUnsafeBytes(of: window.littleEndian) { record.replaceSubrange(0x3C..<0x40, with: $0) }
         usleep(on ? 0 : 50_000)   // the gesture's queued events land while the window is still key

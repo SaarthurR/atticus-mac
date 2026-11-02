@@ -83,6 +83,8 @@ const document={createElement:t=>new N(t),createElementNS:(ns,t)=>new N(t,ns),cr
 const html=n=>typeof n==='string'?n:'<'+n.tag+(n.className?'.'+n.className:'')+Object.entries({...n.attrs,...(n.title?{title:n.title}:{}),...(n.href?{href:n.href}:{}),...(n.start?{start:n.start}:{})}).map(([k,v])=>' '+k+'='+v).join('')+'>'+n.kids.map(html).join('')+'</'+n.tag+'>';
 ''' + helper + r'''
 const md=t=>html(markdown(t)),expect=(got,want,name)=>{if(!got.includes(want)){console.error(name+'\n got: '+got+'\nwant: '+want);process.exit(1)}};
+expect(md('Quiz\n<details>\n<summary>Answers</summary>\n\n1. **si**\n\n</details>\n\nMore?').replace(/\s/g,''),'<details><summary>Answers</summary>','a fold renders as a fold');
+if(md('Quiz\n<details>\n<summary>Answers</summary>\n\nsi\n\n</details>\n\nMore?').includes('&lt;')||md('Quiz\n<details>\nsi').includes('&lt;details'))process.exit(1);
 expect(md('$\\frac{\\sqrt{7}}{\\sqrt{10}-\\sqrt{2}}$'),'<math displaystyle=true><mfrac><msqrt><mn>7</mn></msqrt><mrow><msqrt><mn>10</mn></msqrt><mo>−</mo><msqrt><mn>2</mn></msqrt></mrow></mfrac></math>','A stacked fraction with real radicals');
 expect(md('$$x^2_1$$'),'<math display=block><msubsup><mi>x</mi><mn>1</mn><mn>2</mn></msubsup></math>','Display math with scripts');
 expect(md('$\\sum_{i=1}^n i$'),'<munderover><mo movablelimits=true>∑</mo>','Big operators take limits');

@@ -806,6 +806,7 @@
     answer.onscroll();working=false;clockStop();setState('breathing');status('Done');fit();
   };
   $('agents-pill').onclick=()=>post({agents:true});
+  document.addEventListener('toggle', () => follow(420), true);   // an answer's fold opened: the box grows with it
   document.addEventListener('click', e => { const a = e.target.closest?.('a[href]'); if (a) { e.preventDefault(); e.stopPropagation(); post({ link: a.href }); } }, true);   // links open in the browser, never in the box
   document.addEventListener('keydown',e=>{const b=defaultButton();if(b&&e.key==='Enter'&&!e.isComposing&&!e.target.closest('button,input,textarea,select,a,[contenteditable=true]')){e.preventDefault();e.stopPropagation();b.click();}},true);
   window.ui = {

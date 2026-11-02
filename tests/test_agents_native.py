@@ -41,7 +41,7 @@ enum Prefs {
 final class KeyPanel:NSPanel{override var canBecomeKey:Bool{true}}
 final class MiniScreen {
  let clip=NSView();var forcePreview=false;var target:[String:Any]?,timer:Timer?,publish:(([String:Any])->Void)?
- func reset(){target=nil};func receive(_ value:[String:Any]){target=value};func stopCapture(clear:Bool){};func finish(){};func open(){};func layout(_ value:[String:Any]){}
+ func reset(){target=nil};func receive(_ value:[String:Any]){target=value};func stopCapture(clear:Bool){};func finish(){};@discardableResult func open(_ value:[String:Any]?=nil)->Bool{opened=value;return windowOpen};var opened:[String:Any]?,windowOpen=true;func layout(_ value:[String:Any]){}
 }
 enum MeetingFrame {
  static func key(_ s:NSScreen)->String{"fixture"}
@@ -114,6 +114,23 @@ agentsUI.receive(["event":"offer","agent":["id":id,"title":"Standing desks","sta
 precondition(app.agentCard.isEmpty && agentsUI.rows[id]?["status"] as? String=="running","Offered agent waited for a card")
 print("offer starts ok");exit(0)
 ''','offer starts ok')
+
+    def test_preview_click_opens_its_window_and_keeps_the_preview(self):
+        run_fixture(self,'''let agentsUI=AgentPanels()
+let id=String(repeating:"c",count:32),window:[String:Any]=["pid":123,"windowID":"42","windowFrame":[0.0,0.0,800.0,600.0]]
+let tabWindow:[String:Any]=["pid":123,"windowID":"77","windowFrame":[0.0,0.0,800.0,600.0]]
+agentsUI.receive(["event":"list","agents":[["id":id,"title":"Research","status":"done","created":Date().timeIntervalSince1970,"target":window,
+  "made":[["url":"fixture://source"],["url":"https://example.com/","tab":["app":"Browser Fixture","adapter":"chromium","window":5,"tab":6,"target":tabWindow]]]]]])
+agentsUI.mini.target=window
+agentsUI.open(id)
+precondition(agentsUI.mini.opened?["windowID"] as? String=="42","A preview click opened a link it made, not its window")
+precondition(agentsUI.mini.target != nil,"A preview click tore down the live preview")
+agentsUI.mini.opened=nil;agentsUI.open(id,target:"https://example.com/")
+precondition(agentsUI.mini.opened?["windowID"] as? String=="77","The page it worked in did not show the window of its tab")
+agentsUI.mini.opened=nil;agentsUI.open(id,target:"fixture://source")
+precondition(agentsUI.mini.opened==nil,"Another link it reported moved a window")
+agentsUI.process?.terminate();print("preview click opens its window ok");exit(0)
+''','preview click opens its window ok')
 
     def test_badge_counts_only_working_agents_but_restart_guard_keeps_live_work(self):
         run_fixture(self,'''let agentsUI=AgentPanels()

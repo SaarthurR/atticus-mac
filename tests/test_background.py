@@ -248,13 +248,39 @@ class BackgroundTests(unittest.TestCase):
                 self.assertIn('page text',atticus.web('read',url[0],app='Fixture Browser'))
             first,second=[a for a in scripts if 'make new tab' in a[2]]
             self.assertEqual((first[-1],second[-1]),('0','77'))   # the second page reuses the task's window
-            self.assertIn('make new window',first[2]);self.assertIn('set index of prior to 1',first[2])
+            self.assertIn('make new window',first[2]);self.assertIn('set index of w to (count windows)',first[2]);self.assertNotIn('index of prior',first[2])   # its window goes behind; the user's is never pulled forward
             behind.assert_called_once_with('Editor','Fixture Browser',wait=.5)
             saved=Path(atticus.agent_gate_dir(os.environ['ATTICUS_ASK']),'browser-window.json')
             self.assertEqual(json.loads(saved.read_text()),{'app':'Fixture Browser','window':77});self.assertEqual(saved.stat().st_mode&0o777,0o600)
             atticus.close_agent_window(os.environ['ATTICUS_ASK'])
             self.assertIn('close window id 77',scripts[-1][2]);self.assertFalse(saved.exists())
             count=len(scripts);atticus.close_agent_window(os.environ['ATTICUS_ASK']);self.assertEqual(len(scripts),count)   # never a window it did not open
+
+    def test_agent_rereads_of_the_page_its_tab_shows_read_it_live(self):
+        # A configurator changed its own URL as options were picked; reopening the start URL reloaded a fresh tab and lost them.
+        scripts=[];start='https://shop.fixture.test/build';here={'href':start,'document':'1700.5'}
+        def result(args,**kw):
+            if args[0]=='pgrep': return subprocess.CompletedProcess(args,0)
+            script=args[2];scripts.append(script)
+            if 'make new tab' in script: return subprocess.CompletedProcess(args,0,'77\t'+str(len(scripts))+('\tnew' if args[-1]=='0' else '\t'),'')
+            if 'get {name, bounds}' in script: return subprocess.CompletedProcess(args,0,'Fixture, 0, 0, 300, 200','')
+            if 'performance.timeOrigin' in args[-1]: return subprocess.CompletedProcess(args,0,here['href']+'\t'+here['document']+'\n','')
+            return subprocess.CompletedProcess(args,0,json.dumps({'signature':here['href']+'|ready'}) if '"ready", ' in args[-1][-35:] else 'page at '+here['href'],'')
+        made=lambda:len([s for s in scripts if 'make new tab' in s])
+        with patch.dict(os.environ,{'ATTICUS_AGENT':'fixture'}),patch.object(atticus,'browser_adapter',return_value='chromium'),patch.object(atticus,'page_ready',return_value=True), \
+             patch.object(atticus,'preview_app',return_value=None),patch.object(atticus,'hands_map'),patch.object(atticus,'osa',return_value='Editor'), \
+             patch.object(atticus,'keep_behind'),patch.object(atticus,'running_app',return_value='Fixture Browser'),patch.object(atticus.subprocess,'run',side_effect=result):
+            self.assertIn('page at '+start,atticus.web('read',start,app='Fixture Browser'))
+            self.assertEqual(json.loads(Path(os.environ['ATTICUS_ASK'],'web.json').read_text())['opened'],start)
+            here['href']=start+'-large-blue'   # the page's own URL change: the same document
+            self.assertIn('page at '+start+'-large-blue',atticus.web('read',start,app='Fixture Browser'))
+            self.assertIn('page at '+start+'-large-blue',atticus.show(start,bg=True))
+            self.assertEqual(made(),1)   # no new tab, no reload
+            here.update(href=start+'/help',document='1800.25')   # a link loaded a new document: the start URL opens afresh
+            self.assertIn('page at',atticus.web('read',start,app='Fixture Browser'))
+            self.assertEqual(made(),2)
+            here['document']='1900.75';self.assertIn('page at',atticus.web('read',start+'/help',app='Fixture Browser'))   # the URL it shows now
+            self.assertEqual(made(),2)
 
     def test_agent_site_placement_uses_main_open_path_only_when_requested(self):
         url = 'https://unseen.example/catalog'

@@ -951,6 +951,12 @@ const markdown = text => {
       while (i < lines.length && row.test(lines[i])) { const tr = table.appendChild(el('tr')); cells(lines[i++]).forEach(c => tr.append(inline(el('td'), c))); }
       out.append(wrap); continue;
     }
+    if (/^\s*<details\b[^>]*>/i.test(lines[i])) {   // the model folds a spoiler: a real fold, its inside rendered as usual; still streaming, the rest stays inside
+      const fold = []; let depth = 0;
+      while (i < lines.length) { depth += (lines[i].match(/<details\b/gi) || []).length - (lines[i].match(/<\/details>/gi) || []).length; fold.push(lines[i++]); if (depth <= 0) break; }
+      const [, summary, inside] = fold.join('\n').replace(/^\s*<details\b[^>]*>/i, '').replace(/<\/details>\s*$/i, '').match(/^\s*(?:<summary\b[^>]*>([\s\S]*?)<\/summary>)?([\s\S]*)$/i);
+      const d = out.appendChild(el('details')); d.append(inline(el('summary'), summary?.trim() || 'Details'), markdown(inside)); continue;
+    }
     if ((m = lines[i].match(/^\s*#{1,4}\s+(.*)/))) { out.append(inline(el('div', 'h'), m[1])); i++; continue; }
     if (/^\s*-{3,}\s*$/.test(lines[i])) { out.append(el('hr')); i++; continue; }
     if ((m = lines[i].match(item))) {
@@ -958,7 +964,7 @@ const markdown = text => {
       while (i < lines.length && (m = lines[i].match(item))) { list.append(inline(el('li'), m[2])); i++; }
       out.append(list); continue;
     }
-    const para = []; while (i < lines.length && lines[i].trim() && !(para.length && (item.test(lines[i]) || /^\s*(#{1,4}\s|```|-{3,}\s*$)/.test(lines[i]) || isTable(i)))) para.push(lines[i++].trim());
+    const para = []; while (i < lines.length && lines[i].trim() && !(para.length && (item.test(lines[i]) || /^\s*(#{1,4}\s|```|-{3,}\s*$|<details\b)/i.test(lines[i]) || isTable(i)))) para.push(lines[i++].trim());
     out.append(inline(el('p'), para.join('\n')));
   }
   return out;

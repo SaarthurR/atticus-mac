@@ -13,6 +13,7 @@ import tempfile
 import threading
 import time
 import unittest
+import uuid
 from unittest.mock import patch
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -1301,6 +1302,133 @@ class AgentTests(unittest.TestCase):
         self.receipt(row,'Bash',{'command':command},error=True)
         self.receipt(row,'Bash',{'command':command})
         self.assertEqual(atticus.agent_commands(row,'Arrange Editor'),[command])
+
+    def test_an_unanswered_pick_stays_on_the_card_and_its_answer_continues_the_task(self):
+        row=self.prepare('DONE fixture');self.manager.start(row['id']);self.until(lambda:row['status']=='done')
+        pick={'pick':'Which size is offered?','options':['Small','Large'],'_a':str(Path(self.root.name)/'answers'/('d'*32))}
+        row.update(status='needs-you',question=pick)   # the user walked away; the pick tool gave up and the agent ended its turn
+        done=len([e for e in self.events if e.get('event')=='done'])
+        with patch.object(atticus,'close_agent_window') as close,patch.object(atticus,'work_tab_page') as page:
+            self.manager.finish(row,'done','Waiting for your pick. [agent-result {"summary":"Waiting for a size."}]')
+        self.assertEqual(row['status'],'needs-you');self.assertIs(row['question'],pick)
+        close.assert_not_called();page.assert_not_called()   # its tab stays open with the work for the answer
+        self.assertEqual(len([e for e in self.events if e.get('event')=='done']),done)   # never a done card over an open question
+        later=atticus.Agents(emit=lambda e:None,launch=lambda r:None);self.addCleanup(later.close)
+        self.assertEqual(later.rows[row['id']]['status'],'needs-you');self.assertEqual(later.rows[row['id']]['question']['pick'],pick['pick'])   # after a restart too
+        self.manager.command({'action':'answer','id':row['id'],'answer':'1','question':pick['_a']})
+        self.until(lambda:any('"Large"' in e.get('text','') for e in atticus.read_rows(str(Path(row['directory'])/'log.jsonl')) if e.get('event')=='followup'))
+        self.assertIsNone(row['question'])
+        self.until(lambda:row['status']=='done')
+        with patch.dict(os.environ,{'ATTICUS_ASK':row['directory'],'ATTICUS_AGENT':row['id']}),patch.object(atticus,'ask_user',return_value=None),contextlib.redirect_stdout(io.StringIO()) as out:
+            atticus.pick('Which one?',['A','B'])
+        self.assertIn('stays on this task',out.getvalue());self.assertIn('end your turn',out.getvalue())
+
+    def test_the_card_links_the_tab_the_task_worked_in_and_opens_it_live(self):
+        row=self.prepare('DONE fixture');self.manager.start(row['id']);self.until(lambda:row['status']=='done')
+        gate=Path(atticus.agent_gate_dir(row['directory']));window={'pid':123,'windowID':'4242','windowFrame':[0,0,800,600]}
+        tab={'app':'Browser Fixture','adapter':'chromium','window':55,'tab':9,'target':window}
+        start,final='https://shop.fixture.test/build','https://shop.fixture.test/build-large-blue'
+        with patch.dict(os.environ,{'ATTICUS_ASK':row['directory'],'ATTICUS_AGENT':row['id']}):
+            atticus.remember_work_tab({**tab,'url':final})
+        self.assertEqual(json.loads((gate/'work-tab.json').read_text()),tab)   # its window too: the card shows that exact window
+        row['timeline'].append({'sources':[{'url':start,'title':'shop.fixture.test','domain':'shop.fixture.test'}]})
+        def browser(args,**kw):
+            if args[0]=='pgrep': return subprocess.CompletedProcess(args,0)
+            if args[0]=='osascript' and 'first tab of window id 55 whose id is 9' in args[2]: return subprocess.CompletedProcess(args,0,final+'\tBuild – Large, Blue\n','')
+            return subprocess.CompletedProcess(args,1,'','')
+        with patch.object(atticus.subprocess,'run',side_effect=browser),patch.object(atticus,'close_agent_window'):
+            self.manager.finish(row,'done','Picked every option. [agent-result '+json.dumps({'summary':'Configured.','links':[start,'https://help.fixture.test/sizes']})+']')
+        self.assertEqual([m['url'] for m in row['made']],[final,'https://help.fixture.test/sizes'])   # the live page first, not the model's copy; the start page is a source
+        self.assertEqual((row['made'][0]['title'],row['made'][0]['tab']),('Build – Large, Blue',tab));self.assertFalse((gate/'work-tab.json').exists())
+        with patch.object(atticus,'show_tab') as show:
+            self.manager.command({'action':'page','id':row['id'],'url':'https://help.fixture.test/sizes'})   # a link with no tab of its own: Swift opens it
+            self.manager.command({'action':'page','id':row['id'],'url':final})
+            self.until(lambda:show.called)
+        show.assert_called_once_with(row['made'][0]['tab'])
+        with patch.object(atticus,'show_tab') as preview:   # its preview: the tab it has open, only if the previewed window is that browser's
+            page={'app':'Browser Fixture','adapter':'chromium','window':5,'tab':6}
+            Path(row['directory'],'web.json').write_text(json.dumps(page))
+            row['target']={'app':'Other App'};self.manager.command({'action':'page','id':row['id']})
+            time.sleep(.1);preview.assert_not_called()
+            row['target']={'app':'Browser Fixture'};self.manager.command({'action':'page','id':row['id']})
+            self.until(lambda:preview.called);preview.assert_called_once_with(page)
+        for adapter,shown in (('chromium','set active tab index of w to k'),('webkit','set current tab of w to tab')):
+            for code in (0,1):   # 1: the tab is gone; Swift already showed the window, so nothing opens as a link
+                with self.subTest(adapter=adapter,code=code):
+                    calls=[]
+                    fake=lambda args,**kw:calls.append(args) or subprocess.CompletedProcess(args,code if args[0]=='osascript' else 0,'','')
+                    with patch.object(atticus.subprocess,'run',side_effect=fake):
+                        atticus.show_tab({**tab,'adapter':adapter})
+                    script=next(a for a in calls if a[0]=='osascript');self.assertIn(shown,script[2])
+                    for shows in ('set index of w to 1','activate'): self.assertIn(shows,script[2])   # the browser's own ordering is what crosses Spaces
+                    for moves in ('reload','URL'): self.assertNotIn(moves,script[2])   # the page stays as it is
+                    self.assertEqual(script[3:],['9','55'])
+                    self.assertEqual([a for a in calls if a[0]=='open'],[])
+
+    def test_only_one_ended_task_keeps_the_window_it_worked_in_until_its_card_goes_or_the_user_takes_it(self):
+        rows=[self.prepare('DONE fixture '+str(i)) for i in range(4)]
+        for row in rows:self.manager.start(row['id'])
+        self.until(lambda:all(r['status']=='done' for r in rows))
+        page=lambda r:{'title':'Build','url':'https://shop.fixture.test/b','type':'','tab':{'app':'Browser Fixture','adapter':'chromium','window':55,'tab':9}}
+        closed=[]
+        with patch.object(atticus,'close_agent_window',side_effect=closed.append),patch.object(atticus,'work_tab_page',side_effect=lambda d:page(d) if d!=rows[1]['directory'] else {}):
+            self.manager.finish(rows[0],'done','Configured.')
+            self.manager.finish(rows[1],'done','Only read pages.')   # a task that only read closes its window as before
+            self.until(lambda:closed==[rows[1]['directory']]);self.assertTrue(rows[0]['keptWindow'])
+            self.manager.finish(rows[2],'done','Configured another.')   # a newer kept window closes the older one
+            self.until(lambda:rows[0]['directory'] in closed);self.assertNotIn('keptWindow',rows[0]);self.assertTrue(rows[2]['keptWindow'])
+            later=atticus.Agents(emit=lambda e:None,launch=lambda r:None);self.addCleanup(later.close)
+            self.assertTrue(later.rows[rows[2]['id']]['keptWindow'])   # still known after a restart
+            self.manager.command({'action':'remove','id':rows[2]['id']})   # its card goes: its window goes
+            self.until(lambda:rows[2]['directory'] in closed)
+            self.manager.finish(rows[3],'done','Configured a third.')
+            gate=Path(atticus.agent_gate_dir(rows[3]['directory']));(gate/'browser-window.json').write_text('{"app":"Browser Fixture","window":55}')
+            with patch.object(atticus,'show_tab'):self.manager.command({'action':'page','id':rows[3]['id'],'url':'https://shop.fixture.test/b'})
+            self.assertFalse((gate/'browser-window.json').exists());self.assertNotIn('keptWindow',rows[3])   # opened from the card: it is the user's now
+            self.manager.command({'action':'remove','id':rows[3]['id']});time.sleep(.2)
+        self.assertEqual(len(closed),3)
+
+    def test_an_ended_task_waiting_for_a_pick_takes_no_slot_and_can_be_stopped(self):
+        rows=[self.prepare('DONE fixture '+str(i)) for i in range(3)]
+        for row in rows:self.manager.start(row['id'])
+        self.until(lambda:all(r['status']=='done' for r in rows))
+        closed=[]
+        with patch.object(atticus,'close_agent_window',side_effect=closed.append):
+            for i,row in enumerate(rows):
+                row.update(status='needs-you',question={'pick':'Which size?','options':['Small','Large'],'_a':'x'*32+str(i)})
+                self.manager.finish(row,'done','Waiting for a size.')
+            self.assertEqual(self.manager.running(),0)
+            self.until(lambda:closed==[rows[0]['directory'],rows[1]['directory']])   # one kept window at a time, waiting ones too
+            fresh=self.prepare('WAIT fixture');self.manager.start(fresh['id']);self.assertEqual(fresh['status'],'running')
+            later=atticus.Agents(emit=lambda e:None,launch=lambda r:None);self.addCleanup(later.close)
+            self.assertEqual(sum(r['status']=='needs-you' for r in later.rows.values()),3);self.assertEqual(later.running(),0)
+            self.manager.command({'action':'stop','id':rows[2]['id']})   # Stop on its card ends it and closes its window
+            self.until(lambda:rows[2]['directory'] in closed)
+        self.assertEqual(rows[2]['status'],'stopped');self.assertIsNone(rows[2]['question'])
+
+    def test_a_pick_answered_just_after_the_pick_tool_gave_up_still_continues_the_task(self):
+        answers=Path(self.root.name)/'answers';answers.mkdir(exist_ok=True)
+        for read in (False,True):
+            with self.subTest(read_by_the_tool=read):
+                row=self.prepare('DONE fixture');self.manager.start(row['id']);self.until(lambda:row['status']=='done')
+                pick={'pick':'Which size?','options':['Small','Large'],'_a':str(answers/uuid.uuid4().hex)}
+                row.update(status='needs-you',question=pick);row.pop('ended')
+                self.manager.command({'action':'answer','id':row['id'],'answer':'1','question':pick['_a']})
+                self.assertEqual(row['status'],'running');self.assertEqual(Path(pick['_a']).read_text(),'1')
+                if read:os.remove(pick['_a'])   # the tool took it in time: nothing to hand on
+                with patch.object(atticus,'close_agent_window'):self.manager.finish(row,'done','Waiting for a size.')
+                self.assertFalse(Path(pick['_a']).exists())
+                followups=lambda:[e for e in atticus.read_rows(str(Path(row['directory'])/'log.jsonl')) if e.get('event')=='followup' and '"Large"' in e.get('text','')]
+                if read:time.sleep(.2);self.assertEqual(followups(),[]);self.assertEqual(row['status'],'done')
+                else:self.until(lambda:bool(followups()));self.assertNotIn('answer',pick)
+
+    def test_a_fresh_agent_hears_the_users_own_words_beside_the_brief(self):
+        words='order a maxed out laptop for me'
+        row=self.prepare('WAIT order the top model with 16 TB',request=words);self.manager.start(row['id'])
+        sent=next(e['text'] for e in atticus.read_rows(str(Path(row['directory'])/'log.jsonl')) if e.get('event')=='followup')
+        self.assertIn('The user said (data): '+words,sent)
+        same=self.prepare('WAIT fixture',request='WAIT fixture');self.manager.start(same['id'])
+        self.assertNotIn('The user said',next(e['text'] for e in atticus.read_rows(str(Path(same['directory'])/'log.jsonl')) if e.get('event')=='followup'))
 
     def test_missing_connector_asks_on_the_chip_and_resumes_once_connected(self):
         row=self.prepare('DONE fixture');self.manager.start(row['id']);self.until(lambda:row['status']=='done')

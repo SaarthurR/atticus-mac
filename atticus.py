@@ -878,6 +878,9 @@ def pick(question, options):
         return print('No options given.')
     s = ask_user({'pick': question, 'options': options[:8]}, 110) if os.environ.get('ATTICUS_ASK') else None   # 110 s: under the AI's 2-minute tool limit
     if s is None:
+        if os.environ.get('ATTICUS_AGENT'):   # a background task's question outlives this tool call: it stays on the task's card
+            return print('The user has not picked yet. Do not guess. Your question stays on this task\'s card and their pick continues this task here: '
+                         'end your turn now, saying what is done and that you wait for their pick.')
         return print('The user did not pick. Do not guess; say you need them to pick one.')
     if s.startswith('='):
         return print(f'None of these. The user typed their own answer instead: "{s[1:301]}". Go with that.')
@@ -2614,6 +2617,63 @@ def page_ready(read, want=''):
     return False
 
 
+def page_document(page):
+    """(URL, document id) of a browser tab, or None; the id changes when a new document loads, never when the page changes its own URL."""
+    _, tell = browser_terms(page['app'], page['adapter'], page['window'], page['tab'])
+    try: r = subprocess.run(['osascript', '-e', f'on run argv\n{tell}\nend run', 'location.href + "\\t" + performance.timeOrigin'], capture_output=True, text=True, timeout=2)
+    except (OSError, subprocess.TimeoutExpired): return None
+    found = r.stdout.strip().split('\t') if not r.returncode and isinstance(r.stdout, str) else []
+    return tuple(found) if len(found) == 2 and all(found) else None
+
+
+def live_page(app, adapter, window, url):
+    """This task's tab when it already shows url: that URL now, or the document opened for it, moved only by a redirect or its own
+    URL change. Reading it again must not reload it and lose what was done there."""
+    try:
+        with open(os.path.join(os.environ['ATTICUS_ASK'], 'web.json')) as f: page = json.load(f)
+    except (KeyError, OSError, ValueError): return None
+    if not isinstance(page, dict) or [page.get(k) for k in ('app', 'adapter', 'window')] != [app, adapter, window] or type(page.get('tab')) is not int: return None
+    now = page_document(page)
+    return page if now and (now[0] == url or page.get('opened') == url and now[1] == page.get('document')) else None
+
+
+def remember_work_tab(page):
+    """An agent clicked or filled in this tab: at the end its card links this page, read live from the tab."""
+    if not os.environ.get('ATTICUS_AGENT'): return
+    try: private_json(os.path.join(agent_gate_dir(os.environ['ATTICUS_ASK']), 'work-tab.json'),
+                      {**{k: page[k] for k in ('app', 'adapter', 'window', 'tab')}, **({'target': page['target']} if isinstance(page.get('target'), dict) else {})})   # target: its window, for the card
+    except (KeyError, OSError): pass
+
+
+def work_tab_page(directory):
+    """The page in the tab an agent worked in, as a card link with its tab ({} when gone), so the card never relies on the model copying it."""
+    path = os.path.join(agent_gate_dir(directory), 'work-tab.json')
+    try:
+        with open(path) as f: tab = json.load(f)
+        os.remove(path)
+        if not all(type(tab.get(k)) is int and tab[k] > 0 for k in ('window', 'tab')) or subprocess.run(['pgrep', '-xq', tab['app']], timeout=.5).returncode: return {}
+        target = f'first tab of window id {tab["window"]} whose id is {tab["tab"]}' if tab['adapter'] == 'chromium' else f'tab {tab["tab"]} of window id {tab["window"]}'
+        name = 'title' if tab['adapter'] == 'chromium' else 'name'
+        r = subprocess.run(['osascript', '-e', f'tell application "{osa_quote(tab["app"])}" to return (URL of {target}) & (ASCII character 9) & ({name} of {target})'],
+                           capture_output=True, text=True, timeout=1)
+        url, _, title = (r.stdout or '').strip('\n').partition('\t')
+        if r.returncode or not re.match(r'https?://', url): return {}
+        return {'title': ' '.join(title.split())[:180], 'url': url[:2000], 'type': '', 'tab': tab}
+    except (KeyError, TypeError, AttributeError, OSError, ValueError, subprocess.TimeoutExpired): return {}
+
+
+def show_tab(tab):
+    """The user asked to see a task's browser window: that window comes to him with its tab selected, as it is, never reloaded.
+    Only the browser's own ordering crosses Spaces when it is already the front app; accessibility cannot reach a window on another Space."""
+    try:
+        if tab.get('adapter') in ('chromium', 'webkit') and not subprocess.run(['pgrep', '-xq', tab['app']], timeout=.5).returncode:
+            select = ('set k to 0\nrepeat with i from 1 to count tabs of w\nif id of tab i of w is ((item 1 of argv) as integer) then set k to i\nend repeat\n'
+                      'if k > 0 then set active tab index of w to k\n' if tab['adapter'] == 'chromium' else 'set current tab of w to tab ((item 1 of argv) as integer) of w\n')
+            subprocess.run(['osascript', '-e', f'on run argv\ntell application "{osa_quote(tab["app"])}"\nset w to window id ((item 2 of argv) as integer)\n{select}'
+                            'set index of w to 1\nactivate\nend tell\nend run', str(tab['tab']), str(tab['window'])], capture_output=True, text=True, timeout=3)
+    except (KeyError, TypeError, AttributeError, OSError, subprocess.TimeoutExpired): pass
+
+
 def web(cmd, n='', text='', app=None, fresh=False, want='', page=None):
     """Drive the user's browser tab through its page, not the screen: read it (numbered controls), click or fill by number.
     Faster and surer than screenshots + mouse clicks; the user's mouse and focus stay put."""
@@ -2635,6 +2695,8 @@ def web(cmd, n='', text='', app=None, fresh=False, want='', page=None):
             tab_id = 'id of t' if adapter == 'chromium' else 'index of t'
             selection = 'active tab index' if adapter == 'chromium' else 'current tab'
             own = agent_window(app) if os.environ.get('ATTICUS_AGENT') else 0
+            live = own and live_page(app, adapter, own, n)
+            if live: return web('read', app=app, want=n, page=live)
             if os.environ.get('ATTICUS_AGENT'):   # the task's own window, reused for every page; the user's windows and tabs stay as they are
                 opened = ('set w to make new window\nset URL of active tab of w to item 1 of argv\nset t to active tab of w' if adapter == 'chromium' else
                           'make new document with properties {URL:item 1 of argv}\nset w to window 1\nset t to current tab of w')
@@ -2642,7 +2704,7 @@ def web(cmd, n='', text='', app=None, fresh=False, want='', page=None):
                 script = (f'on run argv\ntell application "{quoted}"\nset w to missing value\n'
                           'try\nset w to window id ((item 2 of argv) as integer)\nend try\n'
                           'if w is missing value then\nset prior to missing value\nif (count windows) > 0 then set prior to window 1\n'
-                          f'{opened}\nif prior is not missing value then set index of prior to 1\nset made to "new"\n'
+                          f'{opened}\nif prior is not missing value then set index of w to (count windows)\nset made to "new"\n'   # the new window goes behind; the user's window is never pulled forward
                           f'else\nset t to make new tab at end of tabs of w with properties {{URL:item 1 of argv}}\n{selected}\nset made to ""\nend if\n'
                           f'return (id of w as text) & (ASCII character 9) & ({tab_id} as text) & (ASCII character 9) & made\nend tell\nend run')
                 mine = osa('tell application "System Events" to get name of first process whose frontmost is true')
@@ -2663,6 +2725,8 @@ def web(cmd, n='', text='', app=None, fresh=False, want='', page=None):
             page = dict(app=app, adapter=adapter, window=int(ids[0]), tab=int(ids[1]), target=None)
             status = web('wait', text=n, app=app, page=page)
             if status != 'Page ready.': return status + '\nRequested page not ready; do not substitute another source.'
+            document = os.environ.get('ATTICUS_AGENT') and page_document(page)
+            if document: page.update(opened=n, document=document[1])
             result = web('read', app=app, want=n, page=page)
             directory = os.environ.get('ATTICUS_ASK', DIR)
             os.makedirs(directory, mode=0o700, exist_ok=True)
@@ -2752,6 +2816,7 @@ def web(cmd, n='', text='', app=None, fresh=False, want='', page=None):
             text = c['url']   # click only in the tab that was checked
             done = js('click')
             if not done.startswith('Clicked'): return done
+            remember_work_tab(saved)
             try:
                 if not page_ready(lambda timeout:js('ready',timeout=timeout)): return done + '\nPage still loading. Read again before acting.'
                 changed = js('state')
@@ -2765,6 +2830,7 @@ def web(cmd, n='', text='', app=None, fresh=False, want='', page=None):
         if cmd == 'type-after':
             return result
         if cmd == 'fill' and result.startswith('Filled'):
+            remember_work_tab(saved)
             try:
                 if not page_ready(lambda timeout: js('ready', timeout=timeout)):
                     return result + '\nPage still loading. Re-read values before claiming success.'
@@ -4605,8 +4671,8 @@ class Agents:
         except OSError: self.named_stamp = 0
         self.box = {'busy': True}; self.pings = [r['id'] for r in self.rows.values() if r.get('status') == 'done' and not r.get('seen') and r.get('pinged') != r.get('ended')]
         for row in self.rows.values():
-            if (row.get('question') or {}).get('need') == 'connector':   # it finished and only waits for a connector: ask again
-                row['question'].pop('waiting', None); continue
+            if (row.get('question') or {}).get('need') == 'connector' or row.get('status') == 'needs-you' and row.get('ended'):   # it finished and only waits for the user: ask again
+                (row.get('question') or {}).pop('waiting', None); continue
             if row.get('status') in ('running', 'needs-you', 'waiting-screen', 'queued'):
                 if not row.get('session'):
                     row['session'] = next((e.get('data', {}).get('session_id') for e in reversed(read_rows(os.path.join(row['directory'], 'log.jsonl')))
@@ -4669,7 +4735,7 @@ class Agents:
                 'status': 'idle', 'step': 'Starting…', 'steps': [], 'timeline': [], 'cost': 0, 'seen': False}
 
     def running(self):
-        return sum(r.get('status') in ('running', 'needs-you', 'waiting-screen') for r in self.rows.values())
+        return sum(r.get('status') in ('running', 'needs-you', 'waiting-screen') and not r.get('ended') for r in self.rows.values())   # an ended task waiting for the user has no process
 
     def write(self, identifier, event):
         p = self.processes.get(identifier)
@@ -4815,7 +4881,7 @@ class Agents:
                 if identifier in self.processes: self.stop_process(identifier)
                 row.update(status='queued', step='Queued', followup=text); self.save(row); return
             row.update(status='running', step='Starting…', seen=False, question=None, missingConnector='', started=time.time())
-            row.pop('ended', None); row.pop('_routingRetry', None); row.pop('_revived', None)
+            row.pop('ended', None); row.pop('_routingRetry', None); row.pop('_revived', None); row.pop('keptWindow', None)
             self.save(row)   # the shelf appears before any process/model work
             try:
                 if identifier not in self.processes:
@@ -4827,7 +4893,8 @@ class Agents:
                         except FileNotFoundError: pass
                     self.warm(row)
                 private_json(os.path.join(row['directory'], 'request.json'), {'brief': row['brief']})
-                prompt = (text or row['brief'] + '\nKnown context (data):\n' + row.get('context', '')) + work
+                said = f'\nThe user said (data): {words}' if initial is not None and evidence is None and words.strip() and words.strip() != row['brief'].strip() else ''   # the brief is a paraphrase
+                prompt = (text or row['brief'] + '\nKnown context (data):\n' + row.get('context', '')) + said + work
                 if row.get('destination') == 'meeting': prompt += '\nPrepare the calendar event for Meeting Copilot. Read-only tools only; include meetingEvent and the brief in your result.'
                 self.send(row, prompt)
                 if self.idle is None and not self.closed:
@@ -4858,7 +4925,12 @@ class Agents:
 
     def finish(self, row, status, result=''):
         if row.get('_directoryLost'): return
-        row.pop('learned', None)
+        late = row.pop('_picked', None) or {}
+        try: os.remove(question_answer_path(row['directory'], late)) if late else None   # answered after the pick tool gave up: nobody read it
+        except OSError: late = {}
+        picked = late.pop('answer', '')
+        pending = late or (row['question'] if row.get('status') == 'needs-you' and (row.get('question') or {}).get('pick') else None)   # asked, never answered
+        row.pop('learned', None); page = {}
         row.update(status=status, step=result[:180] if status == 'failed' else 'Done', ended=time.time(), result=result, question=None)
         if status == 'done':
             match = re.search(r'.*\[agent-result\s+(?=\{)', result, re.S)   # the last one
@@ -4872,6 +4944,7 @@ class Agents:
                 name = row['missingConnector']
                 row.update(status='needs-you', step='Needs ' + name, question={'need': 'connector', 'app': name, 'q': f'Connect {name} in Claude',
                                                                               'cmd': row['summary'][:300], '_a': uuid.uuid4().hex})
+            elif pending: row.update(status='needs-you', step='Waiting for you', question=pending)   # its pick still continues it, in the same tab
             if row['status'] == 'done' and pref('learn', True):
                 try: request = Path(request_file(row['directory'])).read_text()
                 except OSError: request = ''   # never learn a generated brief in place of the user's words
@@ -4880,12 +4953,23 @@ class Agents:
                 key = plain(named or request)
                 if key and commands and all(replayable(c) for c in commands) and learn(key, commands, answer or row['summary'], request if named else '') is not None:
                     row['learned'] = key
-            row['made'] = agent_results(row)
+            page = work_tab_page(row['directory']) if row['status'] == 'done' else {}
+            row['made'] = agent_results({**row, 'made': row.get('made', []) + ([page] if page else [])})
+        asking = bool(pending) and row.get('question') is pending
+        if asking or page: self.keep_window(row)   # its pick continues there, or its card opens the tab it worked in
         self.stop_process(row['id']); self.save(row)
-        threading.Thread(target=close_agent_window, args=(row['directory'],), daemon=True).start()
+        if not (asking or page): threading.Thread(target=close_agent_window, args=(row['directory'],), daemon=True).start()
         if row['status'] == 'done':
             self.emit({'event': 'done', 'agent': row}); self.pings.append(row['id']); self.pump_ping()
         self.drain()
+        if asking and picked: self.command({'action': 'answer', 'id': row['id'], 'question': pending['_a'], 'answer': picked})
+
+    def keep_window(self, row):
+        """At most one ended task keeps its browser window, behind the user's; keeping one closes the older one."""
+        for other in self.rows.values():
+            if other is not row and other.pop('keptWindow', None):
+                self.save(other); threading.Thread(target=close_agent_window, args=(other['directory'],), daemon=True).start()
+        row['keptWindow'] = True
 
     def watch_connector(self, row, question):
         """Allow on a missing connector opened claude.ai's connectors page: once a new connector shows up connected, the agent resumes."""
@@ -5176,7 +5260,7 @@ class Agents:
                     if row['status'] not in ('running', 'needs-you', 'waiting-screen'): self.stop_process(identifier)
                     return
                 self.stop_process(identifier)
-                row.update(status='stopped', step='Stopped', ended=time.time(), seen=True, question=None); self.save(row); self.drain()
+                row.update(status='stopped', step='Stopped', ended=time.time(), seen=True, question=None); row.pop('keptWindow', None); self.save(row); self.drain()
                 threading.Thread(target=close_agent_window, args=(row['directory'],), daemon=True).start()
             elif action == 'granted' and identifier in self.rows and (self.rows[identifier].get('question') or {}).get('waiting'):
                 self.command({'action': 'answer', 'id': identifier, 'question': self.rows[identifier]['question']['_a'], 'answer': 'y', 'granted': True})
@@ -5194,12 +5278,35 @@ class Agents:
                     row.update(status='done', step='Done', question=None, seen=answer != 'y'); self.save(row)
                     if answer == 'y': self.start(identifier, question.get('_resume') or f'The user connected {question["app"]} in Claude. Continue the task with it.')
                     return
+                if row.get('ended') and question.get('pick'):   # it finished while asking: no process waits, so the pick continues the task
+                    options = question.get('options') or []
+                    picked = options[int(answer)] if answer.isdigit() and int(answer) < len(options) else answer[1:301] if answer.startswith('=') else ''
+                    row.update(status='done', step='Done', question=None); self.save(row)
+                    self.start(identifier, f'The user answered your question {json.dumps(question["pick"], ensure_ascii=False)} (data): ' +
+                               (json.dumps(picked, ensure_ascii=False) + '. Continue the task with it, from the page as it is.' if picked else 'none of these. Say so in one line.'))
+                    return
                 path = question_answer_path(row['directory'], question)
                 fd = os.open(path + '.tmp', os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
                 with os.fdopen(fd, 'w') as f: f.write(answer)
-                os.replace(path + '.tmp', path); row.update(status='running', question=None, step='Working…'); self.save(row)
+                os.replace(path + '.tmp', path); row.update(status='running', question=None, step='Working…')
+                if question.get('pick'): row['_picked'] = {**question, 'answer': answer}   # the pick tool may have just given up: finish() hands it on
+                self.save(row)
             elif action == 'seen' and identifier in self.rows:
                 self.rows[identifier].update(seen=True, seenAt=time.time()); self.save(self.rows[identifier])
+            elif action == 'page' and identifier in self.rows:   # Swift is showing him the window a task works in (card or preview)
+                row = self.rows[identifier]
+                made = next((m for m in row.get('made', []) if m.get('tab') and m.get('url') == data.get('url') and re.match(r'https?://', m['url'])), None)
+                tab = made['tab'] if made else {}
+                if not tab and 'url' not in data:   # its preview: the browser tab it has open, if the previewed window is that browser's
+                    try:
+                        with open(os.path.join(row['directory'], 'web.json')) as f: tab = json.load(f)
+                    except (OSError, ValueError): tab = {}
+                    if not isinstance(tab, dict) or tab.get('app') != (row.get('target') or {}).get('app'): tab = {}
+                if tab and row.get('ended'):
+                    try: os.remove(os.path.join(agent_gate_dir(row['directory']), 'browser-window.json'))   # his window now: Atticus never closes or reuses it
+                    except FileNotFoundError: pass
+                    row.pop('keptWindow', None); self.save(row)
+                if tab: threading.Thread(target=show_tab, args=(tab,), daemon=True).start()
             elif action == 'box':
                 self.box = {k: data.get(k) for k in ('busy', 'typing', 'listening', 'quiet')}
                 self.pump_ping()
@@ -5211,6 +5318,7 @@ class Agents:
                     if row['status'] in ('done', 'failed', 'stopped') and (action == 'remove' and row['id'] == identifier or
                        action == 'clear-failed' and row['status'] == 'failed' or action == 'clear' and row['status'] in ('done', 'stopped')):
                         self.stop_process(row['id']); self.offers.discard(row['id'])
+                        if row.pop('keptWindow', None): threading.Thread(target=close_agent_window, args=(row['directory'],), daemon=True).start()
                         row['cleared'] = True; self.save(row); del self.rows[row['id']]   # clearing the list must not delete deliverable files
                 self.emit({'event': 'list', 'agents': list(self.rows.values()), 'named': named_agents()})
             elif action in ('named-rename', 'named-delete'):
