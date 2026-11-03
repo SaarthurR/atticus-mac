@@ -569,7 +569,7 @@ Each caption must describe marks already visible in that step (including earlier
 For real objects, draw recognizable silhouettes and important internal parts with several path strokes, not labeled boxes. Use a few strokes per part (aim for 4-12 per object), curves for rounded contours, and arrows only for motion or connections. Build parts across steps; use the transparent screen overlay, never an image card. Limits: 1-12 steps, 1-40 shapes per step; keep coordinates compact and omit tiny details.
 Generic outline + detail example (place in clear screen space): {{"steps":[{{"say":"The curved outline encloses the inner stroke.","shapes":[{{"kind":"path","curve":true,"fill":true,"points":[[100,160],[100,100],[220,100],[220,160],[220,220],[100,220],[100,160]]}},{{"kind":"path","points":[[130,160],[190,160]]}}]}}]}}.
 Speech follows the voice-output setting. Drawn text/labels accept Unicode and TeX math inside $…$ or $$…$$ (fractions, roots, scripts, aligned steps); escape backslashes in JSON. Target anchors rect/circle/label/pointer to fresh AX frames. Otherwise use Quartz top-left screen points, or put "screen":N on the step (never in a shape) for last --look pixels.
-Shape keys, no others: rect/circle "rect":[x,y,w,h] (circle may be an ellipse; add "fill":true for a translucent diagram part at those exact bounds); arrow/line "points":[[x,y],[x,y]] (exactly 2; path for more); path "points":[[x,y],...] (2-256 points; optional "curve":true uses cubic Béziers: start, control1, control2, end, then groups of control1, control2, end, 4-64 points total; optional "fill":true closes the outline with translucent fill); label "at":[x,y],"text" (short tag), optional "size":"s"|"m"|"l"; pointer "at"; text "text" (one large line; every step's text lines stack on one panel, whiteboard style: use them for practice problems and worked math, one step per line; "size":"s"|"m"|"l", default m; the first may set "at":[x,y], the panel's top-left in empty space); any shape "color": red/blue/green/yellow/white. Optional step "hit":[x,y,w,h] (screenshot area); "timeout" 5-120. Drawings stay through later asks until Close, Esc or your next draw, which replaces them. Don't repeat captions or claim it appeared unless this returns "Guide shown". Re-read after layout changes.
+Shape keys, no others: rect/circle "rect":[x,y,w,h] (circle may be an ellipse; add "fill":true for a translucent diagram part at those exact bounds); arrow/line "points":[[x,y],[x,y]] (exactly 2; path for more); path "points":[[x,y],...] (2-256 points; use "smooth":true for a smooth curve through these points, omit for sharp corners; optional "curve":true instead uses cubic Béziers: start, control1, control2, end, then groups of control1, control2, end, 4-64 points total; optional "fill":true closes the outline with translucent fill); label "at":[x,y],"text" (short tag), optional "size":"s"|"m"|"l"; pointer "at"; text "text" (one large line; every step's text lines stack on one panel, whiteboard style: use them for practice problems and worked math, one step per line; "size":"s"|"m"|"l", default m; the first may set "at":[x,y], the panel's top-left in empty space); any shape "color": red/blue/green/yellow/white. Optional step "hit":[x,y,w,h] (screenshot area); "timeout" 5-120. Drawings stay through later asks until Close, Esc or your next draw, which replaces them. Don't repeat captions or claim it appeared unless this returns "Guide shown". Re-read after layout changes.
 """
 
 DRAWING = f"""
@@ -6420,14 +6420,16 @@ def drawing(data, mappings=None):
         if not isinstance(shapes,list) or not 1 <= len(shapes) <= 40: raise ValueError('Use 1-40 shapes per step')
         out['shapes'] = []
         for shape in shapes:
-            if not isinstance(shape,dict) or set(shape) - {'kind','rect','at','points','text','color','size','fill','curve'}: raise ValueError('Invalid shape')
+            if not isinstance(shape,dict) or set(shape) - {'kind','rect','at','points','text','color','size','fill','curve','smooth'}: raise ValueError('Invalid shape')
             kind = shape.get('kind')
             if kind not in ('rect','circle','arrow','line','path','label','pointer','text'): raise ValueError('Invalid shape kind')
-            fields = {'rect','fill'} if kind in ('rect','circle') else {'at','text','size'} if kind in ('label','text') else {'at'} if kind == 'pointer' else {'points','curve','fill'} if kind == 'path' else {'points'}
+            fields = {'rect','fill'} if kind in ('rect','circle') else {'at','text','size'} if kind in ('label','text') else {'at'} if kind == 'pointer' else {'points','curve','smooth','fill'} if kind == 'path' else {'points'}
             if set(shape) - {'kind','color'} - fields: raise ValueError('Coordinates do not match shape kind')
             if shape.get('color','red') not in ('red','blue','green','yellow','white'): raise ValueError('Invalid color')
             if 'fill' in shape and type(shape['fill']) is not bool: raise ValueError('Fill must be true or false')
             if 'curve' in shape and type(shape['curve']) is not bool: raise ValueError('Curve must be true or false')
+            if 'smooth' in shape and type(shape['smooth']) is not bool: raise ValueError('Smooth must be true or false')
+            if shape.get('curve') and shape.get('smooth'): raise ValueError('Choose smooth samples or cubic controls')
             value = {**shape}
             if kind in ('rect','circle'):
                 if 'rect' in shape: value['rect'] = rect(shape['rect'])

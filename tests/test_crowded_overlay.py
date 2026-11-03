@@ -1,9 +1,6 @@
 """Pure placement geometry; no application, display, preferences, or windows."""
 from pathlib import Path
-import subprocess
 import unittest
-from unittest.mock import patch
-import tests
 from tests import run_swift
 from tests.test_drawing_math_page import MATH_STUB
 
@@ -34,15 +31,13 @@ let open = ScreenDrawing.labelBox(CGSize(width:180,height:50),at:CGPoint(x:-500,
 precondition(!open.isNull && area.contains(open) && !(occupied+[boundary]).contains { $0.intersects(open) }, "Remote clear label spot was missed")
 print("crowded geometry passed")
 '''
-        # Only this extracted arithmetic harness bypasses the host UI guard.
-        with patch.object(subprocess.Popen, '__init__', tests._popen_init):
-            self.assertIn('crowded geometry passed', run_swift(self, harness))
+        self.assertIn('crowded geometry passed', run_swift(self, harness))
 
     def test_render_labels_avoid_later_marks(self):
         source = (Path(__file__).resolve().parents[1] / 'Atticus.swift').read_text()
         model = source[source.index('struct DrawingShape:'):source.index('struct DrawingStep:')]
         view = source[source.index('final class DrawingView:'):source.index('// One step')]
-        helpers = source[source.index('    // Control-point bounds'):source.index("    // The box's spot")]
+        helpers = source[source.index('    static func pathPoints('):source.index("    // The box's spot")]
         harness = r'''import Cocoa
 ''' + MATH_STUB + model + r'''
 struct ScreenDrawing {
@@ -72,8 +67,7 @@ let leader = view.layer!.sublayers!.compactMap { $0 as? CAShapeLayer }.first { $
 precondition(leader.path!.boundingBoxOfPath.contains(CGPoint(x:70.5,y:50.5)) || leader.path!.boundingBoxOfPath.insetBy(dx:-10,dy:-10).contains(CGPoint(x:70,y:50)), "Displaced label lost its anchor")
 print("render placement passed")
 '''
-        with patch.object(subprocess.Popen, '__init__', tests._popen_init):
-            self.assertIn('render placement passed', run_swift(self, harness))
+        self.assertIn('render placement passed', run_swift(self, harness))
 
     def test_page_navigation_before_step_navigation(self):
         source = (Path(__file__).resolve().parents[1] / 'Atticus.swift').read_text()
@@ -94,8 +88,7 @@ guide.next(); precondition(guide.textPage == 0 && guide.index == 1 && !guide.cle
 guide.next(); guide.next(); guide.next(); precondition(guide.cleared)
 print("page navigation passed")
 '''
-        with patch.object(subprocess.Popen, '__init__', tests._popen_init):
-            self.assertIn('page navigation passed', run_swift(self, harness))
+        self.assertIn('page navigation passed', run_swift(self, harness))
 
     def test_text_pages_preserve_words_and_fit(self):
         source = (Path(__file__).resolve().parents[1] / 'Atticus.swift').read_text()
@@ -116,5 +109,4 @@ precondition(Layout.pages("",width:208,height:60) == [""])
 precondition(Layout.pages("$x^2$",width:208,height:1) == ["$x^2$"], "Math must scroll whole instead of splitting TeX")
 print("text pages passed")
 '''
-        with patch.object(subprocess.Popen, '__init__', tests._popen_init):
-            self.assertIn('text pages passed', run_swift(self, harness))
+        self.assertIn('text pages passed', run_swift(self, harness))

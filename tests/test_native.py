@@ -243,6 +243,19 @@ MiniScreen.restored = nil
 h.allowUntil = Date().addingTimeInterval(3)
 h.activated(temporary)
 precondition(MiniScreen.restored == nil && h.userApp == temporary, "front mode pushed the working app back")
+Prefs.mode = "back"
+h.allowUntil = .distantPast
+h.busy = false
+h.guardUntil = Date().addingTimeInterval(2)
+h.activated(Target(7)); h.activated(Target(7))
+precondition(MiniScreen.restored == temporary.processIdentifier && h.userApp == temporary, "repeated late activations replaced the return app")
+h.focusFree = true
+h.activated(Target(8))
+precondition(h.userApp == Target(8), "an explicit focus request was not remembered")
+h.focusFree = false
+h.guardUntil = .distantPast
+h.activated(Target(9))
+precondition(h.userApp == Target(9), "idle app switching was blocked")
 '''
         with tempfile.TemporaryDirectory() as path:
             file = Path(path) / 'focus.swift'; file.write_text(swift)
@@ -251,6 +264,18 @@ precondition(MiniScreen.restored == nil && h.userApp == temporary, "front mode p
             self.assertEqual(compiled.returncode, 0, compiled.stderr)
             result = subprocess.run([str(binary)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            decisions = [line.split('Focus guard: ', 1)[1] for line in result.stderr.splitlines() if 'Focus guard: ' in line]
+            self.assertEqual(len(decisions), 11)
+            self.assertIn('app=2 target=1', decisions[0])   # log the target before remembering the activation
+            self.assertTrue(decisions[0].endswith('result=remembered'))
+            self.assertTrue(decisions[1].endswith('result=ignored'))
+            self.assertIn('hardwareSwitch=true', decisions[5])
+            self.assertTrue(decisions[5].endswith('result=remembered'))
+            for line in decisions[7:9]:
+                self.assertIn('app=7 target=3 busy=false recording=false tail=true', line)
+                self.assertTrue(line.endswith('result=restore-requested'))   # a request, not proof of restored windows/Spaces
+            self.assertIn('free=true', decisions[9])
+            self.assertIn('tail=false', decisions[10])
 
     def test_focus_guard_covers_main_asks_and_fast_work(self):
         source = (ROOT / 'Atticus.swift').read_text()
@@ -505,6 +530,68 @@ print("calendar/update safety ok")
             self.assertEqual(compiled.returncode, 0, compiled.stderr)
             result = subprocess.run([str(binary)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_drawing_reply_preserves_click_start_through_reset(self):
+        source = (ROOT / 'Atticus.swift').read_text()
+        click = source[source.index('    func clickMicrophone('):source.index('    func wakeTick()')]
+        start = source[source.index('    func start(dictate: Bool,'):source.index('        cancelFast(); noteHidden()', source.index('    func start(dictate: Bool,'))]
+        reset = next(line for line in source.splitlines() if 'quietFollowUp = false; clickTalk = false;' in line)
+        poll = next(line for line in source.splitlines() if 'if !toggleTalk && !clickTalk && !f.isEmpty' in line)
+        typing = source[source.index('            if b["type"] != nil {'):source.index('            if let s = b["link"]')]
+        run_swift(self, """import Foundation
+struct Prefs { static func bool(_ key: String) -> Bool { false } }
+func AXIsProcessTrusted() -> Bool { true }
+func unpoint(_ notify: Bool) {}
+struct NSEvent { static var modifierFlags: Set<Int> = [] }
+final class Engine { var isRunning = false }
+final class Drawing {
+    var active = true, hasInput = false, holds = 0
+    func clear() {}; func hold() { holds += 1 }
+}
+final class Mini { func reset() {} }
+final class Harness {
+    let drawing = Drawing(), engine = Engine(), mini = Mini()
+    var handsFreeIdle = 0, drawingReply = false, retryOffer = false, askFile = "", replyAgent = "", agentCard = ""
+    var focusFile = "/unused-fixture-focus", dictating = false, busy = false
+    var quietFollowUp = false, clickTalk = false, toggleTalk = false, stops = 0
+    var quiet: DispatchWorkItem?, offerText: String?, proc: Int?, text = ""
+    var resets = 0, sends = 0
+    func stopWake() {}; func pill(_ on: Bool) {}; func show() {}; func hide(after: Double) {}
+    func js(_ name: String, _ value: Any? = nil) {}; func shush() {}
+    func dismiss() { hush() }; func cancel() { hush() }
+    func dictateShortcut(_ pressed: Bool) { stop() }
+    func stopOfferInput() { hush() }
+    func hush(keepReply: Bool = false) {
+        resets += 1; engine.isRunning = false; busy = false
+""" + reset + """
+    }
+""" + click + start + """
+        engine.isRunning = true   // fake capture: no hardware, recognizer or workers
+    }
+    func poll() {
+        let f: Set<Int> = [1]
+        let t = Timer(timeInterval: 0.15, repeats: false) { _ in }
+""" + poll + """
+    }
+    func stop() { sends += 1; engine.isRunning = false }
+    func receive(_ b: [String: Int]) {
+""" + typing + """
+    }
+}
+let click = Harness(); click.clickMicrophone()
+print("drawing reset=", click.resets, "clickTalk=", click.clickTalk); fflush(stdout)
+click.poll()
+precondition(click.clickTalk && click.engine.isRunning && click.sends == 0,
+    "drawing reply lost clickTalk and key-state poll stopped fake capture")
+precondition(click.resets == 1 && click.drawing.holds == 1 && click.drawingReply)
+click.receive(["type": 1])
+precondition(!click.engine.isRunning && !click.clickTalk, "typing did not interrupt click-started drawing reply")
+let hold = Harness(); hold.start(dictate: false); hold.poll()
+precondition(!hold.clickTalk && !hold.engine.isRunning && hold.sends == 1, "hold-to-talk no longer stops when keys are released")
+let toggle = Harness(); toggle.start(dictate: false); toggle.toggleTalk = true; toggle.poll()
+precondition(toggle.engine.isRunning && toggle.sends == 0, "key-state poll stopped toggle talk")
+print("drawing reply input modes ok")
+""")
 
     def test_shortcut_states_and_recording_limit(self):
         source = (ROOT / 'Atticus.swift').read_text()

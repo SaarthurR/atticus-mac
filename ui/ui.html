@@ -149,7 +149,7 @@
   @keyframes mini-scroll { from { opacity: 0; transform: translate(0,0); } 30% { opacity: 1; } to { opacity: 0; transform: translate(var(--dx),var(--dy)); } }
   @keyframes mini-caret { 0%, 100% { opacity: 0; } 30%, 65% { opacity: .9; } }
 
-  .a { margin-top: 16px; font-size: 15px; line-height: 1.6; overflow-wrap: anywhere; cursor: copy; }
+  .a { margin-top: 16px; font-size: 15px; line-height: 1.6; overflow-wrap: anywhere; cursor: copy; } .a, .q { -webkit-user-select: text; } .a a { -webkit-user-drag: none; }
   .a:empty { display: none; }
   /* light Markdown and TeX math in answers (built as DOM nodes, never HTML from the model) */
   .a :where(p, ul, ol, .h) { margin: 0; } .a > :not(.w) + :not(.w) { margin-top: 14px; }
@@ -467,9 +467,24 @@
   };
   for (let i = 0; i < 9; i++) $('dictwave').append(document.createElement('i'));
   const post = m => webkit.messageHandlers.c.postMessage(m);
-  let atBottom = true;   // the user scrolled up to read: new steps must not yank them back down
+  let atBottom = true, overText = false;   // the user scrolled up to read: new steps must not yank them back down
   // only the user's own wheel/trackpad decides (our scrolls and growing steps must not): up = stay put, back to the bottom = follow again
   $('thread').addEventListener('wheel', e => { if (e.deltaY < 0) atBottom = false; else setTimeout(() => { const t = $('thread'); atBottom = t.scrollHeight - t.scrollTop - t.clientHeight < 90; }, 0); }, { passive: true });
+  // a wide code box or table: a sideways swipe scrolls it; a plain wheel does too when the answer itself has nowhere to scroll
+  $('thread').addEventListener('wheel', e => {
+    const s = e.target.closest?.('.a :is(pre, .table, math[display=block])'), t = $('thread');
+    if (!s || s.scrollWidth <= s.clientWidth) return;
+    const dx = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : t.scrollHeight <= t.clientHeight ? e.deltaY : 0;
+    if (dx) { s.scrollLeft += dx; e.preventDefault(); }
+  }, { passive: false });
+  // text gets the real mouse (native passes the press through): a click still acts like any click on the box; a drag selects or moves a scrollbar
+  let pressAt = [0, 0];
+  $('thread').addEventListener('mousedown', e => { pressAt = [e.clientX, e.clientY]; }, true);
+  $('thread').addEventListener('click', e => {
+    if (!e.isTrusted) return;   // the click tap() itself sends
+    e.preventDefault(); e.stopPropagation();
+    if (e.detail === 1 && getSelection().isCollapsed && Math.hypot(e.clientX - pressAt[0], e.clientY - pressAt[1]) <= 3) window.ui.tap([e.clientX, e.clientY]);
+  }, true);
   let defaultEnabled=false,defaultComposing=false;
   function defaultButton(){if(!visible||folded||defaultComposing||$('ask').value.trim()||document.hasFocus()&&document.querySelector('button:focus,select:focus,input:focus:not(#ask),textarea:focus,[contenteditable=true]:focus')||$('thread').querySelector('.pk:not(.gone),.ok:not(.agent-card):not(.gone)'))return null;return $('thread').querySelector('.agent-card .go:not(:disabled)');}
   let folded = false, foldedScroll = 0, foldBeforeQuestion = false, foldAuto = false, foldSeq = 0, foldTimer = 0, foldDone = null;
@@ -1218,6 +1233,8 @@
       const m = x ? $('x') : p.length ? document.elementFromPoint(p[0], p[1]) : null, now = [];
       for (let e = m; e; e = e.parentElement) now.push(e);
       hot.forEach(e => now.includes(e) || e.classList.remove('hot')); now.forEach(e => e.classList.add('hot')); hot = now;
+      const text = !x && !!m?.closest('.a:not(.stopped):not(.cancel), .q:not(.empty)');
+      if (text !== overText) post({ overText: overText = text });
       return !!x || !!m && getComputedStyle(m).cursor === 'pointer';
     },
     copied() { status('Copied to clipboard'); setTimeout(() => $('status').textContent === 'Copied to clipboard' && status(''), 1400); },

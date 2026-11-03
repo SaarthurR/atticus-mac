@@ -1146,7 +1146,7 @@ final class DrawingPanel: NSPanel {
 }
 struct DrawingShape: Codable {
     let kind: String
-    var rect: [Double]?, at: [Double]?, points: [[Double]]?, text: String?, color: String?, size: String?, fill: Bool?, curve: Bool?
+    var rect: [Double]?, at: [Double]?, points: [[Double]]?, text: String?, color: String?, size: String?, fill: Bool?, curve: Bool?, smooth: Bool?
 }
 struct DrawingStep: Codable {
     let id: String?, say: String?, target: String?, shapes: [DrawingShape]
@@ -1246,10 +1246,10 @@ final class DrawingView: NSView {
                 let bounds = ScreenDrawing.rect(r)
                 let frame = (shape.fill == true ? bounds : ScreenDrawing.ring(bounds,circle:shape.kind == "circle")).offsetBy(dx:-origin.x,dy:-origin.y)
                 if shape.kind == "circle" { path.addEllipse(in:frame) } else { path.addRoundedRect(in:frame,cornerWidth:6,cornerHeight:6) }
-            } else if let points = shape.points?.map({ CGPoint(x:$0[0],y:$0[1]) }), let first = points.first {
+            } else if let points = shape.points.map({ ScreenDrawing.pathPoints($0,smooth:shape.smooth == true) }), let first = points.first {
                 var points = points
                 if shape.kind == "arrow" { points[points.count-1] = ScreenDrawing.arrowTip(from:first,to:points[points.count-1],avoiding:targets) }
-                if shape.curve == true {
+                if shape.curve == true || shape.smooth == true {
                     path.move(to:local(first))
                     for j in stride(from:1,to:points.count,by:3) {
                         path.addCurve(to:local(points[j+2]),control1:local(points[j]),control2:local(points[j+1]))
@@ -1425,6 +1425,7 @@ final class ScreenDrawing {
     var picked: ((CGRect, String) -> Void)?   // a click on a mark: its screen area and what it is
     var changed: (() -> Void)?   // marks appeared, moved or went: the box gets out of their way
     var occupied: [CGRect] = []   // global points the drawing covers: marks, their targets, the step card
+    var layoutBounds: [CGRect] = [], calloutLayout: (card: CGRect, side: NSRectEdge?)?
     var textPage = 0, textPageCount = 1
     var manual = false   // Back or Next was pressed: auto steps stop for this guide
     var autoSteps: () -> Bool = { true }
@@ -1453,7 +1454,7 @@ final class ScreenDrawing {
     static func textSize(_ size: String?, display: CGRect) -> CGFloat { min(32,max(22,min(28,display.height/40)) * (["s":0.8,"l":1.2][size ?? ""] ?? 1)) }
     // Every text line of the guide on one panel, laid out once so it grows in place: at the first line's `at`, else beside the other marks.
     static let colors: [String:NSColor] = ["red":.systemRed, "blue":.systemBlue, "green":.systemGreen, "yellow":.systemYellow, "white":.white]
-    static func board(_ steps: [DrawingStep], near: CGRect) -> (frame: CGRect, pad: CGFloat, lines: [BoardLine])? {
+    static func board(_ steps: [DrawingStep], near: CGRect, at fixed: CGPoint? = nil, avoiding: [CGRect] = []) -> (frame: CGRect, pad: CGFloat, lines: [BoardLine])? {
         let texts = steps.enumerated().flatMap { s in s.element.shapes.enumerated().filter { $0.element.kind == "text" }.map { (s.offset,$0.offset,$0.element) } }
         guard let first = texts.first?.2 else { return nil }
         let anchor = first.at.map { CGPoint(x:$0[0],y:$0[1]) } ?? CGPoint(x:near.midX,y:near.midY), top = NSScreen.screens.first?.frame.maxY ?? 0
@@ -1471,10 +1472,12 @@ final class ScreenDrawing {
         }
         let height = sized.reduce(pad) { $0 + $1.1.height + gap } - gap + pad
         let size = CGSize(width:min(area.width,width+2*pad), height:height)
-        let keep = steps.flatMap { ($0.hit.map { [rect($0)] } ?? []) + markBounds($0.shapes) }
+        let keep = steps.flatMap { ($0.hit.map { [rect($0)] } ?? []) + markBounds($0.shapes) } + avoiding
         let preferred = first.at.map { CGPoint(x:$0[0],y:$0[1]) } ?? CGPoint(x:near.maxX+16,y:near.minY)
-        let frame = textFrame(size,at:preferred,avoiding:keep,in:area)
+        let frame = fixed.map { CGRect(origin:$0,size:CGSize(width:size.width,height:min(size.height,area.maxY-$0.y))) }
+            ?? textFrame(size,at:preferred,avoiding:keep,in:area)
         guard !frame.isNull else { return nil }   // crowded board text is paged in the step callout
+        guard area.contains(frame), !keep.contains(where: { $0.intersects(frame) }) else { return nil }
         let origin = frame.origin
         let lines = sized.map { line in defer { y += line.1.height + gap }; return BoardLine(text:line.0,rect:CGRect(x:origin.x+pad,y:origin.y+y,width:line.1.width,height:line.1.height),step:line.2,shape:line.3,image:line.4) }
         return (CGRect(origin:origin,size:size), pad, lines)
@@ -1494,14 +1497,26 @@ final class ScreenDrawing {
                                                       height: visible.rect.maxY + board.pad - board.frame.minY)
         return (frame, lines)
     }
+    static func pathPoints(_ samples: [[Double]], smooth: Bool) -> [CGPoint] {
+        let p = samples.map { CGPoint(x:$0[0],y:$0[1]) }
+        guard smooth, p.count >= 2 else { return p }
+        var points = [p[0]]
+        // Catmull-Rom tangents become cubic controls; endpoints repeat to keep the supplied ends.
+        for i in 0..<p.count-1 {
+            let a = p[max(0,i-1)], b = p[i], c = p[i+1], d = p[min(p.count-1,i+2)]
+            points += [CGPoint(x:b.x+(c.x-a.x)/6,y:b.y+(c.y-a.y)/6),
+                       CGPoint(x:c.x-(d.x-b.x)/6,y:c.y-(d.y-b.y)/6),c]
+        }
+        return points
+    }
     // Control-point bounds contain curved and filled paths too; include stroke, arrowheads and pointer hit areas.
     static func markBounds(_ shapes: [DrawingShape], avoiding: [CGRect] = []) -> [CGRect] {
         let targets = shapes.compactMap { $0.rect.map(rect) } + avoiding
         return shapes.compactMap { s in
             if let r = s.rect { return ring(rect(r),circle:s.kind == "circle").insetBy(dx:-6,dy:-6) }
-            if let points = s.points, let first = points.first {
-                return points.dropFirst().reduce(CGRect(x:first[0],y:first[1],width:1,height:1)) {
-                    $0.union(CGRect(x:$1[0],y:$1[1],width:1,height:1))
+            if let samples = s.points, let first = samples.first {
+                return pathPoints(samples,smooth:s.smooth == true).reduce(CGRect(x:first[0],y:first[1],width:1,height:1)) {
+                    $0.union(CGRect(x:$1.x,y:$1.y,width:1,height:1))
                 }.insetBy(dx:-16,dy:-16)
             }
             if s.kind == "pointer", let at = s.at {
@@ -1579,7 +1594,10 @@ final class ScreenDrawing {
             let card = CGRect(origin:origin,size:size)
             if area.contains(card) && !keep.contains(where: { $0.intersects(card.insetBy(dx:-g,dy:-g)) }) { return (card,side) }
         }
-        return (textFrame(size,at:options[0].0,avoiding:keep.map { $0.insetBy(dx:-g,dy:-g) },in:area,minHeight:min(size.height,120)),nil)
+        let card = textFrame(size,at:options[0].0,avoiding:keep.map { $0.insetBy(dx:-g,dy:-g) },in:area,minHeight:min(size.height,120))
+        guard !card.isNull else { return (card,nil) }
+        let side: NSRectEdge = card.minX >= marks.maxX ? .minX : card.maxX <= marks.minX ? .maxX : card.minY >= marks.maxY ? .minY : .maxY
+        return (card,side)
     }
     // The box's spot (Cocoa points): where it is if clear of every mark, else the nearest clear spot fully on any display, else nil (it stays).
     static func clearSpot(_ box: CGRect, avoiding marks: [CGRect], in screens: [CGRect]) -> CGPoint? {
@@ -1616,7 +1634,8 @@ final class ScreenDrawing {
                       s.points == nil || ["arrow","line","path"].contains(s.kind), s.text == nil || ["label","text"].contains(s.kind),
                       s.size == nil || ["label","text"].contains(s.kind) && ["s","m","l"].contains(s.size!),
                       s.fill == nil || ["rect","circle","path"].contains(s.kind),
-                      s.curve == nil || s.kind == "path" else { return false }
+                      s.curve == nil || s.kind == "path", s.smooth == nil || s.kind == "path",
+                      s.curve != true || s.smooth != true else { return false }
                 switch s.kind {
                 case "rect","circle": return s.rect.map(validRect) ?? (step.target != nil)
                 case "pointer","label": return (s.at.map { numbers($0,2) } ?? (step.target != nil)) && (s.kind != "label" || (1...120).contains(s.text?.count ?? 0))
@@ -1642,10 +1661,17 @@ final class ScreenDrawing {
         clear(); request = r; index = 0
         DrawingMath.changed = { [weak self] in
             guard let self, let request = self.request else { return }
-            self.board = Self.board(request.steps,near:self.shapeBounds(request.steps.flatMap { $0.shapes.filter { $0.kind != "text" } }) ?? request.target.bounds)
+            self.board = Self.board(request.steps,near:self.shapeBounds(request.steps.flatMap { $0.shapes.filter { $0.kind != "text" } }) ?? request.target.bounds,at:self.board?.frame.origin,avoiding:self.calloutLayout.map { [$0.card] } ?? [])
             self.showStep(forward:false,mathOnly:true)
         }
         board = Self.board(r.steps,near:shapeBounds(r.steps.flatMap { $0.shapes.filter { $0.kind != "text" } }) ?? r.target.bounds)
+        layoutBounds = r.steps.flatMap { Self.markBounds($0.shapes) + ($0.hit.map { [Self.rect($0)] } ?? []) }
+            + (board.map { [$0.frame] } ?? [])
+        for step in r.steps {
+            if let label = step.target, let (frame,_,_) = try? resolve?(label,r.state) {
+                layoutBounds += [frame] + step.shapes.filter { ["rect","circle"].contains($0.kind) && $0.rect == nil }.map { Self.ring(frame,circle:$0.kind == "circle") }
+            }
+        }
         let click: (NSEvent) -> Void = { [weak self] event in
             guard let self, event.window !== calloutPanel, !panels.contains(where: { $0 === event.window }), let point = event.cgEvent?.location else { return }   // a click on a mark selects it, never the app under it
             if request?.teaching == true { return }
@@ -1675,6 +1701,7 @@ final class ScreenDrawing {
         stopVoice(); panels.forEach { $0.close() }; panels.removeAll(); calloutPanel?.close(); calloutPanel = nil
         request = nil; target = nil; hit = nil; element = nil; originalValue = nil; previousPointer = nil; focus = nil
         advanceAt = .distantPast; manual = false; textPage = 0; textPageCount = 1; board = nil; selected = nil; occupied = []
+        layoutBounds = []; calloutLayout = nil
         if overMark { overMark = false; NSCursor.arrow.set() }
         clearInput()
         cleanup?()
@@ -1774,10 +1801,14 @@ final class ScreenDrawing {
         func display(_ s: NSScreen) -> CGRect { CGDisplayBounds(s.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID ?? CGMainDisplayID()) }
         guard let screen = screens.first(where: { display($0).contains(CGPoint(x:marks.midX,y:marks.midY)) }) ?? NSScreen.main ?? screens.first else { return }
         let v = screen.visibleFrame, area = CGRect(x:v.minX,y:top-v.maxY,width:v.width,height:v.height).insetBy(dx:12,dy:12)
-        var size = DrawingCalloutView.size(text,total:total); size.width = min(size.width,area.width); size.height = min(size.height,area.height)
+        let captions = (request?.steps.map { ([$0.say ?? ""] + $0.shapes.filter { ["text","label"].contains($0.kind) }.compactMap { $0.text }).joined(separator:"\n\n") } ?? []) + [text]
+        let sizes = captions.map { DrawingCalloutView.size($0,total:total) }
+        var size = CGSize(width:sizes.map(\.width).max() ?? 0,height:sizes.map(\.height).max() ?? 0)
+        size.width = min(size.width,area.width); size.height = min(size.height,area.height)
         size.height = max(120,size.height)
-        let (card,side) = Self.calloutFrame(size,marks:marks,avoid:avoid,in:area)
+        let (card,side) = calloutLayout ?? Self.calloutFrame(size,marks:marks,avoid:avoid + layoutBounds,in:area)
         guard !card.isNull else { status?("No clear space for the guide text. Uncover some space and ask again."); return }
+        calloutLayout = (card,side)
         let frame = card.insetBy(dx:-DrawingCalloutView.margin,dy:-DrawingCalloutView.margin)   // Quartz points; the margin holds the notch and shadow
         let pages = DrawingCalloutView.pages(text,width:card.width-32,height:max(1,card.height-90))
         textPageCount = pages.count; textPage = min(textPage,pages.count-1)
@@ -1842,6 +1873,7 @@ final class ScreenDrawing {
         let textObstacles = Self.markBounds(visibleShapes) + Self.markBounds(shapes,avoiding:hit.map { [$0] } ?? [])
             + [boardFrame,hit].compactMap { $0 }
             + r.steps.compactMap { $0.hit.map(Self.rect) }
+            + (calloutLayout.map { [$0.card.insetBy(dx:-DrawingCalloutView.margin,dy:-DrawingCalloutView.margin)] } ?? [])
         for panel in panels {
             guard let view = panel.contentView as? DrawingView else { continue }
             view.reset()
@@ -2352,6 +2384,7 @@ final class App: NSObject, WKScriptMessageHandler {
     var fastProc: Process?, consumedText = "", liveRevised = false, targetScreen = ""
     var ahead = "", aheadItem: DispatchWorkItem?   // words the AI already started on while the user was still holding the keys
     var stops = 0   // each key release; tells a late "words landed" from a current one
+    var overText = false   // the page says the pointer is on answer text
     var dragging = false, fromTop = false   // moving or resizing the box; fromTop: dragging the top edge, so the bottom stays put
     var followTimer: Timer?
     var began = Date()   // when recording began, for the recording limit
@@ -2411,9 +2444,11 @@ final class App: NSObject, WKScriptMessageHandler {
             if Prefs.str("corner") == "top-right" { f.origin.x = f.maxX - w }
             f.size.width = w
         }
+        let height = drawing.active && !dragging ? max(76,min(bounds.height,f.maxY-bounds.minY)) : bounds.height
+        if f.height > height { let top = f.maxY; f.size.height = height; f.origin.y = top-height }
         f = MeetingFrame.clamp(f, bounds)
         (animate ? panel.animator() : panel).setFrame(f, display: true); panel.invalidateShadow()
-        js("limit", bounds.height)
+        js("limit", height)
     }
     // Which edges the point is on (window coordinates): 6 px edges, 14 px corners.
     func edges(_ p: NSPoint) -> (l: Bool, r: Bool, t: Bool, b: Bool)? {
@@ -2475,9 +2510,11 @@ final class App: NSObject, WKScriptMessageHandler {
         if let path = pointContext?["image"] as? String { try? FileManager.default.removeItem(atPath:path) }
         pointContext = nil; drawing.deselect(); js("point", false)
     }
-    // While a drawing is up, the box glides to the nearest spot clear of its marks, and back home when it goes.
+    // Place once for the whole guide; navigation and typing must not chase changing marks.
     var boxHome: NSPoint?   // where the box was before a drawing moved it; nil once the user drags it
+    var boxDrawingPlaced = false
     func avoidDrawing() {
+        if !drawing.active { boxDrawingPlaced = false }
         guard panel.isVisible, !dragging else { return }
         guard drawing.active else {
             DispatchQueue.main.async { [self] in   // a replaced drawing clears, then draws again at once
@@ -2487,11 +2524,19 @@ final class App: NSObject, WKScriptMessageHandler {
             }
             return
         }
+        guard !boxDrawingPlaced else { return }
+        boxDrawingPlaced = true
         let top = NSScreen.screens.first?.frame.maxY ?? 0
-        let marks = drawing.occupied.map { CGRect(x:$0.minX,y:top-$0.maxY,width:$0.width,height:$0.height) }
-        guard let spot = ScreenDrawing.clearSpot(panel.frame, avoiding:marks, in:NSScreen.screens.map(\.visibleFrame)), spot != panel.frame.origin else { return }
+        let marks = (drawing.layoutBounds + drawing.occupied).map { CGRect(x:$0.minX,y:top-$0.maxY,width:$0.width,height:$0.height) }
+        var room = panel.frame
+        room.size.height += CGFloat(Prefs.num("boxH")) + compH
+        if let height = NSScreen.screens.map({ $0.visibleFrame.height-16 }).max() { room.size.height = min(room.height,height) }
+        room.origin.y = panel.frame.maxY - room.height
+        guard let spot = ScreenDrawing.clearSpot(room, avoiding:marks, in:NSScreen.screens.map(\.visibleFrame)) else { return }
+        let origin = CGPoint(x:spot.x,y:spot.y+room.height-panel.frame.height)
+        guard origin != panel.frame.origin else { return }
         if boxHome == nil { boxHome = panel.frame.origin }
-        var f = panel.frame; f.origin = spot; glide(f)
+        var f = panel.frame; f.origin = origin; frame(f)
     }
     func glide(_ f: NSRect, done: (() -> Void)? = nil) {
         if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { frame(f); done?(); return }
@@ -2499,6 +2544,7 @@ final class App: NSObject, WKScriptMessageHandler {
                                              completionHandler: { [weak self] in guard let self else { return }; if !dragging { frame(panel.frame) }; done?() })   // keeps it on a display and updates its height limit
     }
     func followPointerScreen() {   // the box, typing box, answer and dictation pill alike
+        guard !drawing.active else { return }
         guard panel.isVisible, !dragging, !hovering, let f = pointerFollow(panel.frame) else { return }
         boxHome = nil; frame(f)
     }
@@ -2632,6 +2678,7 @@ final class App: NSObject, WKScriptMessageHandler {
                 if let ed = edges(p), !(overX(p) && !ed.r && !ed.t) { sizing = (NSEvent.mouseLocation, panel.frame, ed); fromTop = ed.t; pinned = true; dragging = true }
                 else if overX(p) { close(clear: true) }
                 else if p.y < compH { if !panel.isKeyWindow && replacement == nil { selection = TextSelection.capture() }; pinned = true; panel.makeKey(); panel.makeFirstResponder(web); return e }   // the typing box: a normal click; a waiting Insert/Replace keeps its target
+                else if overText && !pillOn { pinned = true; panel.makeKey(); panel.makeFirstResponder(web); return e }   // answer text: the page selects, scrolls or copies
                 else { if !pillOn { pinned = true }; grab = (NSEvent.mouseLocation, panel.frame.origin); moved = false; dragging = true }   // the pill is not a box to keep
             case .leftMouseDragged:
                 if let z = sizing {   // width from the side edges, height from the top/bottom; a corner does both
@@ -2644,7 +2691,7 @@ final class App: NSObject, WKScriptMessageHandler {
                 }
                 guard let g = grab else { return e }
                 let m = NSEvent.mouseLocation
-                if abs(m.x - g.mouse.x) + abs(m.y - g.mouse.y) > 3 { moved = true; if !pillOn { stuck = true }; boxHome = nil }   // the user placed it: a drawing never moves it back
+                if abs(m.x - g.mouse.x) + abs(m.y - g.mouse.y) > 3 { moved = true; if !pillOn { stuck = true }; boxHome = nil; boxDrawingPlaced = drawing.active }   // the user placed it: a drawing never moves it back
                 var f = panel.frame; f.origin = NSPoint(x: g.origin.x + m.x - g.mouse.x, y: g.origin.y + m.y - g.mouse.y); frame(f)
             default:
                 dragging = false
@@ -2670,10 +2717,15 @@ final class App: NSObject, WKScriptMessageHandler {
             guard let self, let a = n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication, a != .current else { return }
             let now = Date()
             let workInFront = Prefs.str("workIn") == "front"
-            if Self.focusGuardActive(busy:busy, recording:engine.isRunning, now:now, until:guardUntil, focusFree:focusFree, workInFront:workInFront),
-               now > allowUntil, now.timeIntervalSince(userSwitch) > 0.6, !Self.userJustSwitched(),
-               let u = userApp, !u.isTerminated, u != a { MiniScreen.activate(u.processIdentifier); if hiddenAtStart.contains(a.processIdentifier) { a.hide() }; return }
-            if Self.isUserApp(now:now, allowUntil:allowUntil, userSwitch:userSwitch, allowUserApp:allowUserApp || workInFront) { mine = a.localizedName ?? ""; userApp = a }
+            let free = focusFree, switched = Self.userJustSwitched(), target = userApp
+            let active = Self.focusGuardActive(busy:busy, recording:engine.isRunning, now:now, until:guardUntil, focusFree:free, workInFront:workInFront)
+            var result = "ignored"
+            defer {
+                NSLog("Focus guard: app=%@ target=%@ busy=%@ recording=%@ tail=%@ free=%@ front=%@ allowed=%@ recentSwitch=%@ hardwareSwitch=%@ allowUserApp=%@ targetAlive=%@ same=%@ result=%@", a.localizedName ?? "", target?.localizedName ?? "", String(busy), String(engine.isRunning), String(now < guardUntil), String(free), String(workInFront), String(now <= allowUntil), String(now.timeIntervalSince(userSwitch) <= 0.6), String(switched), String(allowUserApp), String(target.map { !$0.isTerminated } ?? false), String(target == a), result)
+            }
+            if active, now > allowUntil, now.timeIntervalSince(userSwitch) > 0.6, !switched,
+               let u = userApp, !u.isTerminated, u != a { result = "restore-requested"; MiniScreen.activate(u.processIdentifier); if hiddenAtStart.contains(a.processIdentifier) { a.hide() }; return }
+            if Self.isUserApp(now:now, allowUntil:allowUntil, userSwitch:userSwitch, allowUserApp:allowUserApp || workInFront) { result = "remembered"; mine = a.localizedName ?? ""; userApp = a }
         }
         NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] e in
             if e.type != .keyDown || e.modifierFlags.contains(.command) { self?.userSwitch = Date() }   // a click or ⌘-Tab: the user is choosing
@@ -2740,6 +2792,7 @@ final class App: NSObject, WKScriptMessageHandler {
                 return
             }
             if let h = b["comp"] as? NSNumber { compH = CGFloat(h.doubleValue) }
+            if let t = b["overText"] as? Bool { overText = t }
             if let h = b["boxH"] as? NSNumber { Prefs.d["boxH"] = h.doubleValue }   // saved when the drag ends
             if let f = b["focus"] as? Bool {
                 composing = f
@@ -3286,7 +3339,11 @@ final class App: NSObject, WKScriptMessageHandler {
         dictating = dictate
         unpoint(false)   // a new ask replaces the held answer; do not schedule that old answer's delayed hide
         shush()
-        if drawingReply { hush(keepReply: true); drawing.hold() }
+        if drawingReply {
+            let clicked = clickTalk   // stopping the old listen must keep this reply's input mode
+            hush(keepReply: true); clickTalk = clicked
+            drawing.hold()
+        }
         dictating = dictate   // hush invalidates the previous listen before this one starts
         if engine.isRunning { return dismiss() }   // the shortcut stops click-to-talk
         if busy && !replying {   // pressed again while it works = cancel

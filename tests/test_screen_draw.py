@@ -30,6 +30,16 @@ class DrawingTests(unittest.TestCase):
         anchored = {'steps':[{'target':'Exact control','wait':True,'shapes':[{'kind':'rect'},{'kind':'pointer'},{'kind':'label','text':'Here'}]}]}
         self.assertEqual(atticus.drawing(anchored)['steps'][0]['target'],'Exact control')
 
+    def test_smooth_paths_keep_samples_and_reject_conflicting_modes(self):
+        shape = {'kind':'path','smooth':True,'points':[[0,0],[50,100],[100,0]]}
+        mapping = {'1':{'frame':[-200,0,200,200],'pixels':[100,100]}}
+        got = atticus.drawing({'steps':[{'screen':1,'say':'A curve.','shapes':[shape]}]},mapping)
+        self.assertEqual(got['steps'][0]['shapes'][0], {**shape,'points':[[-200,0],[-100,200],[0,0]]})
+        for bad in ({**shape,'curve':True}, {**shape,'smooth':'yes'}, {**shape,'kind':'line'},
+                    {**shape,'points':[[0,0]]}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                atticus.drawing({'steps':[{'say':'A curve.','shapes':[bad]}]})
+
     def test_large_text_lines_for_worked_math(self):
         mapping = {'2':{'frame':[-1920,0,1920,1080],'pixels':[1280,720]}}
         steps = [{'screen':2,'say':'Split the 12.','shapes':[{'kind':'text','text':'12x⁵ = (3·4)·x⁵','at':[640,360],'size':'l'}]},
@@ -586,11 +596,25 @@ drawing.clear(); precondition(cleanups == 1,"AX session was not restored on clea
 let lesson: [[String:Any]] = [["say":"Draw the square.","shapes":[["kind":"rect","rect":[x+60,y+150,200,200]]]],
                               ["say":"Label its side.","shapes":[["kind":"label","at":[x+160,y+250],"text":"x"]]]]
 precondition(drawing.receive(data(lesson,teaching:true)) && drawing.calloutPanel?.isVisible == true,"Whiteboard step had no callout")
+let lessonFrame = drawing.calloutPanel!.frame
 precondition(!drawing.calloutPanel!.frame.intersects(CGRect(x:x+60,y:NSScreen.screens[0].frame.maxY-(y+350),width:200,height:200)),"Callout covered its mark")
 drawing.advanceAt = .distantPast; drawing.tick(); precondition(drawing.index == 1,"Auto step did not advance")
+precondition(drawing.calloutPanel?.frame == lessonFrame,"Next moved the step panel")
 drawing.back(); precondition(drawing.index == 0 && drawing.manual,"Back did not return to the last step")
+precondition(drawing.calloutPanel?.frame == lessonFrame,"Back moved the step panel")
+drawing.showStep(forward:false,mathOnly:true)
+precondition(drawing.calloutPanel?.frame == lessonFrame,"Math reflow moved the step panel")
 drawing.advanceAt = .distantPast; drawing.tick(); precondition(drawing.index == 0,"Auto steps fought the user's Back")
 drawing.next(); precondition(drawing.index == 1); drawing.next(); precondition(!drawing.active,"Done on the last step did not clear")
+let varying: [[String:Any]] = [["say":"First.","shapes":[["kind":"circle","rect":[x+300,y+160,50,50]]]],
+    ["say":String(repeating:"Read this next. ",count:40),"shapes":[["kind":"circle","rect":[x+500,y+300,50,50]]]]]
+precondition(drawing.receive(data(varying,teaching:true)),"Varying captions did not fit")
+let fixed = drawing.calloutPanel!.frame
+for _ in 0..<3 {
+    drawing.next(); precondition(drawing.index == 1 && drawing.calloutPanel?.frame == fixed,"A larger caption moved the panel")
+    drawing.back(); precondition(drawing.index == 0 && drawing.calloutPanel?.frame == fixed,"Back from a larger caption moved the panel")
+}
+drawing.clear()
 let anchored: [[String:Any]] = [["target":"Exact control","wait":true,"shapes":[["kind":"rect"],["kind":"pointer"],["kind":"label","text":"Here"]]],steps[2]]
 let nativeTarget = try! JSONDecoder().decode(DrawingWindow.self,from:JSONSerialization.data(withJSONObject:target))
 let anchor = CGRect(x:x+400,y:y+350,width:200,height:38)
@@ -835,6 +859,69 @@ print("Guide geometry: rings outside targets, arrows and labels beside them, cal
 
 @unittest.skipUnless(sys.platform == 'darwin','macOS guide geometry check')
 class GuideGeometryTests(unittest.TestCase):
+    def test_smooth_paths_render_through_samples_without_changing_old_paths(self):
+        from tests import run_swift
+        source = (ROOT/'Atticus.swift').read_text()
+        drawing = MATH_STUB + source[source.index('// Screen drawings use Quartz'):source.index('// The box can take typing')]
+        out = run_swift(self, 'import Cocoa\nfunc applySharing(_ window: NSWindow) {}\n' + drawing + r'''
+NSApplication.shared.setActivationPolicy(.prohibited)
+let samples: [[Double]] = [[60,60],[120,180],[180,252],[240,276],[300,252],[360,180],[420,60]]
+func shape(_ points: [[Double]], _ mode: [String:Bool] = [:]) -> DrawingShape {
+    var data: [String:Any] = ["kind":"path","points":points,"color":"blue"]
+    mode.forEach { data[$0.key] = $0.value }
+    return try! JSONDecoder().decode(DrawingShape.self,from:JSONSerialization.data(withJSONObject:data))
+}
+func render(_ shape: DrawingShape) -> (DrawingView, CGPath) {
+    let view = DrawingView(frame:CGRect(x:0,y:0,width:480,height:330))
+    view.render([DrawingShape(kind:"line",points:[[30,290],[450,290]],color:"white"),
+                 DrawingShape(kind:"line",points:[[240,25],[240,310]],color:"white"),shape],animate:false,previous:nil)
+    let path = (view.layer!.sublayers!.last as! CAShapeLayer).path!
+    return (view,path)
+}
+let plain = shape(samples), smooth = shape(samples,["smooth":true])
+let (before, oldPath) = render(plain), (after, path) = render(smooth)
+var lines = 0, ends: [CGPoint] = [], controls: [(CGPoint,CGPoint,CGPoint)] = []
+oldPath.applyWithBlock { if $0.pointee.type == .addLineToPoint { lines += 1 } }
+path.applyWithBlock { e in
+    if e.pointee.type == .addCurveToPoint {
+        let p = e.pointee.points; controls.append((p[0],p[1],p[2])); ends.append(p[2])
+    }
+}
+precondition(lines == samples.count-1 && controls.count == samples.count-1,"smooth samples still render as straight segments")
+precondition(ends == samples.dropFirst().map { CGPoint(x:$0[0],y:$0[1]) },"spline does not pass through supplied points")
+for i in 1..<controls.count {
+    let a = controls[i-1], b = controls[i]
+    precondition(abs((a.2.x-a.1.x)-(b.0.x-a.2.x)) < 0.0001 && abs((a.2.y-a.1.y)-(b.0.y-a.2.y)) < 0.0001,"spline has a corner at a sample")
+}
+let occupied = ScreenDrawing.markBounds([smooth])[0]
+precondition(occupied.contains(path.boundingBoxOfPath),"spline escapes reserved mark bounds")
+let cubic = shape([[0,0],[0,100],[100,100],[100,0]],["curve":true])
+precondition(render(cubic).1.boundingBoxOfPath.height == 75,"explicit cubic payload changed")
+for points in [[[0.0,0],[100,100]], [[0,0],[0,0],[100,100]], [[0,0],[0,0],[0,0]]] {
+    let p = render(shape(points,["smooth":true])).1
+    precondition(!p.boundingBoxOfPath.isInfinite,"short or repeated samples produced invalid geometry")
+}
+let target = DrawingWindow(pid:1,windowID:"1",windowFrame:[0,0,480,330])
+func valid(_ s: DrawingShape) -> Bool {
+    ScreenDrawing.valid(DrawingRequest(steps:[DrawingStep(id:nil,say:"A curve.",target:nil,shapes:[s],wait:nil,hit:nil,timeout:nil)],teaching:true,target:target,state:"fixture",receipt:nil))
+}
+precondition(valid(smooth) && valid(plain) && valid(cubic))
+precondition(!valid(shape(samples,["smooth":true,"curve":true])),"ambiguous modes accepted")
+let line = try! JSONDecoder().decode(DrawingShape.self,from:Data("{\"kind\":\"line\",\"points\":[[0,0],[1,1]],\"smooth\":true}".utf8))
+precondition(!valid(line),"line silently accepted smoothing")
+for (name,view) in [("before",before),("after",after)] {
+    let image = NSBitmapImageRep(bitmapDataPlanes:nil,pixelsWide:960,pixelsHigh:660,bitsPerSample:8,samplesPerPixel:4,hasAlpha:true,isPlanar:false,colorSpaceName:.deviceRGB,bytesPerRow:0,bitsPerPixel:0)!
+    let context = NSGraphicsContext(bitmapImageRep:image)!.cgContext
+    context.setFillColor(NSColor(calibratedWhite:0.08,alpha:1).cgColor); context.fill(CGRect(x:0,y:0,width:960,height:660))
+    context.scaleBy(x:2,y:2); context.translateBy(x:0,y:330); context.scaleBy(x:1,y:-1)
+    view.layer!.render(in:context)
+    print("SMOOTH_DRAW_PNG \(name) \(image.representation(using:.png,properties:[:])!.base64EncodedString())")
+}
+print("smooth drawing geometry ok")
+''',timeout=20)
+        self.assertIn('smooth drawing geometry ok',out)
+        print(out,flush=True)   # runner stops the VM; export render artifacts through stdout
+
     def test_marks_and_callouts_stay_clear_of_targets(self):
         from tests import run_swift
         source = (ROOT/'Atticus.swift').read_text()
