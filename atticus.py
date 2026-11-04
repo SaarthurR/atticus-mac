@@ -5411,8 +5411,9 @@ def start_claude(model=None, agent=None):
                               '--tools', tools, '--permission-mode', 'dontAsk' if agent else 'bypassPermissions', '--disallowedTools', *DENY,
                               '--settings', json.dumps(settings), '--setting-sources', '', '--output-format', 'stream-json', '--verbose', *flags],
                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errors, text=True, cwd=ask if agent else tempfile.gettempdir(), start_new_session=True, env=env)
-    except BaseException:
+    except BaseException as error:
         errors.close()
+        if isinstance(error, OSError) and not agent: return None   # main requests use run()'s existing setup guidance
         raise
     p.ask, p.errors, p.atticus_model = ask, errors, model or main_model()
     if not agent:

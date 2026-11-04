@@ -400,6 +400,27 @@ print("single delivery fallback ok")
         self.assertIn('min(15, 4 + 0.15 * (whisperAudio.seconds + whisperQueued))', stop)
         self.assertLess(stop.index('if whisperListen'), stop.index('Finalizing can hang'))
 
+    def test_whisper_release_keeps_recording_before_draining_and_finalizing(self):
+        source = (ROOT / 'Atticus.swift').read_text()
+        stop = source[source.index('    func stop()', source.index('final class App')):source.index('    func applyReplacement(')]
+        self.assertIn('!whisperReleasing', stop)  # repeated key-up/timer stops cannot submit twice
+        self.assertIn('whisperReleasing = whisperListen && !clickTalk && !toggleTalk', stop)
+        self.assertIn('if whisperReleasing { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: stopMic) }', stop)
+        self.assertIn('else { stopMic() }', stop)  # Apple, click and toggle keep their immediate stop
+        self.assertLess(stop.index('guard let self, self.listenID == id'), stop.index('engine.stop'))
+        self.assertIn('engine.stop { inputs?.finishAll(); whisperFlush?() }', stop)
+        flush = stop[stop.index('whisperFlush = {'):]
+        self.assertLess(flush.index('guard let self, self.listenID == id'), flush.index('self.whisperFinal(id)'))
+        start = source[source.index('    func start(dictate: Bool'):source.index('    func heard(')]
+        self.assertIn('whisperReleasing = false', start)
+        self.assertIn('engine.isRunning, !whisperReleasing else { return t.invalidate() }', start)
+
+    def test_whisper_empty_final_keeps_live_words(self):
+        source = (ROOT / 'Atticus.swift').read_text()
+        final = source[source.index('    func whisperFinal('):source.index('    func start(dictate: Bool')]
+        self.assertIn("let r = r.map { $0.isEmpty ? self.speechText[segment]?.live ?? \"\" : $0 }", final)  # empty final keeps shown words
+        self.assertLess(final.index('let r = r.map'), final.index('self.speechPiece('))
+
     def test_whisper_settings_bridge(self):
         source = (ROOT / 'Atticus.swift').read_text()
         settings = source[source.index('final class SettingsWindow'):]

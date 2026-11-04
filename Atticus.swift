@@ -2347,7 +2347,7 @@ final class App: NSObject, WKScriptMessageHandler {
     // Whisper: the mic fills whisperAudio; the listen timer re-transcribes it about every 0.6 s for live words, and a segment
     // closes on a pause after 25 s (hard at 30 s) so each pass stays short. Final passes queue on whisperChain, in order.
     let whisperAudio = WhisperAudio()
-    var whisperListen = false, whisperBusy = false, whisperAsk = 0, whisperSent = 0.0, whisperQueued = 0.0, whisperPrompt = ""
+    var whisperListen = false, whisperBusy = false, whisperReleasing = false, whisperAsk = 0, whisperSent = 0.0, whisperQueued = 0.0, whisperPrompt = ""
     var whisperAsked = Date.distantPast, whisperVoice = Date.distantPast, whisperChain: Task<Void, Never>?
     // Settings → Speech model: Apple's newer SpeechTranscriber, or the Dictation model the keyboard mic uses.
     // Dictation drops fastResults / frequentFinalization (Apple: faster but less accurate); asks keep them for live commands.
@@ -3316,6 +3316,7 @@ final class App: NSObject, WKScriptMessageHandler {
             await MainActor.run {
                 guard let self, self.listenID == listeningID else { return }   // cancelled, hushed or timed out meanwhile
                 self.whisperQueued -= secs
+                let r = r.map { $0.isEmpty ? self.speechText[segment]?.live ?? "" : $0 }   // an empty last pass keeps the words already shown
                 if let r { self.speechPiece((self.speechText[segment]?.done.isEmpty ?? true) || r.isEmpty ? r : " " + r, final: true, segment: segment, listeningID: listeningID) }
                 else { self.speechFailed = true }
                 then(r != nil)
@@ -3399,7 +3400,7 @@ final class App: NSObject, WKScriptMessageHandler {
         if !quiet { quietAudio.begin(Prefs.bool("quietAudio"), level: Float32(Prefs.num("quietLevel"))) }
         listenID += 1; let listeningID = listenID; began = Date()   // key-down until the mic is ready; a release in that gap is a tap
         speechInputs = SpeechInputs(); speechText = [:]; speechSegment = 0; nextSpeechRollover = 50
-        whisperListen = whisper; whisperBusy = false; whisperAsk += 1; whisperQueued = 0; whisperVoice = .distantPast; whisperAudio.reset()
+        whisperListen = whisper; whisperBusy = false; whisperReleasing = false; whisperAsk += 1; whisperQueued = 0; whisperVoice = .distantPast; whisperAudio.reset()
         if whisper {
             feed = nil; speechInputID = nil; analyzer = nil; reading = nil
             Whisper.shared.warm(); whisperPrompt = String(hints.joined(separator: ", ").prefix(600))   // hints read app folders: once per listen, not per pass
@@ -3436,7 +3437,7 @@ final class App: NSObject, WKScriptMessageHandler {
             if case .failure(let error) = result { telemetry(["error", "native", "mic_start"]); if replying { stopOfferInput() } else { hush() }; js("msg", "Mic error: \(error.localizedDescription)"); hide(after: 3); return }
             began = Date()   // measure the limit from when the mic is ready
             Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] t in
-                guard let self, listenID == listeningID, engine.isRunning else { return t.invalidate() }
+                guard let self, listenID == listeningID, engine.isRunning, !whisperReleasing else { return t.invalidate() }
                 let f = (dictating ? dictateHotkey() : hotkey()).flags, held = Date().timeIntervalSince(began)
                 if clickTalk && text.isEmpty && held > 8 { t.invalidate(); if quietFollowUp { hush(); fadeIdleHandsFree(); return }; if offerText != nil { stopOfferInput(); return }; hush(); js("stopped", ""); return hide(after: 3) }   // nothing said: stop the mic quietly
                 if whisper && clickTalk && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && Date().timeIntervalSince(whisperVoice) >= 1.3 { t.invalidate(); return stop() }   // heard() is too late for the 1.3 s pause
@@ -3555,11 +3556,19 @@ final class App: NSObject, WKScriptMessageHandler {
     }
 
     func stop() {
-        guard engine.isRunning, !clickTalk || text.isEmpty == false else { return }
+        guard engine.isRunning, !whisperReleasing, !clickTalk || text.isEmpty == false else { return }
         let inputs = speechInputs
         if dictating { dictateSeconds = Date().timeIntervalSince(began); dictateReleased = Date(); startDictateAhead() }   // cleanup runs while the last words finalize
         var whisperFlush: (() -> Void)?   // Whisper's last pass waits for the mic's last buffer
-        engine.stop { inputs?.finishAll(); whisperFlush?() }
+        let id = listenID
+        let stopMic = { [weak self] in
+            guard let self, self.listenID == id else { return }
+            self.engine.stop { inputs?.finishAll(); whisperFlush?() }
+        }
+        whisperReleasing = whisperListen && !clickTalk && !toggleTalk
+        // Whisper needs the trailing audio before its final pass; Apple still stops immediately.
+        if whisperReleasing { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: stopMic) }
+        else { stopMic() }
         quietAudio.end()
         clickTalk = false; toggleTalk = false; quiet?.cancel()
         busy = true
@@ -3583,7 +3592,10 @@ final class App: NSObject, WKScriptMessageHandler {
         }
         if whisperListen {   // Whisper: one last pass over the audio no final pass has taken; the wait grows with the audio left
             let id = listenID, wait = min(15, 4 + 0.15 * (whisperAudio.seconds + whisperQueued))
-            whisperFlush = { [weak self] in self?.whisperFinal(id) { ok in once(ok && self?.speechFailed == false) } }
+            whisperFlush = { [weak self] in
+                guard let self, self.listenID == id else { return }
+                self.whisperFinal(id) { [weak self] ok in once(ok && self?.speechFailed == false) }
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
                 guard let self, g == stops else { return }
                 once(false)
