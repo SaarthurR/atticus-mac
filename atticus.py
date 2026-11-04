@@ -2843,16 +2843,24 @@ def web(cmd, n='', text='', app=None, fresh=False, want='', page=None):
 
 
 def allow_page_js(app, ask=False):
-    """Chromium browsers: View > Developer > Allow JavaScript from Apple Events, clicked by its menu. Asks the user once (Settings: pageJS), then keeps it on."""
+    """Verify Chromium page scripting, enabling it after consent if needed."""
     if ask and not pref('pageJS', False) and not pref('fixSetup', False):
         if not os.environ.get('ATTICUS_ASK') or ask_user({'need': 'page-js', 'app': app, 'q': f'I can turn on page reading in {app} for you',
                                                           'cmd': 'View > Developer > Allow JavaScript from Apple Events, kept on.'}, 60) != 'y':
             return False
         if not os.environ.get('ATTICUS_AGENT'): ask_user({'set': 'pageJS', 'value': True}, 5)   # an agent's chip sets it on Allow
-    # shortcut: English menu names only; a translated Chrome needs the item found by position
+    def enabled():
+        # A windowless browser needs a disposable tab to test the actual permission.
+        return osa(f'tell application "{osa_quote(app)}"\nset probeWindow to missing value\ntry\n'
+                   'if (count windows) is 0 then set probeWindow to make new window\n'
+                   'set answer to execute active tab of window 1 javascript "1"\n'
+                   'on error\nif probeWindow is not missing value then close probeWindow\nreturn ""\nend try\n'
+                   'if probeWindow is not missing value then close probeWindow\nreturn answer\nend tell', timeout=5) == '1'
+    if enabled(): return True
+    # shortcut: Chromium's View is fifth, Developer and its toggle are last; update if its menu layout changes.
     return osa('on run argv\ntell application "System Events" to tell process (item 1 of argv)\n'
-               'set m to menu item "Allow JavaScript from Apple Events" of menu 1 of menu item "Developer" of menu 1 of menu bar item "View" of menu bar 1\n'
-               'if value of attribute "AXMenuItemMarkChar" of m is missing value then click m\nreturn "on"\nend tell\nend run', proc_of(app)) == 'on'
+        'set m to last menu item of menu 1 of last menu item of menu 1 of menu bar item 5 of menu bar 1\n'
+        'if value of attribute "AXMenuItemMarkChar" of m is missing value then click m\nreturn "on"\nend tell\nend run', proc_of(app)) == 'on'
 
 
 # Setup an agent can ask for mid-task. macOS lets only the user flip its privacy switches; page reading Atticus turns on itself.
