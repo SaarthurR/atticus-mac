@@ -145,6 +145,12 @@ class TelemetryTests(unittest.TestCase):
         with patch.object(atticus, 'report_error') as sent:
             atticus.report_worker_failure('claude', 'haiku', atticus.failure_why('Unknown process failure'))
         sent.assert_called_once_with('worker_exit', worker='claude', model='haiku', why='stopped')
+        self.assertEqual(atticus.failure_why('Credit balance is too low'), 'billing')
+        with patch.object(atticus, 'report_error') as sent:
+            atticus.report_worker_failure('claude', 'haiku', 'stopped', 'my secret note at ~/x: SyntaxError near line 3')
+            atticus.report_worker_failure('pi', 'haiku', 'tool_failed', 'my terror, Exit code 1')
+            atticus.report_worker_failure('pi', 'haiku', 'tool_failed', 'plain words only')
+        self.assertEqual([c.kwargs.get('hint') for c in sent.call_args_list], ['SyntaxError', 'Exit code 1', None])
 
     def test_cancellation_has_no_error_event(self):
         with tempfile.TemporaryDirectory() as root, patch.object(atticus, 'DIR', root), patch.object(atticus, 'TURN', {}), \

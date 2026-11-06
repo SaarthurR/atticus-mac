@@ -3615,6 +3615,7 @@ def failure_why(detail, custom=False):
         ('model_missing', r'issue with the selected model|unrecognized_model'),   # a model the server does not offer: setup, not a crash
         ('too_long', TOO_LONG),
         ('plan_limit', PLAN_LIMIT),
+        ('billing', r'credit balance is too low'),
         ('rate_limited', r'rate.?limit|too many requests|\b429\b'),
         ('offline', r'network|connect|dns|timed? ?out|timeout'),
         ('unavailable', r'overload|unavailable|service error|\b5\d\d\b'),
@@ -3626,10 +3627,15 @@ def failure_why(detail, custom=False):
     return 'server_rejected' if custom and re.search(r'\b4\d\d\b', detail) else 'stopped'
 
 
-def report_worker_failure(worker, model, why):
+ERROR_HINT = r'\b[A-Z]\w*(?:Error|Exception)\b|\b[Ee]xit code -?\d+|\bE[A-Z]{3,}\b|\bHTTP \d{3}\b'   # code words only, never user text
+
+
+def report_worker_failure(worker, model, why, error=''):
     if why == 'cancelled': return
-    setup = why in ('setup_needed', 'provider_needed', 'model_missing', 'server_rejected', 'signed_out', 'too_long', 'plan_limit', 'rate_limited', 'offline', 'unavailable', 'sandbox')
-    report_error('setup' if setup else 'worker_exit', worker=worker, model=model if model in ('haiku', 'sonnet', 'opus') else 'custom', why=why)
+    setup = why in ('setup_needed', 'provider_needed', 'model_missing', 'server_rejected', 'signed_out', 'too_long', 'plan_limit', 'billing', 'rate_limited', 'offline', 'unavailable', 'sandbox')
+    hint = re.search(ERROR_HINT, str(error or ''))
+    report_error('setup' if setup else 'worker_exit', worker=worker, model=model if model in ('haiku', 'sonnet', 'opus') else 'custom', why=why,
+                 **({'hint': hint[0][:40]} if hint and not setup else {}))
 
 
 def exception_error(exc_type, tb, value=None, *, kind='exception', **props):
@@ -5834,6 +5840,8 @@ def run(task, p=None, shots=(), auto_work=False, *, request=None, main_only=Fals
             plan_limit = re.sub(r'\|(\d+)\s*$', lambda m: time.strftime(' · resets %a %-I:%M %p', time.localtime(int(m[1]))), plan_limit)   # older Claude Code appends "|<reset epoch>"
             plan_limit = ' '.join(plan_limit.split())[:200]
             reply = f'Claude: {plan_limit}' if plan_limit else ('Your custom server' if custom else 'Claude') + ' reached its usage limit. Please try again after it resets.'
+        elif run.why == 'billing':
+            reply = 'Your Anthropic API credits ran out. Add credits at console.anthropic.com, then try again.'
         elif run.why == 'rate_limited':
             reply = ('Your custom server' if custom else 'Claude') + ' is temporarily rate-limited. Please try again in a moment.'
         elif run.why == 'offline':
@@ -8077,7 +8085,7 @@ def main():
     failed = failed_action_reply(reply, run.work)
     final_ran = list(failed_replay.get('output', ())) + run.ran if failed_replay else run.ran
     if not run.ok or failed: report(task, reply, final_ran, time.time() - t, 'error' if not run.ok else 'could not do it')
-    if not run.ok: report_worker_failure(client(), model, getattr(run, 'why', '') or 'other')
+    if not run.ok: report_worker_failure(client(), model, getattr(run, 'why', '') or 'other', getattr(run, 'error', ''))
     learned_entry = skills().get(learned_key) if learned_key else None
     learned_turn = {'key': learned_key, 'commands': learned_entry['cmds'],
                     'output': [f'{o.get("action", "")} => {str(o.get("result", ""))[:400]}' for o in run.observed] or [reply[:400]]} if learned_entry else None
