@@ -3611,7 +3611,8 @@ PLAN_LIMIT = r'\busage limit\b|\b(?<!rate.)limit\b.*\b(?:resets?|reached)\b|\bhi
 def failure_why(detail, custom=False):
     """Classify backend errors, never the user's request or the model's ordinary answer."""
     for why, pattern in (
-        ('signed_out', r'\b(?:o?auth(?:enticate|entication|orization)?|unauthori[sz]ed)\b|\b401\b|invalid (?:api )?key|not logged in|sign.?in'),
+        ('signed_out', r'\b(?:o?auth(?:enticate|entication|orization)?|unauthori[sz]ed)\b|\b401\b|invalid (?:api )?key|not logged in|sign.?in|login cancel'),
+        ('model_missing', r'issue with the selected model|unrecognized_model'),   # a model the server does not offer: setup, not a crash
         ('too_long', TOO_LONG),
         ('plan_limit', PLAN_LIMIT),
         ('rate_limited', r'rate.?limit|too many requests|\b429\b'),

@@ -131,7 +131,9 @@ class TelemetryTests(unittest.TestCase):
                  ('OAuth session expired', False, 'signed_out'),
                  ('HTTP 429', False, 'rate_limited'), ('Rate limit reached for requests', False, 'rate_limited'),
                  ('You’ve hit your weekly limit · resets 3pm', False, 'plan_limit'), ('Context window limit reached', False, 'too_long'),
-                 ('network connection failed', False, 'offline')]
+                 ('network connection failed', False, 'offline'),
+                 ("There's an issue with the selected model (qwen3). It may not exist", True, 'model_missing'),
+                 ('[claude-code:unrecognized_model] {"model":"qwen3:4b"}', True, 'model_missing'), ('Error: Login canceled', False, 'signed_out')]
         with patch.object(atticus, 'report_error') as sent:
             for detail, custom, why in cases:
                 self.assertEqual(atticus.failure_why(detail, custom), why)
