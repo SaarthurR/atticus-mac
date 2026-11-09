@@ -19,6 +19,43 @@ class JavaScriptTests(unittest.TestCase):
                     p = subprocess.run(['node', '--check', '--input-type=module'], input=code, capture_output=True, text=True)
                     self.assertEqual(p.returncode, 0, p.stderr)
 
+    def test_transcript_tail_survives_words_and_clears_at_finalization(self):
+        root = Path(__file__).resolve().parents[1]
+        source = (root / 'ui/ui.html').read_text()
+        native = (root / 'Atticus.swift').read_text()
+        methods = source[source.index('    words(w) {'):source.index('    finishing(label) {')]
+        script = """
+const assert = require('node:assert/strict');
+const classes = new Set(['live', 'hear']);
+const q = {textContent: '', classList: {
+ toggle(k, on) { on ? classes.add(k) : classes.delete(k); },
+ remove(...keys) { keys.forEach(k => classes.delete(k)); }
+}};
+let present = true, fits = 0, listening, working, boost;
+const part = () => present ? q : null, fit = () => fits++;
+const clockBegin = () => {}, setState = () => {}, status = () => {};
+const document = {body: {classList: {remove() {}}}}, $ = () => ({style: {}});
+const ui = {""" + methods + """};
+ui.words('sample'); ui.think(); ui.tail(true);
+assert(classes.has('tail')); assert(!classes.has('live'));
+ui.words('sample complete'); assert(classes.has('tail'));
+ui.tail(false); assert(!classes.has('tail')); assert.equal(q.textContent, 'sample complete');
+ui.tail(true); ui.words(''); assert(classes.has('tail'));
+ui.tail(false); present = false; ui.tail(false); assert(fits > 0);
+"""
+        result = subprocess.run(['node', '-e', script], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        stop = native[native.index('    func stop() {', native.index('    func dropAhead()')):native.index('    func applyReplacement()')]
+        self.assertIn('if !dictating { js("tail", true) }', stop)
+        once = stop[stop.index('let once:'):stop.index('if whisperListen {')]
+        self.assertLess(once.index('g == stops'), once.index('js("tail", false)'))
+        self.assertLess(once.index('js("tail", false)'), once.index('if confirmed'))
+        hush = native[native.index('    func hush(keepReply:'):native.index('    func stopOfferInput()')]
+        self.assertIn('js("tail", false)', hush)
+        self.assertIn('.q.empty:not(.hear):not(.tail)', source)
+        self.assertIn('animation: pulse 1.6s ease-in-out infinite', source)
+        self.assertIn('*, *::before, *::after { animation: none !important;', source)
+
     def test_failed_meeting_stream_restores_retry(self):
         source = (Path(__file__).resolve().parents[1] / 'ui' / 'meeting.html').read_text()
         helper = re.search(r'const retryAnswer=.*?;\n', source).group(0)

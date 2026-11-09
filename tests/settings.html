@@ -13,12 +13,17 @@ const frame = document.getElementById('preview'), results = document.getElementB
 const assert = (condition, name) => { if (!condition) throw Error(name); checks.push('✓ ' + name); };
 window.addEventListener('message', e => { if (e.source === frame.contentWindow) messages.push(e.data); });
 try {
-  const html = await (await fetch('../ui/settings.html')).text();
+  const html = await (await fetch('../ui/settings.html')).text(), i18n = await (await fetch('../ui/i18n.js')).text();
   const loaded = new Promise(resolve => frame.onload = resolve);
-  frame.srcdoc = html.replace('<head>', `<head><script>window.webkit = {messageHandlers: {st: {postMessage: m => parent.postMessage(m, '*')}}};<\/script>`);
+  frame.srcdoc = html.replace('/*I18N*/', () => i18n).replace('<head>', `<head><script>window.webkit = {messageHandlers: {st: {postMessage: m => parent.postMessage(m, '*')}}};<\/script>`);
   await loaded;
   const w = frame.contentWindow, d = w.document;
   const base = {hotkeyLabel:'⌃⌥Space',model:'haiku',volume:.16};
+  w.st.load({prefs:{...base,uiLanguage:'it'}});
+  await new Promise(r=>setTimeout(r,30));
+  assert(d.querySelector('#general h1').textContent==='Generale','Italian Settings labels');
+  w.st.load({prefs:{...base,uiLanguage:'en'}});
+  await new Promise(r=>setTimeout(r,30));
   w.st.load({prefs:{...base,routing:'balanced'}});
   assert([...d.querySelectorAll('[data-k=routing] button')].map(b=>b.dataset.v).join()==='cheapest,balanced,capable','One intelligence setting offers three modes');
   assert(d.querySelector('[data-k=routing] [data-v=balanced]').getAttribute('aria-pressed')==='true','Balanced is selected accessibly');

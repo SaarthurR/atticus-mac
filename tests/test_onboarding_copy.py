@@ -121,9 +121,10 @@ for (const [label, keys] of Object.entries(want)) if (JSON.stringify(capsOf(labe
         self.assertLess(check.index('checkingPlan = true'), check.index('Onboarding.plan'))
         self.assertIn('self?.checkingPlan = false', check)
 
-    def test_voice_asks_use_the_mac_language(self):
+    def test_voice_asks_use_only_engine_supported_languages(self):
         swift = (ROOT / 'Atticus.swift').read_text()
-        speech = swift.split('    func speechModule(dictate: Bool = false)', 1)[1].split('    func prepareSpeech()', 1)[0]
+        speech = swift.split('    func speechModule(', 1)[1].split('    func prepareSpeech()', 1)[0]
+        self.assertIn('supportedSpeechLocale(speechLocales[Prefs.str("speechModel")] ?? [])', speech)
         self.assertNotIn('Locale.current', speech)   # SpeechTranscriber rejected the Mac's locale: every voice ask died in 1.5.0
         self.assertIn(': SpeechTranscriber(locale: locale, preset: .progressiveTranscription)', speech)
         start = swift.split('    func start(dictate: Bool, quiet: Bool = false)', 1)[1].split('    func heard(', 1)[0]
@@ -131,6 +132,8 @@ for (const [label, keys] of Object.entries(want)) if (JSON.stringify(capsOf(labe
         self.assertIn('Privacy & Security → Speech Recognition.', start)
         prepare = swift.split('    func prepareSpeech()', 1)[1].split('    var text =', 1)[0]
         self.assertIn('guard !preparingSpeech else { return }', prepare)
+        self.assertIn('await DictationTranscriber.supportedLocales', prepare)
+        self.assertIn('await SpeechTranscriber.supportedLocales', prepare)
 
 
 if __name__ == '__main__':

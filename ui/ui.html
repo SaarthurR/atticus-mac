@@ -55,13 +55,14 @@
     font-size: 13.5px; line-height: 1.45; color: #e5e5ea; overflow-wrap: anywhere; cursor: pointer;
     transition: font-size .3s var(--ease), color .3s; }
   .q.live { font-size: 15px; color: #fff; }
-  .q.live::after { content: ""; display: inline-block; width: 1.5px; height: 1em; margin-left: 2px; vertical-align: -2px;
+  .q:is(.live, .tail)::after { content: ""; display: inline-block; width: 1.5px; height: 1em; margin-left: 2px; vertical-align: -2px;
     background: #fff; animation: blink 1s steps(1) infinite; }
+  .q.tail::after { background: currentColor; opacity: .6; animation: pulse 1.6s ease-in-out infinite; }
   .shot { display: block; margin: 0 0 4px auto; padding: 0; border: 0; border-radius: 10px; overflow: hidden; background: none; cursor: zoom-in;
     box-shadow: inset 0 0 0 .5px rgba(255,255,255,.12); }   /* the marked crop, sent with this ask */
   .shot img { display: block; max-width: 120px; max-height: 72px; transition: max-width .3s var(--ease), max-height .3s var(--ease); }
   .shot.big { max-width: 86%; cursor: zoom-out; } .shot.big img { max-width: 100%; max-height: 220px; }
-  .q.empty:not(.hear) { display: none; }
+  .q.empty:not(.hear):not(.tail) { display: none; }
   .q.empty.hear { color: var(--fg2); } .q.empty.hear::before { content: "Listening…"; }   /* voice: the bubble waits for words */
   .q.reply { margin-top: 14px; }   /* a spoken answer to a choices card, in the card's place */
   /* dictation: a pill just wide enough for the orb and its wave (and the lock once locked). Released, it folds into a circle with
@@ -433,6 +434,8 @@
 <div class="e" id="cTL"></div><div class="e" id="cTR"></div><div class="e" id="cBL"></div><div class="e" id="cBR"></div>
 <div id="grip"><svg viewBox="0 0 12 12"><path d="M11 4L4 11M11 8L8 11"/></svg></div>
 <script type="text/plain" id="orbsrc">/*ORBS*/</script>
+<script>/*I18N*/</script>
+<script>document.addEventListener('DOMContentLoaded', () => window.i18n?.start('labels'));</script>
 <script type="module">
   // thinking-orbs engine: M = MODE_FRAMES, p = paintFrame, r = resolvePreset (its minified export names)
   const E = await import(URL.createObjectURL(new Blob([document.getElementById('orbsrc').textContent], { type: 'text/javascript' })));
@@ -493,6 +496,7 @@
     folded = on; document.body.classList.toggle('folded', on);
     $('fold').title = on ? 'Expand answer' : 'Minimize answer';
     $('fold').setAttribute('aria-label', $('fold').title); $('fold').setAttribute('aria-expanded', !on);
+    window.i18n?.refresh();
     $('thread').inert = on; $('comp').inert = on || !$('comp').classList.contains('open');
     if (on) $('ask').blur();
   };
@@ -957,6 +961,7 @@
       q.classList.toggle('empty', !w.trim()); q.textContent = w;
       fit();
     },
+    tail(on) { part('q')?.classList.toggle('tail', !!on); fit(); },
     think() {
       clockBegin();
       listening = false;
@@ -1222,10 +1227,11 @@
       (turn() || $('thread')).append(d); setState('breathing'); status('Waiting for you'); clockHold(); unfoldForAnswer(focusAnswer); fit();
       setTimeout(() => d.isConnected && done(-1, 'Pick expired'), 105000);   // the brain stops waiting at 110 s
     },
+    language(value) { window.i18n?.setLanguage(value); },
     mode(safe) { $('mode').classList.toggle('on', !safe); },
     models({ list, pick }) {   // Claude's models, or the custom server's; none for a client without a choice
       const name = v => ({cheapest: 'Cheapest', balanced: 'Balanced', capable: 'Most capable'})[v] || (/^(haiku|sonnet|opus)$/.test(v) ? v[0].toUpperCase() + v.slice(1) : v);
-      $('model').hidden = !list.length; $('model').textContent = name(pick);
+      $('model').hidden = !list.length; $('model').textContent = name(pick); window.i18n?.refresh();
       $('models').replaceChildren(...list.map(v => { const b = document.createElement('button'); b.dataset.v = v; b.textContent = name(v); b.classList.toggle('on', v === pick); b.setAttribute('role', 'menuitemradio'); b.setAttribute('aria-checked', v === pick); return b; }));
       spread();
     },

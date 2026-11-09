@@ -12,7 +12,7 @@ const results = document.getElementById('results'), frame = document.getElementB
 const messages = [], checks = [];
 const assert = (condition, name) => { if (!condition) throw Error(name); checks.push('✓ ' + name); results.dataset.lastCheck=name; };
 try {
-  const html = await (await fetch('../ui/ui.html')).text(), orbs = await (await fetch('../ui/orbs.js')).text();
+  const html = await (await fetch('../ui/ui.html')).text(), orbs = await (await fetch('../ui/orbs.js')).text(), i18n = await (await fetch('../ui/i18n.js')).text();
   const ready = new Promise(resolve => window.addEventListener('message', e => {
     if (e.source !== frame.contentWindow) return;
     messages.push(e.data); if (e.data.ready) resolve();
@@ -26,9 +26,13 @@ try {
     window.setTimeout = (f, ms, ...args) => ms === 60000 ? (window.expireApproval = f, 0) : later(f, ms, ...args);
     window.webkit = {messageHandlers: {c: {postMessage: m => parent.postMessage(m, '*')}, h: {postMessage: () => {}}}};
   <\/script>`;
-  frame.srcdoc = html.replace('/*ORBS*/', () => orbs).replace('<head>', '<head>' + bridge);
+  frame.srcdoc = html.replace('/*ORBS*/', () => orbs).replace('/*I18N*/', () => i18n).replace('<head>', '<head>' + bridge);
   await Promise.race([ready, new Promise((_, reject) => setTimeout(() => reject(Error('UI did not initialize')), 5000))]);
   const w = frame.contentWindow, d = w.document, ui = w.ui;
+  ui.language('it'); ui.listen(); ui.words('General'); ui.think(); ui.line('✓ General');
+  await new Promise(r=>setTimeout(r,30));
+  assert(d.getElementById('ask').placeholder==='Chiedi ad Atticus…' && d.querySelector('#thread .a').textContent.trim()==='General','Italian fixed labels leave a matching model answer unchanged');
+  ui.language('en'); ui.reset();
   await new Promise(r => { let n = 0; const f = () => ++n >= 3 ? r() : w.requestAnimationFrame(f); w.requestAnimationFrame(f); setTimeout(r, 3000); });   // a fresh page draws its first frames late on a slow Mac or VM: timed checks start once frames run
   const tap = el => { const r = el.getBoundingClientRect(); ui.tap([r.x + r.width / 2, r.y + r.height / 2]); };
   ui.listen();

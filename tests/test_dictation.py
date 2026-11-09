@@ -374,7 +374,7 @@ print("single delivery fallback ok")
         self.assertNotIn('dictating ?', guard[:guard.index('once(false)')])
         module = source[source.index('    func speechModule('):source.index('    func prepareSpeech(')]
         self.assertIn('let tr = speechModule(dictate: dictating)', source)
-        self.assertIn('SpeechTranscriber(locale: en, transcriptionOptions: [], reportingOptions: [.volatileResults]', module)
+        self.assertIn('SpeechTranscriber(locale: locale, transcriptionOptions: [], reportingOptions: [.volatileResults]', module)
         self.assertIn('transcriptionOptions: [.punctuation], reportingOptions: [.volatileResults]', module)
 
     def test_whisper_feeds_raw_samples_and_skips_apple_speech(self):

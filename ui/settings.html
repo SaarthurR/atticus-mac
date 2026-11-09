@@ -315,6 +315,7 @@
   <section id="general" class="on">
     <h1>General</h1>
     <p class="lede">Your shortcut. Your way to talk.</p>
+    <div class="group"><div class="row"><div class="t"><b>Interface language</b><span>Automatic follows your Mac.</span></div><div class="seg" data-k="uiLanguage" style="flex-wrap:wrap;flex:0 1 340px"><button data-v="auto">Automatic</button><button data-v="en">English</button><button data-v="it">Italiano</button><button data-v="es">Español</button><button data-v="fr">Français</button><button data-v="de">Deutsch</button></div></div></div>
     <h3>Shortcut</h3>
     <div class="shortcut" id="shortcut">
       <div class="caps" id="caps" aria-live="polite"></div>
@@ -329,7 +330,7 @@
     <h3>Dictation</h3>
     <div class="group">
       <div class="row"><div class="t"><b>Microphone</b></div><select data-k="microphone"></select></div>
-      <div class="row"><div class="t"><b>Speech model</b><span>Speech is best for most people. All stay on this Mac. <i class="info" title="Speech: free, English (US), on this Mac. Dictation: the model your keyboard’s mic uses. Whisper: free, any language, runs whisper.cpp on this Mac.">i</i></span></div><div class="seg" data-k="speechModel"><button data-v="speech">Speech</button><button data-v="dictation">Dictation</button><button data-v="whisper">Whisper</button></div></div>
+      <div class="row"><div class="t"><b>Speech model</b><span>Speech is best for most people. All stay on this Mac. <i class="info" title="Pick a language under Interface language to use it for Speech and Dictation when supported. Automatic keeps speech in English (US). Whisper supports automatic language detection on this Mac.">i</i></span></div><div class="seg" data-k="speechModel"><button data-v="speech">Speech</button><button data-v="dictation">Dictation</button><button data-v="whisper">Whisper</button></div></div>
       <div class="row" data-w hidden><div class="t"><b>Whisper model</b><span>Bigger is slower and more accurate. <i class="info" title="Turbo: fast, very close to Large. Large v3: most accurate, slower. Small: lightest, least accurate. Downloaded once, then runs offline.">i</i></span></div><select data-k="whisperModel"><option value="turbo">Turbo · 574 MB</option><option value="large">Large v3 · 1.1 GB</option><option value="small">Small · 190 MB</option></select></div>
       <div class="row" data-w hidden><div class="t"><b>Language</b><span>Auto-detect works for most people.</span></div><select data-k="whisperLanguage"><option value="auto">Auto-detect</option><option value="en">English</option><option value="id">Indonesian</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="pt">Portuguese</option><option value="it">Italian</option><option value="nl">Dutch</option><option value="ja">Japanese</option><option value="ko">Korean</option><option value="zh">Chinese</option><option value="hi">Hindi</option><option value="ar">Arabic</option><option value="ru">Russian</option><option value="tr">Turkish</option><option value="vi">Vietnamese</option><option value="th">Thai</option><option value="pl">Polish</option><option value="sv">Swedish</option><option value="uk">Ukrainian</option></select></div>
       <div class="row" data-w hidden><div class="t"><b>Whisper status</b><span class="status"><i class="dot bad" id="wdot"></i><span id="wtext" role="status" aria-live="polite">Checking…</span></span></div><div class="wacts"><button class="btn" id="winstall" hidden>Install</button><button class="btn blue" id="wdownload" hidden>Download</button><button class="btn" id="wcancel" hidden>Cancel</button></div></div>
@@ -507,6 +508,8 @@
 </main>
 <div id="notice" role="status" aria-live="polite" hidden><span id="noticetext"></span><button class="btn" id="noticebtn" hidden></button></div>
 
+<script>/*I18N*/</script>
+<script>document.addEventListener('DOMContentLoaded', () => window.i18n?.start('page'));</script>
 <script>
   const $ = id => document.getElementById(id);
   const esc = t => t.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));   // for text put into innerHTML
@@ -514,7 +517,7 @@
   let P = {};
   let hotkeyTaken = false, dictateHotkeyTaken = false;   // another app owns a saved shortcut, so it does nothing
   const shortcutHint = () => hotkeyTaken ? 'Another app uses this shortcut. Change it to use Atticus.' : P.input === 'type' ? 'Press to type. Return sends.' : P.talkMode === 'toggle' ? 'Press to listen. Press again to send.' : 'Hold it, talk, let go.';
-  const set = (k, v) => { P[k] = v; post({ do: 'set', k, v }); paint(); };
+  const set = (k, v) => { P[k] = v; post({ do: 'set', k, v }); paint(); if (k === 'uiLanguage') window.i18n?.setLanguage(v); };
   // One status line for the whole window, with an optional action. It fades on its own; a waiting deletion happens when it goes.
   let noticeTimer, pending = null;   // pending: {msg, sel}, a deletion its Undo can still take back
   function showNotice(text, action, run) {
@@ -994,7 +997,8 @@
     whisper(s) { W = s; paintWhisper(); },
     globe(on) { $('globefix').hidden = !on; },   // fn alone also fires macOS's own 🌐 action
     load(d) {
-      P = {talkMode: 'hold', dictateMode: 'verbatim', dictateHotkeyLabel: '', microphone: 'automatic', whisperModel: 'turbo', whisperLanguage: 'auto', meetingSave: true, meetingSummary: true, client: 'claude', ...d.prefs}; recording = '';
+      P = {uiLanguage: 'auto', talkMode: 'hold', dictateMode: 'verbatim', dictateHotkeyLabel: '', microphone: 'automatic', whisperModel: 'turbo', whisperLanguage: 'auto', meetingSave: true, meetingSummary: true, client: 'claude', ...d.prefs}; recording = '';
+      window.i18n?.setLanguage(P.uiLanguage);
       P.routines = d.routines || []; paintRoutines();
       $('shortcut').classList.remove('rec'); $('change').textContent = 'Change Shortcut'; $('dictatechange').classList.remove('rec');
       hotkeyTaken = !!d.hotkeyTaken; dictateHotkeyTaken = !!d.dictateHotkeyTaken; if ($('schint').className !== 'warn') $('schint').className = hotkeyTaken ? 'taken' : '';

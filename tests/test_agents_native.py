@@ -37,6 +37,8 @@ enum Prefs {
  static func bool(_ k:String)->Bool{d[k] as? Bool ?? false}
  static func str(_ k:String)->String{d[k] as? String ?? ""}
  static func num(_ k:String)->Double{(d[k] as? NSNumber)?.doubleValue ?? 0}
+ static var uiLanguage:String{"en"}
+ static func resolveUILanguage(_ c:String)->String{"en"}
 }
 final class KeyPanel:NSPanel{override var canBecomeKey:Bool{true}}
 final class MiniScreen {

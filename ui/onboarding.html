@@ -573,6 +573,8 @@
 <div id="dots"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
 
 <script type="text/plain" id="orbsrc">/*ORBS*/</script>
+<script>/*I18N*/</script>
+<script>document.addEventListener('DOMContentLoaded', () => window.i18n?.start('page'));</script>
 <script type="module">
   const $ = id => document.getElementById(id);
   const post = m => window.webkit?.messageHandlers.ob.postMessage(m);

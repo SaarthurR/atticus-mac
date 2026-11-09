@@ -4,15 +4,18 @@ const results=document.getElementById('results'),checks=[],messages=[],wait=ms=>
 const until=async(test,name,timeout=10000)=>{const end=performance.now()+timeout;while(!test()){if(performance.now()>end)throw Error('Timed out waiting for '+name);await wait(10)}};
 const assert=(ok,name)=>{if(!ok)throw Error(name);checks.push('✓ '+name)};
 try{
-const html=await(await fetch('../ui/onboarding.html')).text(),orbs=await(await fetch('../ui/orbs.js')).text();
+const html=await(await fetch('../ui/onboarding.html')).text(),orbs=await(await fetch('../ui/orbs.js')).text(),i18n=await(await fetch('../ui/i18n.js')).text();
 async function load(id,reduce){
  const f=document.getElementById(id),bridge=`<style>*,*::before,*::after{transition:none!important;transition-delay:0s!important}:not(#done-check *),:not(#done-check *)::before,:not(#done-check *)::after{animation:none!important}</style><script>const media=window.matchMedia;window.matchMedia=q=>q.includes('prefers-reduced-motion')?{matches:${reduce},addEventListener(){},removeEventListener(){}}:media(q);window.framesRequested=0;const raf=window.requestAnimationFrame;window.requestAnimationFrame=f=>{framesRequested++;return raf(f)};window.webkit={messageHandlers:{ob:{postMessage:m=>parent.postMessage(m,'*')}}};<\/script>`;
- f.srcdoc=html.replace('/*ORBS*/',()=>orbs).replace('<head>','<head>'+bridge);
- await until(()=>!!f.contentWindow.ob,'Onboarding initializes '+id);
+ f.srcdoc=html.replace('/*ORBS*/',()=>orbs).replace('/*I18N*/',()=>i18n).replace('<head>','<head>'+bridge);
+ await until(()=>!!f.contentWindow.ob&&f.contentWindow.document.readyState==='complete','Onboarding initializes '+id);
  assert(!!f.contentWindow.ob,'Onboarding initializes '+id);return f.contentWindow;
 }
 window.addEventListener('message',e=>messages.push(e.data));
 const w=await load('preview',false),d=w.document,$=id=>d.getElementById(id);
+w.i18n.setLanguage('it');
+assert(d.querySelector('#welcome h1').textContent==='Scopri Atticus' && d.querySelector('#p-mic b').textContent==='Microfono','Italian setup includes JS permission labels');
+w.i18n.setLanguage('en');
 function page(id){
  const active=d.querySelector('.page.on');assert(active.id===id,'Page '+id+' is active');
  for(const p of d.querySelectorAll('.page'))assert(p.inert===(p!==active)&&p.getAttribute('aria-hidden')===String(p!==active),'Accessible state '+id+' / '+p.id);

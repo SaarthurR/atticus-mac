@@ -195,7 +195,7 @@ enum Prefs {
             ["name": "Friendly", "text": "Warm and conversational, like talking to a colleague. Simple words."]],
         "selection": true, "ahead": true, "aheadDelay": 0.7, "live": true, "screen": "auto", "openOn": "here", "workIn": "back", "miniScreen": true, "draw": true, "guideSteps": "auto", "pageJS": false,
         "speak": false, "showAnswers": "stream", "autoCopy": false, "hideWhenSharing": true, "menuIcon": true, "autoUpdate": true,
-        "learn": true, "safe": true, "pointer": false, "meeting": false, "meetingSave": true, "meetingAuto": "sure", "meetingNudge": false, "meetingDetect": true, "learnMe": true, "saveChats": true, "stats": true, "tips": true, "support": true, "comeBack": true, "askMe": true, "meetingSummary": true, "input": "voice", "talkMode": "hold", "speechModel": "speech", "whisperModel": "turbo", "whisperLanguage": "auto", "improve": false, "improveAsked": false, "draftInsert": "ask",
+        "learn": true, "safe": true, "pointer": false, "meeting": false, "meetingSave": true, "meetingAuto": "sure", "meetingNudge": false, "meetingDetect": true, "learnMe": true, "saveChats": true, "stats": true, "tips": true, "support": true, "comeBack": true, "askMe": true, "meetingSummary": true, "input": "voice", "talkMode": "hold", "uiLanguage": "auto", "speechModel": "speech", "whisperModel": "turbo", "whisperLanguage": "auto", "improve": false, "improveAsked": false, "draftInsert": "ask",
         "dictateHotkeyCode": -1, "dictateHotkeyMods": 0, "dictateHotkeyLabel": "", "dictateMode": "cleanup", "dictateHistory": true, "dictateLearn": true, "dictateWords": [], "dictateFixes": [String: String](), "boxW": 500, "boxH": 420]
     static let retiredKeys = ["quietAudio", "quietLevel", "autoCopy", "askMe", "corner", "linger", "soundStart", "soundRelease", "soundDone", "soundStop",
         "instant", "live", "ahead", "aheadDelay", "learn", "selection", "guideSteps", "workIn", "openOn", "miniScreen", "draftInsert",
@@ -226,7 +226,19 @@ enum Prefs {
     }
     static func bool(_ k: String) -> Bool { d[k] as? Bool ?? false }
     static func str(_ k: String) -> String { d[k] as? String ?? "" }
+    static var uiLanguage: String { resolveUILanguage(str("uiLanguage")) }
+    static func resolveUILanguage(_ choice: String) -> String {
+        let language = choice == "auto" ? (Locale.preferredLanguages.first ?? "en") : choice
+        let code = String(language.split(whereSeparator: { $0 == "-" || $0 == "_" }).first ?? "en")
+        return ["it", "es", "fr", "de"].contains(code) ? code : "en"
+    }
     static func num(_ k: String) -> Double { (d[k] as? NSNumber)?.doubleValue ?? 0 }
+}
+
+// Only an explicit language choice and the engine's own supported list can opt into non-English speech.
+func supportedSpeechLocale(_ locales: [Locale], language: String = Prefs.str("uiLanguage") == "auto" ? "en" : Prefs.uiLanguage) -> Locale {
+    guard language != "en", let locale = locales.first(where: { $0.language.languageCode?.identifier == language }) else { return Locale(identifier: "en-US") }
+    return locale
 }
 
 func applySharing(_ window: NSWindow) {
@@ -871,11 +883,14 @@ func callJS(_ web: WKWebView?, _ fn: String, _ args: [Any]) {
     web?.evaluateJavaScript("\(fn)(...\(j))")
 }
 
-// Load ui/<name> with orbs.js inlined at its /*ORBS*/ marker.
+// Load ui/<name> with orbs.js and i18n.js inlined at their markers; these pages have no base URL.
 func loadPage(_ web: WKWebView, _ name: String) {
     let html = (try? String(contentsOfFile: dir + "/ui/" + name, encoding: .utf8)) ?? "missing " + name
     let orbs = (try? String(contentsOfFile: dir + "/ui/orbs.js", encoding: .utf8)) ?? ""
-    web.loadHTMLString(html.replacingOccurrences(of: "/*ORBS*/", with: orbs), baseURL: nil)
+    let i18n = (try? String(contentsOfFile: dir + "/ui/i18n.js", encoding: .utf8)) ?? ""
+    let language = "window.atticusLanguage = '\(Prefs.uiLanguage)'; window.atticusAutoLanguage = '\(Prefs.resolveUILanguage("auto"))';\n"
+    web.loadHTMLString(html.replacingOccurrences(of: "/*ORBS*/", with: orbs)
+        .replacingOccurrences(of: "/*I18N*/", with: language + i18n), baseURL: nil)
 }
 
 // The screen under the mouse, else the main one.
@@ -2239,6 +2254,7 @@ final class App: NSObject, WKScriptMessageHandler {
     var speechText: [Int: (base: String, done: String, live: String)] = [:]
     var nextFeed: AsyncStream<AnalyzerInput>.Continuation?, nextAnalyzer: SpeechAnalyzer?, nextReading: Task<Void, Never>?
     var nextSpeechInputID: UUID?, nextSpeechSegment = 0, nextSpeechRollover = 50.0
+    var speechLocales: [String: [Locale]] = [:]
     var speechFormat: AVAudioFormat?, preparingSpeech = false   // what the model wants (found at launch and when the model changes)
     var quietFollowUp = false
     var handsFreeIdle = 0
@@ -2351,13 +2367,13 @@ final class App: NSObject, WKScriptMessageHandler {
     var whisperAsked = Date.distantPast, whisperVoice = Date.distantPast, whisperChain: Task<Void, Never>?
     // Settings → Speech model: Apple's newer SpeechTranscriber, or the Dictation model the keyboard mic uses.
     // Dictation drops fastResults / frequentFinalization (Apple: faster but less accurate); asks keep them for live commands.
-    func speechModule(dictate: Bool = false) -> any SpeechModule {
-        let en = Locale(identifier: "en-US"), locale = en   // SpeechTranscriber rejects the Mac locale ("unsupported locale") even when SFSpeechRecognizer lists it: every voice ask died (1.5.0)
+    func speechModule(dictate: Bool = false, locale: Locale? = nil) -> any SpeechModule {
+        let locale = locale ?? supportedSpeechLocale(speechLocales[Prefs.str("speechModel")] ?? [])   // each engine has its own supported list
         if Prefs.str("speechModel") == "dictation" {
-            return dictate ? DictationTranscriber(locale: en, contentHints: [.shortForm], transcriptionOptions: [.punctuation], reportingOptions: [.volatileResults], attributeOptions: [])
+            return dictate ? DictationTranscriber(locale: locale, contentHints: [.shortForm], transcriptionOptions: [.punctuation], reportingOptions: [.volatileResults], attributeOptions: [])
                 : DictationTranscriber(locale: locale, preset: .progressiveShortDictation)
         }
-        return dictate ? SpeechTranscriber(locale: en, transcriptionOptions: [], reportingOptions: [.volatileResults], attributeOptions: [])
+        return dictate ? SpeechTranscriber(locale: locale, transcriptionOptions: [], reportingOptions: [.volatileResults], attributeOptions: [])
             : SpeechTranscriber(locale: locale, preset: .progressiveTranscription)
     }
     func prepareSpeech() {   // make sure the speech model is installed, and learn its audio format
@@ -2365,11 +2381,23 @@ final class App: NSObject, WKScriptMessageHandler {
         Whisper.shared.stop()
         guard !preparingSpeech else { return }
         preparingSpeech = true
-        let m = speechModule()
+        let choice = Prefs.str("uiLanguage"), model = Prefs.str("speechModel")
+        let language = choice == "auto" ? "en" : Prefs.uiLanguage
         Task { [weak self] in
+            let locales = model == "dictation" ? await DictationTranscriber.supportedLocales : await SpeechTranscriber.supportedLocales
+            let locale = supportedSpeechLocale(locales, language: language)
+            guard let self else { return }
+            let m: (any SpeechModule)? = await MainActor.run {
+                guard model == Prefs.str("speechModel") else { self.preparingSpeech = false; self.prepareSpeech(); return nil }
+                return self.speechModule(locale: locale)
+            }
+            guard let m else { return }
             if let r = try? await AssetInventory.assetInstallationRequest(supporting: [m]) { try? await r.downloadAndInstall() }
             let f = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [m])
-            await MainActor.run { self?.speechFormat = f; self?.preparingSpeech = false }
+            await MainActor.run {
+                self.speechLocales[model] = locales; self.speechFormat = f; self.preparingSpeech = false
+                if choice != Prefs.str("uiLanguage") || model != Prefs.str("speechModel") { self.prepareSpeech() }
+            }
         }
     }
     var text = "", answer = "", busy = false, speechFailed = false, gen = 0
@@ -3032,6 +3060,7 @@ final class App: NSObject, WKScriptMessageHandler {
     func hush(keepReply: Bool, keepWarm: Bool = false) {   // stop listening, drop what was heard, say nothing; a drawing stays until Esc, its ✕ or close
         if !keepReply { drawingReply = false }
         mini.reset()
+        js("tail", false)
         engine.stop(); speechInputs?.finishAll(); reading?.cancel(); nextReading?.cancel(); pause?.cancel()
         if !keepWarm { unwarm() }
         quietAudio.end()
@@ -3581,6 +3610,7 @@ final class App: NSObject, WKScriptMessageHandler {
         busy = true
         if dictating { cue("soundRelease"); js("finishing", dictateCleanup ? "Cleaning up…" : "") }
         else if offerText == nil { js("think") }   // card replies keep the response clock paused
+        if !dictating { js("tail", true) }
         let an = analyzer, rd = reading, next = nextAnalyzer
         nextReading?.cancel(); nextFeed = nil; nextAnalyzer = nil; nextReading = nil; nextSpeechInputID = nil; nextSpeechSegment = 0
         Task { await next?.cancelAndFinishNow() }
@@ -3588,6 +3618,7 @@ final class App: NSObject, WKScriptMessageHandler {
         let g = stops
         let once: (Bool) -> Void = { [weak self] confirmed in
             guard let self, g == stops else { return }
+            js("tail", false)
             stops += 1; listenID += 1; pause?.cancel()
             if confirmed || dictating && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { dictating ? finishDictation() : finish() }
             else {
@@ -5274,11 +5305,18 @@ final class MenuBar: NSObject, NSMenuDelegate {
         paint()
     }
     func paint() { item.button?.appearsDisabled = Prefs.bool("paused"); item.button?.title = meeting.running ? " ·" : ""; item.length = meeting.running ? 38 : NSStatusItem.squareLength }
+    static let translations: [String: [String: String]] = {
+        guard let source = try? String(contentsOfFile: dir + "/ui/i18n.js", encoding: .utf8),
+              let begin = source.range(of: "  const maps = "), let end = source.range(of: ";\n  let language", range: begin.upperBound..<source.endIndex),
+              let data = String(source[begin.upperBound..<end.lowerBound]).data(using: .utf8) else { return [:] }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: [String: String]] ?? [:]
+    }()
+    func title(_ text: String) -> String { Self.translations[Prefs.uiLanguage]?[text] ?? text }
     func menuNeedsUpdate(_ m: NSMenu) {
         m.removeAllItems()
         let keys = Prefs.str("hotkeyLabel")
         let hint = Prefs.str("input") == "type" ? "Press \(keys) to type" : Prefs.str("talkMode") == "toggle" ? "Press \(keys) to talk · again to send" : "Hold \(keys) and talk"
-        let head = NSMenuItem(title: Prefs.bool("paused") ? "Atticus is paused" : hint, action: nil, keyEquivalent: "")
+        let head = NSMenuItem(title: Prefs.bool("paused") ? title("Atticus is paused") : hint, action: nil, keyEquivalent: "")
         head.attributedTitle = NSAttributedString(string: head.title, attributes: [.font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold), .foregroundColor: NSColor.secondaryLabelColor])
         head.isEnabled = false; m.addItem(head)
         let u = NSMenuItem(title: today(), action: nil, keyEquivalent: "")
@@ -5296,7 +5334,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
         add(m, Prefs.bool("paused") ? "Resume Atticus" : "Pause Atticus", #selector(pause), "", Prefs.bool("paused") ? "play.fill" : "pause.fill")
         m.addItem(.separator())
         add(m, "Settings…", #selector(openSettings), ",", "gearshape")
-        let help = NSMenu(title: "Help & Feedback")
+        let help = NSMenu(title: title("Help & Feedback"))
         add(help, "Setup & Permissions…", #selector(openSetup), "", "checkmark.shield")
         add(help, "Report Feedback…", #selector(reportFeedback), "", "bubble.left")
         add(help, "Leave a Tip…", #selector(tipJar), "", "heart")
@@ -5306,7 +5344,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
         add(m, "Quit Atticus", #selector(quit), "q", "power")
     }
     @discardableResult func add(_ m: NSMenu, _ t: String, _ a: Selector?, _ k: String, _ symbol: String) -> NSMenuItem {
-        let i = NSMenuItem(title: t, action: a, keyEquivalent: k); i.target = self
+        let i = NSMenuItem(title: title(t), action: a, keyEquivalent: k); i.target = self
         i.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(.init(pointSize: 13, weight: .regular))   // a point size keeps wide symbols' shape
         #if compiler(>=6.4)   // Swift 6.4 ships with the macOS 27 SDK; older SDKs lack preferredImageVisibility
         if #available(macOS 27.0, *) { i.preferredImageVisibility = .visible }   // macOS 27 hides menu symbols by default
@@ -5696,6 +5734,12 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
                 meeting.answerProcess = nil; meeting.answerInput = nil; meeting.answerOutput = nil
                 meeting.warmAnswer()
             }
+        }
+        if k == "uiLanguage" {
+            app.prepareSpeech()
+            callJS(web, "i18n.setLanguage", [Prefs.uiLanguage])
+            app.js("language", Prefs.uiLanguage)
+            callJS(onboarding.web, "i18n.setLanguage", [Prefs.uiLanguage])
         }
         if k == "speechModel" { app.prepareSpeech() }
         if k == "whisperModel" { Whisper.shared.restart(); send("whisper", Whisper.shared.status()) }
@@ -6295,8 +6339,9 @@ final class MeetingCopilot: NSObject, WKScriptMessageHandler {
                 let micAllowed = demo ? true : await AVCaptureDevice.requestAccess(for: .audio)
                 guard running, generation == g, !Task.isCancelled else { return }
                 guard micAllowed else { stop(); js("error", "Allow Microphone access for Atticus in System Settings"); return }
-                let mic = SpeechTranscriber(locale: Locale(identifier: "en-US"), preset: .progressiveTranscription)
-                let tr = SpeechTranscriber(locale: Locale(identifier: "en-US"), preset: .progressiveTranscription)
+                let locale = supportedSpeechLocale(await SpeechTranscriber.supportedLocales)
+                let mic = SpeechTranscriber(locale: locale, preset: .progressiveTranscription)
+                let tr = SpeechTranscriber(locale: locale, preset: .progressiveTranscription)
                 if let request = try await AssetInventory.assetInstallationRequest(supporting: [tr]) { try await request.downloadAndInstall() }
                 guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [tr]) else {
                     if running && generation == g { stop(); js("error", "Speech recognition is unavailable. Resume to try again.") }; return
