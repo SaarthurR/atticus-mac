@@ -1,0 +1,12 @@
+services:
+  tests:
+    build: .
+    image: atticus-tests:latest
+    # Mount source for rapid iteration during development (omit for a clean CI run)
+    # volumes:
+    #   - .:/app:ro
+    environment:
+      - ATTICUS_DIR=/tmp/atticus-test-config
+      - ATTICUS_POSTHOG_KEY=          # keep telemetry silent in CI
+    # Override CMD to run a single module:
+    #   docker compose run --rm tests python3 -m unittest tests.test_atticus -v

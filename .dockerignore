@@ -1,0 +1,54 @@
+# Git history and CI config
+.git/
+.github/
+
+# macOS app build output
+Atticus.app/
+
+# Nix / Devbox artefacts
+.devbox/
+result
+result-*/
+
+# Runtime state that must never reach the image
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+settings.json
+skills.json
+recent.jsonl
+log.jsonl
+memory.md
+license
+app.err
+~/.config/atticus/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+test-artifacts/
+
+# macOS junk
+.DS_Store
+
+# Docs / media (keeps the image small)
+docs/
+*.gif
+*.mp4
+*.mov
+
+# Swift source (compiled only on macOS, not needed in the test image)
+Atticus.swift
+
+# Nix / shell configs (not needed inside Docker)
+flake.nix
+flake.lock
+devbox.json
+devbox.lock
+install.sh
+build.sh
