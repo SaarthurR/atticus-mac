@@ -38,6 +38,10 @@ const source=fs.readFileSync('ui/i18n.js','utf8');
 const maps=JSON.parse(source.split('  const maps = ')[1].split(';\n  let language')[0]);
 assert.deepEqual(Object.keys(maps).sort(),['de','es','fr','it']);
 for(const map of Object.values(maps)) assert.deepEqual(Object.keys(map).sort(),Object.keys(maps.it).sort());
+for(const map of Object.values(maps)) {
+  assert(map.Automatic);
+  for(const name of ['English','Italiano','Español','Français','Deutsch']) assert.equal(map[name],name);
+}
 eval(source);
 i18n=window.i18n; i18n.start('page');
 assert.equal(label.childNodes[0].nodeValue,'  Generale  ');

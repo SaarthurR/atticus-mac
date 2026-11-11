@@ -635,7 +635,7 @@
   const follow = ms => { cancelAnimationFrame(followFrame); const end = performance.now() + ms; (function f() { fit(); if (performance.now() < end) followFrame=requestAnimationFrame(f); })(); };   // interrupt a prior transition instead of stacking geometry loops
   // ✎ [{c, label, t, add}]: what this ask remembered (✓) or forgot (struck through), as one row; Settings opens on the item
   const CHECK = '<svg viewBox="0 0 10 10"><path d="M2 5.3l2 2L8 3"/></svg>', DASH = '<svg viewBox="0 0 10 10"><path d="M2.5 5h5"/></svg>';
-  const receipt = items => {
+  const receipt = (items, target) => {
     if (!items.length) return;
     const adds = items.some(i => i.add), dels = items.some(i => !i.add), d = document.createElement('div');
     d.className = 'mem' + (adds ? '' : ' off');
@@ -659,7 +659,7 @@
       const open = d.classList.toggle('open'); body.inert = !open; e.currentTarget.setAttribute('aria-expanded', open);
       follow(420);   // the box grows and shrinks with it, frame by frame
     };
-    const a = part('a'); a ? a.after(d) : turn().append(d); fit();
+    const a = target || part('a'); a ? a.after(d) : turn().append(d); fit();
   };
   const settle = () => turn()?.querySelectorAll('.step.live').forEach(e => { e.classList.remove('live'); e.classList.add('done'); });
   const unstream = () => $('thread').querySelectorAll('.a.streaming').forEach(a => { a.classList.remove('streaming'); a.replaceChildren(); });   // the answer so far was a note, or a later attempt follows
@@ -807,7 +807,8 @@
     d.querySelector('.eyebrow span').textContent=row.missingConnector?'Agent needs a connector':'Agent done';
     d.querySelector('b').textContent=row.title;
     const answer=d.querySelector('.a');answer.append(markdown(agentAnswer(row)));answer.tabIndex=0;   // a scroller: the keyboard must reach it
-    if(row.learned){const tip=document.createElement('div');tip.className='tip learned';tip.dataset.k='Learned';tip.textContent='Say “'+row.learned+'” any time.';answer.after(tip);}
+    if(row.learned||row.workflow){const tip=document.createElement('div');tip.className='tip learned';tip.dataset.k='Learned';tip.textContent=row.learned?'Say “'+row.learned+'” any time.':'Procedure saved for next time.';answer.after(tip);}
+    receipt(row.memory||[],answer);
     answer.onscroll=()=>answer.classList.toggle('more',answer.scrollHeight-answer.scrollTop-answer.clientHeight>4);
     const actions=d.querySelector('.agent-actions'),add=(text,data,go=false)=>{const b=keyButton(text,go?'↩':'esc',go);if(!go)b.dataset.esc='';b.onclick=()=>{post(data);d.remove();fit();};actions.append(b);return b;};
     const made=d.querySelector('.made'),things=agentMade(row);

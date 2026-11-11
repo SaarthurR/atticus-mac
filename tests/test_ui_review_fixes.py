@@ -73,6 +73,17 @@ picked = 0; prevented = false; ask.value = 'version '; key('2'); if (picked || p
         self.assertIn('c.choose = () => done(i)', self.box)
         self.assertIn('cs[e.key - 1].choose()', self.box)
 
+    def test_question_choices_wrap_inside_narrow_cards(self):
+        rule = re.search(r'\.pk \.actions button \{([^}]*)\}', self.agents)
+        self.assertIsNotNone(rule)
+        for declaration in ('white-space:normal', 'overflow-wrap:anywhere', 'min-width:0',
+                            'max-width:100%', 'height:auto', 'min-height:26px'):
+            self.assertIn(declaration, rule.group(1))
+        self.assertRegex(self.agents, r'\.inside \.pk \.actions \{[^}]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)')
+        # The box picker already wraps list labels and exposes the full label on hover.
+        self.assertRegex(self.box, r'\.pk \.g\.list \.n \{[^}]*white-space: normal;[^}]*overflow-wrap: anywhere;')
+        self.assertIn("c.title = o.path ? o.path + '/' + o.label : o.label", self.box)
+
     def test_full_access_badge_is_a_keyboard_control(self):
         self.assertIn('id="mode" role="button" tabindex="0"', self.box)
         self.assertIn('#mode:focus-visible', self.box)

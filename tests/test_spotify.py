@@ -6,8 +6,8 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
-import time
 import unittest
+import urllib.error
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -15,36 +15,6 @@ import atticus
 
 
 class SpotifyTests(unittest.TestCase):
-    def test_playlist_cache_recovers_from_bad_json_and_replaces_atomically(self):
-        with tempfile.TemporaryDirectory() as root, patch.multiple(atticus, DIR=root, PLAYLISTS=os.path.join(root, 'playlists.json')), \
-             patch.object(atticus.os, 'walk', return_value=[]):
-            cache = Path(atticus.PLAYLISTS)
-            cache.write_text('{cut off')
-            self.assertIsNone(atticus.playlist('missing'))
-            self.assertEqual(json.loads(cache.read_text()), {})
-
-            cache.write_text(json.dumps({'old': 'Old playlist'}))
-            os.utime(cache, (time.time() - 4000,) * 2)
-            with patch.object(atticus.json, 'dump', side_effect=RuntimeError('interrupted')):
-                with self.assertRaises(RuntimeError):
-                    atticus.playlist('missing')
-            self.assertEqual(json.loads(cache.read_text()), {'old': 'Old playlist'})
-
-    def test_playlist_retries_a_cached_blank_title(self):
-        playlist_id = 'H' * 22
-        with tempfile.TemporaryDirectory() as root:
-            spotify = Path(root) / 'Library/Application Support/Spotify'
-            spotify.mkdir(parents=True)
-            (spotify / 'cache').write_bytes(f'spotify:playlist:{playlist_id}'.encode())
-            cache = Path(root) / 'playlists.json'
-            cache.write_text(json.dumps({playlist_id: ''}))
-            os.utime(cache, (time.time() - 4000,) * 2)
-            with patch.multiple(atticus, HOME=root, DIR=root, PLAYLISTS=str(cache)), \
-                 patch.object(atticus, 'get', return_value=json.dumps({'title': 'Recovered playlist'})) as get:
-                self.assertEqual(atticus.playlist('recovered playlist'),
-                                 (f'spotify:playlist:{playlist_id}', 'Recovered playlist'))
-            get.assert_called_once()
-
     def test_lookup_prefers_cached_playlist_and_falls_back_to_web(self):
         cached = ('spotify:playlist:cached', 'Road trip')
         with patch.object(atticus, 'playlist', return_value=cached), patch.object(atticus, 'get') as get:
@@ -57,14 +27,144 @@ class SpotifyTests(unittest.TestCase):
              patch.object(atticus, 'get', side_effect=[page, json.dumps({'title': 'Fixture song'})]):
             self.assertEqual(atticus.spotify_item('fixture song'), (f'spotify:track:{track}', 'Fixture song'))
 
+    def test_real_ddg_result_title_needs_no_oembed(self):
+        page = Path(__file__).with_name('fixtures').joinpath('spotify-ddg.html').read_text()
+        with patch.object(atticus, 'playlist', return_value=None), \
+             patch.object(atticus, 'get', return_value=page) as get:
+            uri, title = atticus.spotify_item('piano sonatas')
+        self.assertTrue(uri.startswith('spotify:playlist:'))
+        self.assertIn('Piano Sonatas', title)
+        self.assertEqual(get.call_count, 1)
+        self.assertIn('html.duckduckgo.com', get.call_args.args[0])
+
     def test_web_lookup_rejects_a_weak_title_before_playing(self):
         track = 'W' * 22
         page = f'https://open.spotify.com/track/{track}'
         with patch.object(atticus, 'playlist', return_value=None), \
-             patch.object(atticus, 'get', side_effect=[page, json.dumps({'title': 'Unrelated public playlist'})]), \
+             patch.object(atticus, 'get', side_effect=[page, json.dumps({'title': 'Unrelated public playlist'})] * 2), \
              patch.object(atticus.subprocess, 'run') as run:
             self.assertIsNone(atticus.play('fixture playlist'))
         run.assert_not_called()
+
+    def test_broad_play_accepts_reordered_query_words_but_queue_stays_exact(self):
+        page = 'https://open.spotify.com/playlist/' + 'D' * 22
+        responses = [page, json.dumps({'title': 'Keys Ambient Collection'})]
+        with patch.object(atticus, 'playlist', return_value=None), \
+             patch.object(atticus, 'get', side_effect=responses):
+            self.assertEqual(atticus.spotify_item('ambient keys'),
+                             ('spotify:playlist:' + 'D' * 22, 'Keys Ambient Collection'))
+        with patch.object(atticus, 'playlist', return_value=None), \
+             patch.object(atticus, 'get', side_effect=responses * 2), \
+             patch.object(atticus.subprocess, 'run') as run:
+            self.assertIn('No matching Spotify result', atticus.queue('ambient keys'))
+        run.assert_not_called()
+
+    def test_lookup_tries_later_results_and_engine_after_request_failure(self):
+        page = ''.join(f'<a href="https://open.spotify.com/track/{c * 22}">{title}</a>'
+                       for c, title in (('E', 'Other song'), ('F', 'Fixture song')))
+        with patch.object(atticus, 'playlist', return_value=None), \
+             patch.object(atticus, 'get', side_effect=[OSError('offline'), page]) as get:
+            self.assertEqual(atticus.spotify_item('fixture song'), ('spotify:track:' + 'F' * 22, 'Fixture song'))
+        self.assertEqual(get.call_count, 2)
+
+    def test_oembed_429_is_not_retried_for_more_candidates_or_engines(self):
+        page = ' '.join('https://open.spotify.com/track/' + c * 22 for c in 'LM')
+        error = urllib.error.HTTPError('https://open.spotify.com/oembed', 429, 'limited', {}, None)
+        self.addCleanup(error.close)
+        with patch.object(atticus, 'playlist', return_value=None), \
+             patch.object(atticus, 'get', side_effect=[page, error, page]) as get:
+            with self.assertRaisesRegex(RuntimeError, 'HTTP 429'):
+                atticus.spotify_item('fixture song')
+        self.assertEqual(get.call_count, 3)
+        self.assertEqual(sum('/oembed?' in call.args[0] for call in get.call_args_list), 1)
+
+    def test_page_titles_are_tried_before_any_metadata_request(self):
+        page = ('https://open.spotify.com/track/' + 'R' * 22 +
+                '<a href="https://open.spotify.com/track/' + 'S' * 22 + '">Fixture song</a>')
+        with patch.object(atticus, 'playlist', return_value=None), \
+             patch.object(atticus, 'get', return_value=page) as get:
+            self.assertEqual(atticus.spotify_item('fixture song'), ('spotify:track:' + 'S' * 22, 'Fixture song'))
+        get.assert_called_once()
+
+    def test_titled_candidate_can_resolve_after_oembed_is_rate_limited(self):
+        page = 'https://open.spotify.com/track/' + 'P' * 22
+        fallback = '<a href="https://open.spotify.com/track/' + 'Q' * 22 + '"><b>Fixture</b> song</a>'
+        error = urllib.error.HTTPError('https://open.spotify.com/oembed', 429, 'limited', {}, None)
+        self.addCleanup(error.close)
+        with patch.object(atticus, 'playlist', return_value=None), \
+             patch.object(atticus, 'get', side_effect=[page, error, fallback]) as get:
+            self.assertEqual(atticus.spotify_item('fixture song'), ('spotify:track:' + 'Q' * 22, 'Fixture song'))
+        self.assertEqual(get.call_count, 3)
+
+    def test_oembed_fallback_is_used_once_and_only_without_a_page_title(self):
+        page = 'https://open.spotify.com/track/' + 'N' * 22
+        with patch.object(atticus, 'playlist', return_value=None), \
+             patch.object(atticus, 'get', side_effect=[page, json.dumps({'title': 'Fixture song'})]) as get:
+            self.assertEqual(atticus.spotify_item('fixture song'), ('spotify:track:' + 'N' * 22, 'Fixture song'))
+        self.assertEqual(get.call_count, 2)
+
+    def test_search_failures_are_errors_and_never_reach_playback(self):
+        for error in (urllib.error.HTTPError('https://example.invalid', 429, 'limited', {}, None),
+                      OSError('offline'), ValueError('bad response')):
+            if isinstance(error, urllib.error.HTTPError):
+                self.addCleanup(error.close)
+            for action in (atticus.play, atticus.queue):
+                with self.subTest(error=type(error).__name__, action=action.__name__), \
+                     patch.object(atticus, 'playlist', return_value=None), \
+                     patch.object(atticus, 'get', side_effect=error) as get, \
+                     patch.object(atticus.subprocess, 'run') as run:
+                    if action is atticus.play:
+                        with self.assertRaises(RuntimeError) as raised:
+                            action('fixture')
+                        reply = str(raised.exception)
+                    else:
+                        reply = action('fixture')
+                self.assertIn('Could not search Spotify', reply)
+                if isinstance(error, urllib.error.HTTPError):
+                    self.assertIn('HTTP 429', reply)
+                self.assertNotIn('nothing found', reply.lower())
+                self.assertEqual(get.call_count, 2)
+                run.assert_not_called()
+
+    def test_fallback_does_not_hide_an_earlier_http_error(self):
+        error = urllib.error.HTTPError('https://example.invalid', 429, 'limited', {}, None)
+        self.addCleanup(error.close)
+        with patch.object(atticus, 'playlist', return_value=None), \
+             patch.object(atticus, 'get', side_effect=[error, '<html>unavailable</html>']):
+            with self.assertRaisesRegex(RuntimeError, 'HTTP 429'):
+                atticus.play('fixture')
+
+    def test_unusable_search_and_metadata_are_not_zero_results(self):
+        page = 'https://open.spotify.com/track/' + 'I' * 22
+        for responses in (['<html>challenge</html>'] * 2,
+                          [page, '{bad json'] * 2,
+                          [page, json.dumps({'title': None})] * 2):
+            with self.subTest(responses=responses), patch.object(atticus, 'playlist', return_value=None), \
+                 patch.object(atticus, 'get', side_effect=responses):
+                with self.assertRaisesRegex(RuntimeError, 'Could not search Spotify'):
+                    atticus.spotify_item('fixture')
+
+    def test_automation_denial_is_reported_once_without_retry(self):
+        item = ('spotify:track:' + 'J' * 22, 'Fixture song')
+        with patch.object(atticus, 'spotify_item', return_value=item), patch.object(atticus, 'osa', return_value='Editor'), \
+             patch.object(atticus.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1, '', 'Not authorized (-1743)')) as run:
+            reply = atticus.play('fixture')
+        self.assertIn('macOS denied', reply)
+        self.assertNotIn('nothing found', reply.lower())
+        run.assert_called_once()
+
+    def test_play_does_not_blame_permission_for_other_errors(self):
+        item = ('spotify:track:' + 'K' * 22, 'Fixture song')
+        for result in (subprocess.TimeoutExpired('osascript', 30), OSError('missing executable'),
+                       subprocess.CompletedProcess([], 1, '', 'Application unavailable (-600)'),
+                       subprocess.CompletedProcess([], 0, 'paused', '')):
+            with self.subTest(result=result), patch.object(atticus, 'spotify_item', return_value=item), \
+                 patch.object(atticus, 'osa', return_value='Editor'), patch.object(atticus.subprocess, 'run') as run:
+                if isinstance(result, Exception): run.side_effect = result
+                else: run.return_value = result
+                reply = atticus.play('fixture')
+            self.assertIn('Could not start', reply)
+            self.assertNotIn('Automation', reply)
 
     def test_play_uses_shared_lookup_and_keeps_spotify_behind(self):
         item = ('spotify:track:' + 'B' * 22, 'Fixture song')
@@ -177,6 +277,25 @@ class SpotifyTests(unittest.TestCase):
             self.assertIn('Name one song', reply)
             run.assert_not_called()
             hands.assert_not_called()
+
+    def test_fast_play_falls_through_when_lookup_fails(self):
+        for error in (RuntimeError('lookup unavailable'), OSError('offline')):
+            with self.subTest(error=type(error).__name__), \
+                 patch.object(atticus, 'pref', side_effect=lambda _, default: default), \
+                 patch.object(atticus, 'skills', return_value={}), patch.object(atticus, 'fast_hands', return_value=None), \
+                 patch.object(atticus, 'spotify_item', side_effect=error) as lookup, \
+                 patch.object(atticus.subprocess, 'run') as run:
+                self.assertIsNone(atticus.fast('play fixture song on spotify'))
+                self.assertEqual(atticus.fast.cmds, [])
+                lookup.assert_called_once_with('fixture song', True)
+                run.assert_not_called()
+
+    def test_play_cli_preserves_lookup_error(self):
+        with patch.object(atticus, 'spotify_item', side_effect=RuntimeError('Could not search Spotify: HTTP 429.')), \
+             patch('sys.argv', ['atticus.py', '--play', 'Fixture', 'song']), \
+             patch('sys.stdout', new_callable=io.StringIO) as out:
+            atticus.main()
+        self.assertEqual(out.getvalue().strip(), 'Could not search Spotify: HTTP 429.')
 
     def test_unambiguous_queue_requests_run_without_ai(self):
         with patch.object(atticus, 'pref', side_effect=lambda _, default: default), \

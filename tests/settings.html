@@ -18,12 +18,19 @@ try {
   frame.srcdoc = html.replace('/*I18N*/', () => i18n).replace('<head>', `<head><script>window.webkit = {messageHandlers: {st: {postMessage: m => parent.postMessage(m, '*')}}};<\/script>`);
   await loaded;
   const w = frame.contentWindow, d = w.document;
+  w.atticusAutoLanguage='en';
   const base = {hotkeyLabel:'⌃⌥Space',model:'haiku',volume:.16};
   w.st.load({prefs:{...base,uiLanguage:'it'}});
-  await new Promise(r=>setTimeout(r,30));
-  assert(d.querySelector('#general h1').textContent==='Generale','Italian Settings labels');
-  w.st.load({prefs:{...base,uiLanguage:'en'}});
-  await new Promise(r=>setTimeout(r,30));
+  const language=d.querySelector('select[data-k="uiLanguage"]');
+  assert(language.value==='it','Language dropdown restores the saved choice');
+  assert([...language.options].map(o=>o.value).join()==='auto,en,it,es,fr,de','One dropdown offers all interface languages');
+  for(const [value,title] of [['it','Generale'],['es','General'],['fr','Général'],['de','Allgemein'],['en','General'],['auto','General']]) {
+    language.value=value;language.dispatchEvent(new w.Event('change'));
+    await new Promise(r=>setTimeout(r,30));
+    assert(d.querySelector('#general h1').textContent===title,'Language dropdown translates Settings: '+value);
+    assert(messages.some(m=>m.do==='set'&&m.k==='uiLanguage'&&m.v===value),'Language dropdown saves: '+value);
+  }
+  assert([...language.options].slice(1).map(o=>o.text).join()==='English,Italiano,Español,Français,Deutsch','Languages keep their own names');
   w.st.load({prefs:{...base,routing:'balanced'}});
   assert([...d.querySelectorAll('[data-k=routing] button')].map(b=>b.dataset.v).join()==='cheapest,balanced,capable','One intelligence setting offers three modes');
   assert(d.querySelector('[data-k=routing] [data-v=balanced]').getAttribute('aria-pressed')==='true','Balanced is selected accessibly');

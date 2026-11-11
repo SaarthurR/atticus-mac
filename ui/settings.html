@@ -109,8 +109,9 @@
   .seg button:disabled { opacity: .4; pointer-events: none; }
   .shortcut + .group { margin-top: 12px; }
 
-  select { font: 13px system-ui; color: var(--fg); background: var(--ctl); border: 0; border-radius: 6px; padding: 3px 6px;
+  select { appearance: auto; height: 28px; box-sizing: border-box; max-width: 100%; font: 13px system-ui; color: var(--fg); background: var(--ctl); border: 0; border-radius: 7px; padding: 0 8px;
     box-shadow: inset 0 0 0 .5px var(--line), 0 1px 1px rgba(0,0,0,.05); }
+  select:focus-visible { outline: 3px solid rgba(10,132,255,.45); outline-offset: 2px; }
   input[type=range] { width: 150px; accent-color: var(--accent); }
   .val { width: 44px; text-align: right; color: var(--fg2); font-variant-numeric: tabular-nums; }
 
@@ -315,7 +316,7 @@
   <section id="general" class="on">
     <h1>General</h1>
     <p class="lede">Your shortcut. Your way to talk.</p>
-    <div class="group"><div class="row"><div class="t"><b>Interface language</b><span>Automatic follows your Mac.</span></div><div class="seg" data-k="uiLanguage" style="flex-wrap:wrap;flex:0 1 340px"><button data-v="auto">Automatic</button><button data-v="en">English</button><button data-v="it">Italiano</button><button data-v="es">Español</button><button data-v="fr">Français</button><button data-v="de">Deutsch</button></div></div></div>
+    <div class="group"><div class="row"><div class="t"><b>Interface language</b><span>Automatic follows your Mac.</span></div><select data-k="uiLanguage"><option value="auto">Automatic</option><option value="en">English</option><option value="it">Italiano</option><option value="es">Español</option><option value="fr">Français</option><option value="de">Deutsch</option></select></div></div>
     <h3>Shortcut</h3>
     <div class="shortcut" id="shortcut">
       <div class="caps" id="caps" aria-live="polite"></div>
@@ -634,8 +635,7 @@
   document.querySelectorAll('.seg[data-k],input[data-k],select[data-k]').forEach(e=>{if(e.matches('.seg'))e.setAttribute('role','group');if(!e.hasAttribute('aria-label')&&!e.hasAttribute('aria-labelledby'))e.setAttribute('aria-label',e.closest('.row')?.querySelector('.t b')?.textContent||e.dataset.k)});
   document.querySelectorAll('.info').forEach(i => { i.tabIndex = 0; i.setAttribute('role', 'img'); i.setAttribute('aria-label', i.title); });
 
-  document.querySelector('[data-k="microphone"]').onchange = e => set('microphone', e.target.value);
-  document.querySelectorAll('select[data-k^=whisper]').forEach(s => s.onchange = () => set(s.dataset.k, s.value));
+  document.querySelectorAll('select[data-k]').forEach(s => s.onchange = () => set(s.dataset.k, s.value));
   const wid = () => P.whisperModel || 'turbo';
   $('winstall').onclick = () => post({ do: 'whisperInstall' });
   [['wdownload', 'whisperDownload'], ['wcancel', 'whisperCancel']].forEach(([b, d]) => $(b).onclick = () => post({ do: d, id: wid() }));

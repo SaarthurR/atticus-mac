@@ -35,7 +35,8 @@ svg.i { width:14px; height:14px; flex:none; fill:none; stroke:currentColor; stro
 
 /* approval inside a chip or the view */
 .pk { padding:12px; border-radius:12px; background:rgba(255,159,10,.08); box-shadow:inset 0 0 0 .5px rgba(255,159,10,.35) } .pk b { display:flex; gap:7px; align-items:center; font-size:12.5px; font-weight:600 } .pk b svg { color:var(--amber) }
-.pk p { color:var(--fg2); font:11px/1.45 ui-monospace,Menlo,monospace; white-space:pre-wrap; overflow-wrap:anywhere; max-height:96px; overflow:auto; user-select:text; margin:8px 0 0 } .pk .actions { margin-top:11px; flex-wrap:wrap } .inside .pk .actions { display:grid; grid-template-columns:1fr 1fr } .inside .pk .task { grid-column:1/-1; order:1 }
+.pk p { color:var(--fg2); font:11px/1.45 ui-monospace,Menlo,monospace; white-space:pre-wrap; overflow-wrap:anywhere; max-height:96px; overflow:auto; user-select:text; margin:8px 0 0 } .pk .actions { margin-top:11px; flex-wrap:wrap } .inside .pk .actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)) } .inside .pk .task { grid-column:1/-1; order:1 }
+.pk .actions button { white-space:normal; overflow-wrap:anywhere; min-width:0; max-width:100%; height:auto; min-height:26px; padding:6px 11px }
 .actions { display:flex; gap:6px; align-items:center }
 .pk .why { margin-top:7px; font-size:12px; line-height:1.4; color:var(--fg) } .pk .note { margin-top:4px; font-size:11px; line-height:1.4; color:var(--fg2) }
 .pk .note.waiting::before { content:''; display:inline-block; width:6px; height:6px; margin:0 6px 1px 0; border-radius:50%; background:var(--amber); animation:breathe 2.4s ease-in-out infinite }

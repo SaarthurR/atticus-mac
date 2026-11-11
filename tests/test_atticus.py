@@ -445,7 +445,9 @@ print(json.dumps({{"type": "result", "is_error": True, "result": "Authentication
                      patch.object(atticus,'log_turn') as log,patch.object(atticus,'remember_workflow') as learn, \
                      patch.object(atticus.threading,'Thread'),patch.dict(os.environ,{'ATTICUS_UI':'1','ATTICUS_ASK':atticus.DIR}), \
                      patch('sys.argv',['atticus.py','Fixture task']),patch('sys.stdout',io.StringIO()):
-                    atticus.main()
+                    with patch.object(atticus,'memory_receipt',return_value=[{'c':'rules','label':'Rules','t':'Use metric units.','add':True}]):
+                        atticus.main()
+                    self.assertIn('✎ ',sys.stdout.getvalue())
                     self.assertEqual(atticus.remember_turn.call_args.args[1],said)   # a follow-up ("what did they say?") sees this turn
                 self.assertEqual(brain.call_count,2)
                 self.assertIsNone(log.call_args.args[3]);self.assertEqual(log.call_args.args[4],['moved'])

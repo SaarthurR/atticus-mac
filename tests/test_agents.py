@@ -3,6 +3,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import shlex
 import shutil
 from pathlib import Path
@@ -39,7 +40,7 @@ for line in sys.stdin:
   if text.startswith('RATE'):
    if not pending: pending=True;continue
    print(json.dumps({'type':'rate_limit_event','rate_limit_info':{'status':'allowed'}}),flush=True)
-   print(json.dumps({'type':'result','subtype':'success','queued_turn_count':0,'is_error':False,'total_cost_usd':.001,'result':'[agent-result {"summary":"Finished after steering.","changes":"","links":[]}]'}),flush=True)
+   print(json.dumps({'type':'result','subtype':'success','queued_turn_count':0,'is_error':False,'total_cost_usd':.001,'result':'[agent-result {"outcome":"done","summary":"Finished after steering.","changes":"","links":[]}]'}),flush=True)
    continue
   if text.startswith('ROUTE '):
    token={'sonnet':'[sonnet]','done':'[done]','offer':os.environ['FIXTURE_MODEL_OFFER']}[text.split()[1]]
@@ -48,8 +49,18 @@ for line in sys.stdin:
   print(json.dumps({'type':'assistant','message':{'content':[{'type':'text','text':'[agent-plan {"steps":["Read the brief","Verify the result"],"completed":1}]'},{'type':'text','text':'Reading the task'},{'type':'tool_use','id':'t','name':'mcp__fixture__inspect','input':{}}]}}),flush=True)
   print(json.dumps({'type':'user','message':{'content':[{'type':'tool_result','tool_use_id':'t','content':[{'type':'text','text':'Links: [{"title":"Source material","url":"https://fixture.example/source"}]'}]}]}}),flush=True)
   if text.startswith('WAIT'): continue
-  print(json.dumps({'type':'result','session_id':'11111111-1111-4111-8111-111111111111','is_error':text.startswith('FAIL'),'total_cost_usd':.002 if text.startswith('That was a main-chat routing control') else .001,'usage':{'input_tokens':3},'result':'[agent-result '+json.dumps({'summary':'Finished the task.','changes':'Created a result.','links':[]})+']'}),flush=True)
+  if text.startswith('RESULT '):
+   print(json.dumps({'type':'result','is_error':False,**json.loads(text[7:])}),flush=True)
+   continue
+  print(json.dumps({'type':'result','session_id':'11111111-1111-4111-8111-111111111111','is_error':text.startswith('FAIL'),'total_cost_usd':.002 if text.startswith('That was a main-chat routing control') else .001,'usage':{'input_tokens':3},'result':'[agent-result '+json.dumps({'outcome':'done','summary':'Finished the task.','changes':'Created a result.','links':[]})+']'}),flush=True)
 '''
+
+
+def completed_result(text):
+    """Give successful fixtures the explicit task outcome required of real agents."""
+    if '[agent-result ' in text:
+        return re.sub(r'\[agent-result\s+\{', '[agent-result {"outcome":"done",', text)
+    return text + ' [agent-result {"outcome":"done"}]'
 
 
 class AgentTests(unittest.TestCase):
@@ -714,7 +725,8 @@ class AgentTests(unittest.TestCase):
             args=popen.call_args.args[0];options=popen.call_args.kwargs
         system=args[args.index('--system-prompt')+1]
         self.assertIn(atticus.AGENT_SYSTEM,system);self.assertNotIn(atticus.AGENT_HANDOFF,system)
-        for tag in ('[tip ','[workflow ','[point '):   # an agent must end on [agent-result]; these tags are parsed only from main replies
+        self.assertIn(atticus.WORKFLOW,system)   # agents save verified procedures through the same parser
+        for tag in ('[tip ','[point '):
             self.assertIn(tag,atticus.system_prompt(atticus.ASK_FIRST));self.assertNotIn(tag,system)
         self.assertIn('Never invent URLs/parameters',system)
         self.assertNotIn('--strict-mcp-config',args);self.assertNotIn('--no-session-persistence',args)
@@ -1224,11 +1236,69 @@ class AgentTests(unittest.TestCase):
         self.manager.command({'action':'granted','id':row['id']})
         self.assertEqual(Path(answer).read_text(),'y');self.assertEqual(row['status'],'running')
 
+    def test_streamed_task_outcome_is_separate_from_backend_success(self):
+        self.manager.command({'action':'box','busy':False})
+        for payload, expected in [
+            ({'result':'The goal is incomplete. Which workspace? [agent-result '+json.dumps({'outcome':'needs-you','question':{'pick':'Which workspace?','options':['A','B']}})+']'}, 'needs-you'),
+            ({'result':'A normal response without a task outcome.'}, 'failed'),
+            ({'result':'[agent-result {"outcome": broken}]'}, 'failed'),
+            ({'result':'[agent-result {"outcome":"done","summary":"Verified."}]'}, 'done'),
+            ({'result':'[agent-result {"outcome":"done"}]','is_error':True}, 'failed'),
+        ]:
+            with self.subTest(payload=payload):
+                row=self.prepare('RESULT '+json.dumps(payload))
+                with patch.object(atticus,'learn') as learn,patch.object(atticus,'remember_workflow',return_value=('Verified.',False)) as workflow:
+                    self.manager.start(row['id'],text=row['brief']);self.until(lambda:bool(row.get('ended')))
+                self.assertEqual(row['status'],expected)
+                events=[e['event'] for e in self.events if e.get('agent',{}).get('id')==row['id']]
+                self.assertEqual('done' in events,expected=='done')
+                self.assertEqual('ping' in events,expected=='done')
+                if expected!='done':
+                    learn.assert_not_called();workflow.assert_not_called()
+
+    def test_task_outcome_controls_completion_and_learning(self):
+        cases = [
+            ({'outcome':'needs-you','question':{'pick':'Which workspace should I use?','options':['Project A','Project B']}}, 'needs-you'),
+            ({'outcome':'needs-you','question':{'pick':'Which workspace should I use?','options':['Project A','Project B']*5}}, 'needs-you'),
+            ({}, 'failed'), ({'outcome':'unknown'}, 'failed'),
+            ({'outcome':[]}, 'failed'), ({'outcome':'needs-you'}, 'failed'),
+            ({'outcome':'needs-you','question':{'pick':'Choose','options':'bad'}}, 'failed'),
+            ({'outcome':'needs-you','question':{'pick':'Choose','options':[1]}}, 'failed'),
+            ({'outcome':'needs-you','question':{'pick':'Choose','options':[]}}, 'failed'),
+            ({'outcome':'needs-you','question':{'pick':' ','options':['A']}}, 'failed'),
+            ({'outcome':'failed'}, 'failed'), ({'outcome':'done'}, 'done'),
+        ]
+        for data, expected in cases:
+            with self.subTest(data=data):
+                row=self.prepare()
+                Path(atticus.request_file(row['directory'])).write_text('Arrange the workspace')
+                command=f'{atticus.PLACE} Editor full monitor'
+                self.receipt(row,'Bash',{'command':command})
+                result='A partial finding. [workflow Arrange workspace | Arrange it and verify.] [agent-result '+json.dumps({'summary':'A partial finding.',**data})+']'
+                before=len([e for e in self.events if e.get('event') in ('done','ping')])
+                with patch.object(atticus,'learn') as learn,patch.object(atticus,'remember_workflow',return_value=('Verified.',False)) as workflow:
+                    self.manager.finish(row,'done',result)
+                self.assertEqual(row['status'],expected)
+                self.assertEqual(row['summary'],'A partial finding.')
+                if expected != 'done':
+                    learn.assert_not_called();workflow.assert_not_called()
+                    self.assertNotEqual(row['step'],'Done')
+                    self.assertEqual(len([e for e in self.events if e.get('event') in ('done','ping')]),before)
+                if expected == 'needs-you':
+                    question=row['question'];self.assertEqual(question['pick'],data['question']['pick'])
+                    self.assertEqual(question['options'],data['question']['options'][:8])
+                    restored=atticus.Agents(emit=lambda e:None,launch=lambda r:None)
+                    self.addCleanup(restored.close)
+                    self.assertEqual(restored.rows[row['id']]['question'],question)
+                    with patch.object(self.manager,'start') as start:
+                        self.manager.command({'action':'answer','id':row['id'],'question':question['_a'],'answer':'1'})
+                    self.assertIn('Project B',start.call_args.args[1])
+
     def test_agent_result_tag_never_reaches_summary_raw(self):
         row=self.prepare('DONE fixture');self.manager.start(row['id']);self.until(lambda:row['status']=='done')
         for result,summary,links in (('Found three. [agent-result {"summary":"Compared three.",\n "links":["https://a.example"]}]\nAnything else?','Compared three.',['https://a.example']),
-                                     ('Found three.\n[agent-result {"summary": broken}]','Found three.',[]),('[agent-result {"summary"','Done',[])):
-            self.manager.finish(row,'done',result)
+                                     ('Found three.\n[agent-result {"summary": broken}]','Found three.',[]),('[agent-result {"summary"','Task not completed',[])):
+            self.manager.finish(row,'done',completed_result(result))
             self.assertEqual((row['summary'],row['links']),(summary,links),result);self.assertNotIn('[agent-',row['preparedBrief'])
 
     def test_agent_learns_named_setup_and_replays_without_ai(self):
@@ -1238,7 +1308,7 @@ class AgentTests(unittest.TestCase):
         self.receipt(row,'Bash',{'command':commands[0]})
         result='Both windows are in place. [agent-result '+json.dumps({'summary':'Both windows are in place.','replay':[f'{atticus.PLACE} WrongApp left laptop']})+']'
         with patch.object(atticus,'SKILLS',str(Path(self.root.name)/'skills.json')),patch.object(atticus,'cached_hands',return_value=None):
-            self.manager.finish(row,'done',result)
+            self.manager.finish(row,'done',completed_result(result))
             self.assertEqual(row['learned'],'focus time')
             self.assertTrue(atticus.skills()['focus time']['mine'])
             self.assertEqual(atticus.skills()['focus time']['cmds'],[commands[0].removeprefix('python3 ')])
@@ -1267,7 +1337,7 @@ class AgentTests(unittest.TestCase):
                     if request: Path(atticus.request_file(row['directory'])).write_text(request)
                     if isinstance(commands,list):
                         for command in commands: self.receipt(row,'Bash',{'command':command})
-                    self.manager.finish(row,status,answer+' [agent-result '+json.dumps({'replay':commands,**extra})+']')
+                    self.manager.finish(row,status,answer+' [agent-result '+json.dumps({'outcome':'done','replay':commands,**extra})+']')
                     self.assertNotIn('learned',row)
                     self.assertEqual(atticus.skills(),{})
 
@@ -1280,7 +1350,7 @@ class AgentTests(unittest.TestCase):
         self.receipt(row,'Bash',{'command':f'python3 {atticus.ME} --window Browser'})
         self.receipt(row,'Bash',{'command':f'./atticus.py --place Browser fullscreen laptop'})
         with patch.object(atticus,'SKILLS',str(Path(self.root.name)/'skills.json')),patch.object(atticus,'cached_hands',return_value=None):
-            self.manager.finish(row,'done','Both arranged.')
+            self.manager.finish(row,'done',completed_result('Both arranged.'))
             self.assertEqual(row['learned'],'desk time')
             self.assertEqual(atticus.skills()['desk time']['cmds'],[f'{atticus.PLACE} Editor fullscreen monitor + Browser fullscreen laptop'])
 
@@ -1294,7 +1364,7 @@ class AgentTests(unittest.TestCase):
                     if case=='failed': self.receipt(row,'Bash',{'command':f'{atticus.PLACE} Editor full monitor'},error=True)
                     if case=='inflight': row['_learningContext']=atticus.handoff_context('',[{'tool':'Bash','input':{'command':f'{atticus.PLACE} Editor full monitor'},'status':'in-flight'}])
                     if case=='previous-request': row['_learningSince']=time.time()+1
-                    self.manager.finish(row,'done','Done. [agent-result '+json.dumps({'replay':[f'{atticus.PLACE} Editor full monitor']})+']')
+                    self.manager.finish(row,'done',completed_result('Done. [agent-result '+json.dumps({'replay':[f'{atticus.PLACE} Editor full monitor']})+']'))
                     self.assertNotIn('learned',row);self.assertEqual(atticus.skills(),{})
 
     def test_failed_action_must_be_repeated_successfully_before_learning(self):
@@ -1303,13 +1373,97 @@ class AgentTests(unittest.TestCase):
         self.receipt(row,'Bash',{'command':command})
         self.assertEqual(atticus.agent_commands(row,'Arrange Editor'),[command])
 
+    def test_main_receipts_can_be_confirmed_and_learned_once_without_agent_tools(self):
+        row=self.prepare();request='Arrange Editor';command=f'{atticus.PLACE} Editor full monitor'
+        Path(atticus.request_file(row['directory'])).write_text(request)
+        row['_learningContext']=atticus.handoff_context('',[{'action':command,'error':False,'result':'Window arrangement verified.'}])
+        with patch.object(atticus,'SKILLS',str(Path(self.root.name)/'skills.json')),patch.object(atticus,'cached_hands',return_value=None), \
+             patch.object(atticus,'learn',wraps=atticus.learn) as learn:
+            self.manager.finish(row,'done',completed_result('Arranged and verified.'))
+            self.assertEqual(atticus.skills()['arrange editor']['cmds'],[command])
+            self.assertIn('Learned:',row['changes'])
+            self.manager.finish(row,'done',completed_result('Arranged and verified.'))
+            self.assertEqual(learn.call_count,1)
+            self.assertEqual(row['learned'],'arrange editor')
+
+    def test_recovered_workflow_selects_only_a_receipted_successful_method(self):
+        good=f'{atticus.PLACE} Editor full monitor';bad=f'{atticus.HANDS} menu Editor "Window > Arrange"'
+        with patch.object(atticus,'SKILLS',str(Path(self.root.name)/'skills.json')),patch.object(atticus,'cached_hands',return_value=None):
+            for context in (False,True):
+                row=self.prepare();Path(atticus.request_file(row['directory'])).write_text('Arrange Editor')
+                if context:
+                    row['_learningContext']=atticus.handoff_context('',[
+                        {'action':bad,'error':True,'result':'Failed.'},
+                        {'action':good,'error':False,'result':'Window arrangement verified.'}])
+                else:
+                    self.receipt(row,'Bash',{'command':bad},error=True)
+                    self.receipt(row,'Bash',{'command':good},output='Window arrangement verified.')
+                result=f'Arranged. [workflow Arrange Editor | Arrange the window and check its bounds.] [replay {good}]'
+                self.manager.finish(row,'done',completed_result(result))
+                self.assertEqual(atticus.skills()['arrange editor']['cmds'],[good])
+                self.assertIn('check its bounds',atticus.workflows('Arrange Editor'))
+                self.assertNotIn('[workflow',row['result']);self.assertNotIn('[replay',row['summary'])
+                self.assertIn('Procedure saved',row['changes'])
+
+    def test_agent_recipe_cannot_learn_unverified_failed_or_invented_commands(self):
+        command=f'{atticus.PLACE} Editor full monitor'
+        with patch.object(atticus,'SKILLS',str(Path(self.root.name)/'skills.json')),patch.object(atticus,'cached_hands',return_value=None):
+            for case in ('no-tools','failed','unverified','empty','interrupted','invented'):
+                with self.subTest(case=case):
+                    row=self.prepare();Path(atticus.request_file(row['directory'])).write_text('Arrange Editor')
+                    if case in ('failed','unverified'):
+                        self.receipt(row,'Bash',{'command':command},error=case=='failed',output='Could not confirm the result.')
+                    if case=='empty': self.receipt(row,'Bash',{'command':command},output='')
+                    if case=='interrupted':
+                        row['_learningContext']=atticus.handoff_context('',[{'tool':'Bash','input':{'command':command},'status':'interrupted'}])
+                    if case=='invented': self.receipt(row,'Bash',{'command':f'{atticus.SHOW} Editor'})
+                    self.manager.finish(row,'done',completed_result(f'Verified. [workflow Arrange Editor | Arrange and check bounds.] [replay {command}]'))
+                    self.assertNotIn('learned',row);self.assertEqual(atticus.skills(),{})
+                    self.assertEqual(atticus.workflows(),{})
+
+    def test_agent_saves_procedure_for_successful_work_that_cannot_be_replayed(self):
+        row=self.prepare();Path(atticus.request_file(row['directory'])).write_text('Format sample document')
+        self.receipt(row,'Write',{'file_path':'sample.txt','content':'Example.'})
+        self.receipt(row,'Read',{'file_path':'sample.txt'},output='Example.')
+        self.manager.finish(row,'done',completed_result('Formatted. [workflow Format sample document | Read the document, apply the requested format, then read it back.]'))
+        self.assertIn('read it back',atticus.workflows('Format sample document'))
+        self.assertNotIn('learned',row)
+        self.assertIn('Procedure saved',row['changes'])
+        with patch.object(self.manager,'send') as send:
+            self.manager.start(row['id'],evidence='Format sample document')
+            self.assertIn('Saved workflow (historical guidance)',send.call_args.args[1])
+            self.assertIn('read it back',send.call_args.args[1])
+
+    def test_agent_memory_uses_shared_stores_and_attributes_receipts_to_its_own_task(self):
+        row=self.prepare();other=self.prepare();root=Path(self.root.name)
+        with patch.multiple(atticus,ME_FILE=str(root/'me.json'),MEMORY=str(root/'memory.md'),RECENT=str(root/'recent.jsonl')):
+            for task,fact,rule in ((row,'Likes amber','Use concise answers.'),(other,'Likes violet','Use metric units.')):
+                Path(atticus.request_file(task['directory'])).write_text(fact)
+                with patch.dict(os.environ,{'ATTICUS_AGENT':task['id'],'ATTICUS_ASK':task['directory']}):
+                    self.assertEqual(atticus.profile_add('preferences',fact),'saved')
+                    self.assertEqual(atticus.remember_rule(rule),'saved')
+                    self.assertEqual(atticus.remember_rule(rule),'saved')   # duplicate saves have no receipt
+                    self.assertIn('not saved',atticus.profile_add('preferences','Invented fact'))
+            self.assertEqual(len(atticus.me()['facts']),2)
+            self.assertEqual(len(atticus.memory_rules()),2)
+            for task,fact,rule in ((row,'Likes amber','Use concise answers.'),(other,'Likes violet','Use metric units.')):
+                self.manager.finish(task,'done',completed_result('Saved your preferences.'))
+                self.assertEqual(len(task['memory']),2)
+                self.assertEqual({r['t'] for r in task['memory']},{'preference: '+fact,rule})
+                self.assertIn('Memory ·',task['changes'])
+                self.assertIn(fact,task['changes'])
+            with patch.object(self.manager,'send') as send:
+                self.manager.start(row['id'],evidence='Use concise answers. What are my preferences?')
+                self.assertIn('Use concise answers.',send.call_args.args[1])
+                self.assertIn('Likes amber',send.call_args.args[1])
+
     def test_an_unanswered_pick_stays_on_the_card_and_its_answer_continues_the_task(self):
         row=self.prepare('DONE fixture');self.manager.start(row['id']);self.until(lambda:row['status']=='done')
         pick={'pick':'Which size is offered?','options':['Small','Large'],'_a':str(Path(self.root.name)/'answers'/('d'*32))}
         row.update(status='needs-you',question=pick)   # the user walked away; the pick tool gave up and the agent ended its turn
         done=len([e for e in self.events if e.get('event')=='done'])
         with patch.object(atticus,'close_agent_window') as close,patch.object(atticus,'work_tab_page') as page:
-            self.manager.finish(row,'done','Waiting for your pick. [agent-result {"summary":"Waiting for a size."}]')
+            self.manager.finish(row,'done',completed_result('Waiting for your pick. [agent-result {"summary":"Waiting for a size."}]'))
         self.assertEqual(row['status'],'needs-you');self.assertIs(row['question'],pick)
         close.assert_not_called();page.assert_not_called()   # its tab stays open with the work for the answer
         self.assertEqual(len([e for e in self.events if e.get('event')=='done']),done)   # never a done card over an open question
@@ -1337,7 +1491,7 @@ class AgentTests(unittest.TestCase):
             if args[0]=='osascript' and 'first tab of window id 55 whose id is 9' in args[2]: return subprocess.CompletedProcess(args,0,final+'\tBuild – Large, Blue\n','')
             return subprocess.CompletedProcess(args,1,'','')
         with patch.object(atticus.subprocess,'run',side_effect=browser),patch.object(atticus,'close_agent_window'):
-            self.manager.finish(row,'done','Picked every option. [agent-result '+json.dumps({'summary':'Configured.','links':[start,'https://help.fixture.test/sizes']})+']')
+            self.manager.finish(row,'done',completed_result('Picked every option. [agent-result '+json.dumps({'summary':'Configured.','links':[start,'https://help.fixture.test/sizes']})+']'))
         self.assertEqual([m['url'] for m in row['made']],[final,'https://help.fixture.test/sizes'])   # the live page first, not the model's copy; the start page is a source
         self.assertEqual((row['made'][0]['title'],row['made'][0]['tab']),('Build – Large, Blue',tab));self.assertFalse((gate/'work-tab.json').exists())
         with patch.object(atticus,'show_tab') as show:
@@ -1372,16 +1526,16 @@ class AgentTests(unittest.TestCase):
         page=lambda r:{'title':'Build','url':'https://shop.fixture.test/b','type':'','tab':{'app':'Browser Fixture','adapter':'chromium','window':55,'tab':9}}
         closed=[]
         with patch.object(atticus,'close_agent_window',side_effect=closed.append),patch.object(atticus,'work_tab_page',side_effect=lambda d:page(d) if d!=rows[1]['directory'] else {}):
-            self.manager.finish(rows[0],'done','Configured.')
-            self.manager.finish(rows[1],'done','Only read pages.')   # a task that only read closes its window as before
+            self.manager.finish(rows[0],'done',completed_result('Configured.'))
+            self.manager.finish(rows[1],'done',completed_result('Only read pages.'))   # a task that only read closes its window as before
             self.until(lambda:closed==[rows[1]['directory']]);self.assertTrue(rows[0]['keptWindow'])
-            self.manager.finish(rows[2],'done','Configured another.')   # a newer kept window closes the older one
+            self.manager.finish(rows[2],'done',completed_result('Configured another.'))   # a newer kept window closes the older one
             self.until(lambda:rows[0]['directory'] in closed);self.assertNotIn('keptWindow',rows[0]);self.assertTrue(rows[2]['keptWindow'])
             later=atticus.Agents(emit=lambda e:None,launch=lambda r:None);self.addCleanup(later.close)
             self.assertTrue(later.rows[rows[2]['id']]['keptWindow'])   # still known after a restart
             self.manager.command({'action':'remove','id':rows[2]['id']})   # its card goes: its window goes
             self.until(lambda:rows[2]['directory'] in closed)
-            self.manager.finish(rows[3],'done','Configured a third.')
+            self.manager.finish(rows[3],'done',completed_result('Configured a third.'))
             gate=Path(atticus.agent_gate_dir(rows[3]['directory']));(gate/'browser-window.json').write_text('{"app":"Browser Fixture","window":55}')
             with patch.object(atticus,'show_tab'):self.manager.command({'action':'page','id':rows[3]['id'],'url':'https://shop.fixture.test/b'})
             self.assertFalse((gate/'browser-window.json').exists());self.assertNotIn('keptWindow',rows[3])   # opened from the card: it is the user's now
@@ -1396,7 +1550,7 @@ class AgentTests(unittest.TestCase):
         with patch.object(atticus,'close_agent_window',side_effect=closed.append):
             for i,row in enumerate(rows):
                 row.update(status='needs-you',question={'pick':'Which size?','options':['Small','Large'],'_a':'x'*32+str(i)})
-                self.manager.finish(row,'done','Waiting for a size.')
+                self.manager.finish(row,'done',completed_result('Waiting for a size.'))
             self.assertEqual(self.manager.running(),0)
             self.until(lambda:closed==[rows[0]['directory'],rows[1]['directory']])   # one kept window at a time, waiting ones too
             fresh=self.prepare('WAIT fixture');self.manager.start(fresh['id']);self.assertEqual(fresh['status'],'running')
@@ -1416,7 +1570,7 @@ class AgentTests(unittest.TestCase):
                 self.manager.command({'action':'answer','id':row['id'],'answer':'1','question':pick['_a']})
                 self.assertEqual(row['status'],'running');self.assertEqual(Path(pick['_a']).read_text(),'1')
                 if read:os.remove(pick['_a'])   # the tool took it in time: nothing to hand on
-                with patch.object(atticus,'close_agent_window'):self.manager.finish(row,'done','Waiting for a size.')
+                with patch.object(atticus,'close_agent_window'):self.manager.finish(row,'done',completed_result('Waiting for a size.'))
                 self.assertFalse(Path(pick['_a']).exists())
                 followups=lambda:[e for e in atticus.read_rows(str(Path(row['directory'])/'log.jsonl')) if e.get('event')=='followup' and '"Large"' in e.get('text','')]
                 if read:time.sleep(.2);self.assertEqual(followups(),[]);self.assertEqual(row['status'],'done')
@@ -1433,11 +1587,11 @@ class AgentTests(unittest.TestCase):
     def test_missing_connector_asks_on_the_chip_and_resumes_once_connected(self):
         row=self.prepare('DONE fixture');self.manager.start(row['id']);self.until(lambda:row['status']=='done')
         result='No Gmail here. [agent-result {"summary":"Could not read Gmail.","missingConnector":"Gmail"}]'
-        self.manager.finish(row,'done',result)
+        self.manager.finish(row,'done',completed_result(result))
         self.assertEqual(row['status'],'needs-you');self.assertEqual(row['question']['need'],'connector');self.assertEqual(row['question']['app'],'Gmail')
         self.manager.command({'action':'answer','id':row['id'],'answer':'n','question':row['question']['_a']})
         self.assertEqual(row['status'],'done');self.assertIsNone(row['question'])   # Not now: the result already says what it skipped
-        self.manager.finish(row,'done',result)
+        self.manager.finish(row,'done',completed_result(result))
         states=iter([{'connected':['Drive'],'signin':['Gmail']},{'connected':['Drive','Gmail'],'signin':[]}])
         with patch.object(atticus,'connectors',side_effect=lambda:next(states)),patch.object(atticus.time,'sleep'):
             self.manager.command({'action':'answer','id':row['id'],'answer':'y','question':row['question']['_a']})
