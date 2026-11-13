@@ -1549,7 +1549,9 @@ def spotify_item(name, anything=True, exact=False):
         except (OSError, ValueError) as e:
             errors.append(f'HTTP {e.code}' if isinstance(e, urllib.error.HTTPError) else 'the search request failed (network or timeout)')
     if errors:
-        raise RuntimeError('Could not search Spotify: ' + '; '.join(dict.fromkeys(errors)) + '.')
+        search = 'https://open.spotify.com/search/' + urllib.parse.quote(name, safe='')
+        raise RuntimeError('Could not search Spotify via web search: ' + '; '.join(dict.fromkeys(errors)) +
+                           '. Playback has not started. Search directly in Spotify: ' + search)
     return None
 
 
@@ -5933,7 +5935,8 @@ def run(task, p=None, shots=(), auto_work=False, *, request=None, main_only=Fals
             if callable(getattr(getattr(p, 'errors', None), 'close', None)): p.errors.close()
             return run(task, start_claude(getattr(p, 'atticus_model', None)), (), auto_work,
                        request=request, main_only=main_only, routing_retry=routing_retry)
-        run.why = failure_why(detail, custom)
+        # The CLI's terminal error takes precedence over unrelated stderr diagnostics.
+        run.why = failure_why(result.strip() if result_error and result.strip() else detail, custom)
         if custom and run.why == 'stopped':
             selected, available = str(pref('apiModel', '')).strip(), models()
             if selected and available and selected not in available: run.why = 'model_missing'

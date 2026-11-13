@@ -134,6 +134,24 @@ class SpotifyTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'HTTP 429'):
                 atticus.play('fixture')
 
+    def test_exhausted_search_offers_encoded_direct_search_without_actions(self):
+        name = 'Fixture / song? # & café'
+        error = urllib.error.HTTPError('https://example.invalid', 429, 'limited', {}, None)
+        self.addCleanup(error.close)
+        for response in (error, TimeoutError('timed out'), '<html>challenge</html>'):
+            with self.subTest(response=type(response).__name__), \
+                 patch.object(atticus, 'playlist', return_value=None), \
+                 patch.object(atticus, 'get', side_effect=[response, response]) as get, \
+                 patch.object(atticus.subprocess, 'run') as run:
+                with self.assertRaises(RuntimeError) as raised:
+                    atticus.spotify_item(name)
+                reply = str(raised.exception)
+                self.assertIn('web search', reply)
+                self.assertIn('https://open.spotify.com/search/Fixture%20%2F%20song%3F%20%23%20%26%20caf%C3%A9', reply)
+                self.assertIn('Playback has not started', reply)
+                self.assertEqual(get.call_count, 2)
+                run.assert_not_called()
+
     def test_unusable_search_and_metadata_are_not_zero_results(self):
         page = 'https://open.spotify.com/track/' + 'I' * 22
         for responses in (['<html>challenge</html>'] * 2,
