@@ -3,6 +3,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -112,7 +113,7 @@ for (const [label, keys] of Object.entries(want)) if (JSON.stringify(capsOf(labe
         swift = (ROOT / 'Atticus.swift').read_text()
         fix = swift.split('    func fixPlan() {', 1)[1].split('    func tried()', 1)[0]
         self.assertIn('if need.isEmpty, c["ok"] as? Bool == false { Atticus.settings.open(); return }', fix)
-        self.assertLess(fix.index('if need.isEmpty'), fix.index('let cmd ='))
+        self.assertLess(fix.index('if need.isEmpty'), fix.index('var cmd ='))
 
     def test_setup_checks_one_provider_process_at_a_time(self):
         swift = (ROOT / 'Atticus.swift').read_text()
@@ -120,6 +121,21 @@ for (const [label, keys] of Object.entries(want)) if (JSON.stringify(capsOf(labe
         self.assertIn('guard !checkingPlan else { return }', check)
         self.assertLess(check.index('checkingPlan = true'), check.index('Onboarding.plan'))
         self.assertIn('self?.checkingPlan = false', check)
+
+    def test_signin_clears_failure_only_after_success(self):
+        swift = (ROOT / 'Atticus.swift').read_text()
+        fix = swift.split('    func fixPlan() {', 1)[1].split('    func tried()', 1)[0]
+        self.assertIn('if !devin && !pi && !server {', fix)
+        self.assertIn('replacingOccurrences(of: "\'", with: "\'\\\\\'\'")', fix)
+        suffix = re.search(r'cmd \+= "([^"\n]+)"', fix).group(1)
+        with tempfile.TemporaryDirectory() as root:
+            marker = Path(root) / "fixture's state" / 'claude-signed-out'
+            marker.parent.mkdir()
+            command = suffix.replace('\\(marker)', str(marker).replace("'", "'\\''"))
+            for result in (1, 0):
+                marker.touch()
+                subprocess.run(['zsh', '-c', f'(exit {result})' + command], check=False)
+                self.assertEqual(marker.exists(), result != 0)
 
     def test_voice_asks_use_only_engine_supported_languages(self):
         swift = (ROOT / 'Atticus.swift').read_text()

@@ -4008,6 +4008,8 @@ def claude_plan():
         return {'ok': False, 'need': 'install', 'text': 'Could not start Claude Code. Reinstall it and try again.'}
     except (ValueError, subprocess.TimeoutExpired):
         return {'ok': False, 'need': 'login', 'text': 'Could not read your Claude sign-in.'}
+    if Path(DIR, 'claude-signed-out').exists():   # auth status can stay logged in after a real request rejects the session
+        return {'ok': False, 'need': 'login', 'text': 'Your Claude sign-in expired. Click Sign In to reconnect.'}
     if not s.get('loggedIn'):
         return {'ok': False, 'need': 'login', 'text': 'Sign in to Claude to start.'}
     if s.get('authMethod') != 'claude.ai':
@@ -5937,6 +5939,8 @@ def run(task, p=None, shots=(), auto_work=False, *, request=None, main_only=Fals
                        request=request, main_only=main_only, routing_retry=routing_retry)
         # The CLI's terminal error takes precedence over unrelated stderr diagnostics.
         run.why = failure_why(result.strip() if result_error and result.strip() else detail, custom)
+        if run.why == 'signed_out' and not custom:
+            Path(DIR, 'claude-signed-out').touch(mode=0o600)
         if custom and run.why == 'stopped':
             selected, available = str(pref('apiModel', '')).strip(), models()
             if selected and available and selected not in available: run.why = 'model_missing'
@@ -5948,7 +5952,7 @@ def run(task, p=None, shots=(), auto_work=False, *, request=None, main_only=Fals
                 reply = 'Your custom server rejected its credentials. Check its key in Settings.'
             else:
                 say('!', 'setup')
-                reply = 'Your Claude sign-in expired. Open Terminal and run claude auth login to sign in again.'
+                reply = 'Your Claude sign-in expired. Open Atticus Settings, choose Set Up, then click Sign In.'
         elif run.why == 'too_long':
             reply = f'This request is too long for {"your custom server" if custom else "Claude"}. Close this box with ✕ to start fresh, then ask again with less text.'
         elif run.why == 'plan_limit':
@@ -5985,6 +5989,8 @@ def run(task, p=None, shots=(), auto_work=False, *, request=None, main_only=Fals
     run.ok = base_ok and verified
     if not run.why and getattr(p, 'ask', '') and os.path.exists(os.path.join(p.ask, 'declined')):
         run.ok, run.why, run.cmds = False, 'cancelled', []
+    if run.ok and not server():
+        Path(DIR, 'claude-signed-out').unlink(missing_ok=True)
     if not run.ok and not run.why:
         run.why = next(w for w, hit in (('timed_out', timed_out[0]), ('not_finished', not completed), ('tool_failed', last_failed),
                                         ('unverified', base_ok), ('no_reply', not reply), ('other', True)) if hit)

@@ -4802,11 +4802,15 @@ final class Onboarding: NSObject, WKScriptMessageHandler, NSWindowDelegate {
             let devin = (c["client"] as? String) == "devin", pi = (c["client"] as? String) == "pi", server = (c["client"] as? String) == "server"
             if need.isEmpty, c["ok"] as? Bool == false { Atticus.settings.open(); return }
             if need == "upgrade" { NSWorkspace.shared.open(URL(string: "https://claude.ai/upgrade")!); return }
-            let cmd = need == "install"
+            var cmd = need == "install"
                 ? devin ? "curl -fsSL https://cli.devin.ai/install.sh | bash && devin auth login"
                         : pi ? "curl -fsSL https://pi.dev/install.sh | sh && echo 'In Pi, use /login or /model to choose your provider.' && pi"
                              : "curl -fsSL https://claude.ai/install.sh | bash" + (server ? "" : " && ~/.local/bin/claude auth login")   // a custom server needs Claude Code, not a Claude account
                 : devin ? "devin auth login" : pi ? "echo 'In Pi, use /login or /model to choose your provider.' && pi" : "claude auth login"
+            if !devin && !pi && !server {
+                let marker = ((Prefs.path as NSString).deletingLastPathComponent + "/claude-signed-out").replacingOccurrences(of: "'", with: "'\\''")
+                cmd += " && rm -f -- '\(marker)'"
+            }
             let title = devin ? "Devin" : pi ? "Pi" : "Claude Code"
             let f = NSTemporaryDirectory() + "atticus-\(devin ? "devin" : pi ? "pi" : "claude").command"
             try? "#!/bin/zsh\nexport PATH=\"$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"\necho 'Atticus: setting up \(title)'\n\(cmd)\necho; echo 'Done. You can close this window.'\n".write(toFile: f, atomically: true, encoding: .utf8)
