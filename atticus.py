@@ -613,14 +613,14 @@ def client():
 # A chain runs outside only if every part is listed, so harmless read-only tools are too ("…; curl wttr.in", "| head").
 SAFE_OUT = [f'{c} *' for c in ('osascript', 'open', 'mdfind', 'curl', 'head', 'tail', 'grep', 'sort', 'wc', 'echo', 'sleep', 'date', ME)] + ['pbpaste', 'date'] + [f'orca terminal {c} *' for c in ('list', 'read', 'send')]
 # What the user must OK first. Matched per command, so `open "…?q=buy shoes"` or a search for "delete" never asks.
-RISKY = [('Delete something?', r'\b(rm|rmdir|srm|unlink|shred|trash|mv)\s|\bdelete\b|empty (the )?trash'),
+RISKY = [('Delete something?', r'\b(rm|rmdir|srm|unlink|shred|trash|mv)\s|\bdelete\b|empty\s+(the\s+)?trash'),
          ('Send this?', r'\bsend\b|\bsendmail\b|curl\b.*\s((?-i:-[a-zA-Z]*X)\s*[\'"]?(POST|PUT|PATCH|DELETE)|--request[\s=]*[\'"]?(POST|PUT|PATCH|DELETE)|--data|--form|--json|--upload-file|(?-i:-[a-zA-Z]*[dFT]))'),
-         ('Buy this?', r'\b(buy|purchase|checkout|check out|place (an |the )?order|pay)\b'),
+         ('Buy this?', r'\b(buy|purchase|checkout|check\s+out|place\s+(an\s+|the\s+)?order|pay)\b'),
          # every way curl, sort and AppleScript/JXA write a file: they run outside the sandbox
          ('Change a file?', r'(?<![0-9&])>>?\s*(?!/dev/null|&|/tmp/)\S|\btee\s|curl\b.*\s((?-i:-[a-zA-Z]*[oODcK])|--(output|remote-name|dump-header|cookie-jar|trace|stderr|libcurl|etag-save|hsts|alt-svc|config)\b)|%output\{'
-                            r'|\bsort\b.*\s((?-i:-[a-zA-Z]*o)|--output)|\bwrite\b.*\bto\b|write permission|writeTo(File|URL)'),
+                            r'|\bsort\b.*\s((?-i:-[a-zA-Z]*o)|--output)|\bwrite\b.*\bto\b|write\s+permission|writeTo(File|URL)'),
          # AppleScript and JXA can run shell text: Terminal's do script, do shell script, run/load script, ObjC tasks
-         ('Run a system command?', r'\bdo ?(shell ?)?script\b|\b(run|load) ?script\b|\bNSTask\b|\$\.(system|popen)\b|\bsudo\b|\bkillall\b|\bdefaults write\b')]
+         ('Run a system command?', r'\bdo\s*(shell\s*)?script\b|\b(run|load)\s*script\b|\bNSTask\b|\$\.(system|popen)\b|\bsudo\b|\bkillall\b|\bdefaults\s+write\b')]
 # Atticus.swift's riskyPattern: a raw System Events click asks for the same controls --hands does
 RISKY_LABEL = r"(?i)\b(buy|purchase|pay|payment|checkout|order|send|delete|remove|trash|submit|publish|post|sign.?out|log.?out|unsubscribe|subscribe|transfer|bid|erase|withdraw|donate|authorize|grant access|allow access|logout|book|reserve|merge|deploy|discard|wipe|format|apply(?! filters| changes| settings| coupon| code| promo| discount| theme| style| formatting)|confirm)\b"
 RUNS = ('.command', '.tool', '.terminal', '.sh', '.zsh', '.bash', '.app', '.workflow', '.action')   # macOS runs these when opened
@@ -8342,7 +8342,7 @@ if __name__ == '__main__':
         assert not risky(f'{SEARCH} "how to delete a file"') and not risky('open "https://google.com/search?q=buy shoes"') and not risky(f'{SHOW} "Notes"; {PLACE} "Notes" left current')
         assert risky('rm -rf ~/x') == risky('open -a Notes; mv ~/a ~/.Trash/') == 'Delete something?' and risky('open "$(rm x)"')
         assert risky('osascript -e \'tell application "Mail" to send m\'') == 'Send this?' == risky('curl -s -X POST https://x') and not risky("curl -s 'wttr.in/x?format=%l'")
-        assert risky('osascript -e \'do shell script "echo"\'') == 'Run a system command?' and risky("osascript -e 'tell application \"Notes\" to delete note 1'") == 'Delete something?'
+        assert all(risky(f"osascript -e '{c}'") == 'Run a system command?' for c in ('do shell script "echo"', 'do  shell script "echo"', 'do\tshell\tscript "echo"', 'do\nshell\nscript "echo"', 'do shell  script "echo"', 'do  script "echo"', 'run  script "echo"', 'load  script "echo"', 'defaults  write test key value')) and risky("osascript -e 'tell application \"Notes\" to delete note 1'") == 'Delete something?'
         assert risky('echo x >> ~/.zshrc') == 'Change a file?' == risky('curl -s -o ~/x https://y') and not risky('osascript -e x 2>&1; ls >/dev/null; echo > /tmp/a')
         assert risky('open -a Notes & osascript -e \'tell application "Mail" to send m\'') == 'Send this?'
         sys.exit(print('selftest ok'))
