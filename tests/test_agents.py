@@ -990,6 +990,21 @@ class AgentTests(unittest.TestCase):
         ask.assert_not_called();self.assertNotEqual(decision.get('permissionDecision'),'deny')
         self.assertTrue(decision['updatedInput']['dangerouslyDisableSandbox'])
 
+    def test_safe_agent_allow_rules_cover_only_the_gates_rewritten_helper_reads(self):
+        with patch.object(atticus.shutil,'which',return_value='/fixture/claude'),patch.object(atticus.subprocess,'Popen') as popen:
+            atticus.start_claude('haiku',self.manager.new()).errors.close()
+        args=popen.call_args.args[0];self.assertEqual(args[args.index('--permission-mode')+1],'dontAsk')
+        rules=[r[len('Bash('):-len(':*)')] for r in json.loads(args[args.index('--settings')+1])['permissions']['allow']]
+        allowed=lambda command:any(command==r or command.startswith(r+' ') for r in rules)   # Claude Code's Bash(prefix:*) match
+        with patch.object(atticus,'preview_commands'):
+            for read in atticus.AGENT_READS:
+                decision,ask=self.gate('Bash',{'command':atticus.ME+' '+read+' x'},ATTICUS_AGENT='fixture')
+                ask.assert_not_called();self.assertTrue(allowed(decision['updatedInput']['command']),read)   # dontAsk lets the unsandboxed read run
+            decision,ask=self.gate('Bash',{'command':'curl -s https://example.test'},ATTICUS_AGENT='fixture')
+        self.assertEqual(decision['permissionDecision'],'deny');ask.assert_called_once()
+        for command in (shlex.join(['/bin/sh',atticus.ME,'--hands','type','Field','value']),'curl -s https://example.test','/bin/sh -c id'):
+            self.assertFalse(allowed(command),command)
+
     def test_helper_identity_survives_python_cd_symlinks_and_spaces(self):
         helper=Path(self.root.name)/'App Resources'/'atticus.py';helper.parent.mkdir();helper.write_text('fixture')
         alias=Path(self.root.name)/'helper';alias.symlink_to(helper)

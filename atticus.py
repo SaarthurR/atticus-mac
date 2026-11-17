@@ -4145,7 +4145,7 @@ If the steps are known, emit [agent-plan {"steps":["short step"],"completed":0}]
 '''
 AGENT_SYSTEM += (f'If missing setup would help (macOS blocks a permission or Automation, a browser blocks page reading): {shlex.quote(ME)} --need '
                  f'accessibility|screen|automation|calendar|microphone|page-js "<why, one line>" [app] [--do if the user said to change settings yourself]. '
-                 f'It asks the user and waits; follow its answer.\n')
+                 f'It asks the user and waits; follow its answer. A tool denied by Atticus or Claude Code permissions is not macOS setup.\n')
 
 
 def tag_json(text, start):
@@ -4708,6 +4708,9 @@ def agent_commands(row, task, recovered=False):
     return [c for c in actions if not c.startswith(SHORTCUT)]
 
 
+AGENT_READS = ('--window', '--look', '--read', '--search', '--history', '--meeting-history', '--need', '--hands see', '--web read')
+
+
 def agent_read_command(command, cwd=None):
     # Pin the helper and interpreter; shell spelling must not choose a different runtime.
     if any(c in command for c in ('`', '$', '\n')): return False
@@ -4723,8 +4726,7 @@ def agent_read_command(command, cwd=None):
     try:
         if not args or not os.path.samefile(os.path.join(cwd, args[0]), ME): return False
     except OSError: return False
-    if len(args) > 1 and (args[1] in ('--window', '--look', '--read', '--search', '--history', '--meeting-history', '--need') or
-                         len(args) > 2 and args[1:3] in (['--hands', 'see'], ['--web', 'read'])):
+    if any(args[1:2 + c.count(' ')] == c.split() for c in AGENT_READS):
         return shlex.join(['/bin/sh', ME, *args[1:]])   # the sh header runs it from cached bytecode
     return ''
 
@@ -5512,6 +5514,8 @@ def start_claude(model=None, agent=None):
     if agent and pref('safe', True):
         settings['sandbox'] = {'enabled': True, 'autoAllowBashIfSandboxed': True, 'allowUnsandboxedCommands': True, 'excludedCommands': SAFE_OUT}
         settings['sandbox']['filesystem'] = {'denyRead': [os.path.join(DIR, 'agent-gates')], 'denyWrite': [os.path.join(DIR, 'agent-gates'), os.path.join(DIR, 'answers')]}
+        # dontAsk refuses an unsandboxed command even after the gate's allow; these match the gate's rewritten helper reads.
+        settings['permissions'] = {'allow': [f'Bash({shlex.join(["/bin/sh", ME])} {c}:*)' for c in AGENT_READS]}
     if agent and agent.get('connectors'):
         try:
             with open(os.path.join(DIR, 'agent-connectors.json')) as f: connectors = json.load(f)
