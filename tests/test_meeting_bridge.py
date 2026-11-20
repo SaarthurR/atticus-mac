@@ -52,7 +52,7 @@ print("pending")
         classes = classes[:begin] + '        Prefs.set("meetingPrep", "")\n    }\n' + classes[end:]
         # The guest's own Calendar permission must not decide the flow: denied posts allowCalendar (System Settings), unasked prompts.
         classes = classes.replace('EKEventStore.authorizationStatus(for: .event)', 'fixtureCalendar').replace('EKEventStore.authorizationStatus(for:.event)', 'fixtureCalendar')
-        prefs = source[source.index('enum Prefs'):source.index('// Read-aloud uses')] + source[source.index('func callJS('):source.index('func currentRequestScreen(')]
+        prefs = source[source.index('enum Prefs'):source.index('// Read-aloud uses')] + source[source.index('func callJS('):source.index('func currentRequestScreen(')] + 'func telemetry(_ args: [String]) {}\n'
         prefs += swift_motion(source)
         swift = '''import Cocoa
 import Carbon

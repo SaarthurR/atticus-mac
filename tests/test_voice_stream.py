@@ -42,6 +42,7 @@ print("sentence order, final flush, cap, reset, markup, lines and CJK: OK")
         navigation = source[source.index('        drawing.navigated ='):source.index('        drawing.status =')]
         run_swift(self, 'import Foundation\n' + spoken + r'''
 enum Prefs { static var speak = true; static func bool(_ key: String) -> Bool { key == "speak" ? speak : true } }
+func telemetry(_ args: [String]) {}
 var picks = 0
 func readAloudArguments(_ words: String, compactTip: () -> Void) -> [String] { picks += 1; return ["-v", "Voice\(picks)", "--", words] }
 final class Process {

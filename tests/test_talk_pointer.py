@@ -80,7 +80,7 @@ class TalkPointerTests(unittest.TestCase):
         from tests import run_swift
         source = (Path(atticus.__file__).parent/'Atticus.swift').read_text()
         settle = source[source.index('    func settleTalkPointer()'):source.index('    var pointContext:')]
-        run_swift(self, 'import Cocoa\nimport Darwin\n' + '''
+        run_swift(self, 'import Cocoa\nimport Darwin\nfunc telemetry(_ args: [String]) {}\n' + '''
 var launches = 0
 func py(_ args: [String]) -> Process {
     launches += 1

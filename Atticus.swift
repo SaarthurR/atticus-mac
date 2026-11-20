@@ -942,11 +942,43 @@ func detectLocalServers(_ done: @escaping ([[String: Any]]) -> Void) {
 // Call a page function with JSON arguments: fn(...args). Skips values JSON can't hold (they would raise in JSONSerialization).
 func callJS(_ web: WKWebView?, _ fn: String, _ args: [Any]) {
     guard JSONSerialization.isValidJSONObject(args), let d = try? JSONSerialization.data(withJSONObject: args), let j = String(data: d, encoding: .utf8) else { return }
-    web?.evaluateJavaScript("\(fn)(...\(j))")
+    web?.evaluateJavaScript("\(fn)(...\(j))") { _, e in PageErrors.shared.evaluated(fn, e) }
+}
+
+// Uncaught page errors reach PostHog as code locations only (page, error class, file, line, column), never the message: it can hold the user's words.
+// Pages have an opaque origin (no base URL), so WebKit mutes window error details ("muted"); calls from Swift report through evaluated().
+final class PageErrors: NSObject, WKScriptMessageHandler {
+    static let shared = PageErrors()
+    var sent = Set<[String]>()   // once per page and place per app run
+    static func script(_ page: String) -> String {
+        "(()=>{const seen=new Set(),send=(e,file,line,col)=>{const r=['\(page)',e?e.constructor?.name||typeof e:'muted',String(file||'').split('/').pop().slice(0,60),+line||0,+col||0],k=r.join();" +
+        "if(!seen.has(k)){seen.add(k);window.webkit?.messageHandlers.atticusError?.postMessage(r)}};" +
+        "addEventListener('error',e=>send(e.error,e.filename,e.lineno,e.colno));" +
+        "addEventListener('unhandledrejection',e=>{const m=/([^\\/@\\s]*):(\\d+):(\\d+)/.exec(e.reason?.stack||'')||[];send(e.reason,m[1],m[2],m[3])})})()"
+    }
+    static func watch(_ web: WKWebView, _ page: String) {
+        let c = web.configuration.userContentController
+        guard !c.userScripts.contains(where: { $0.source.contains("atticusError") }) else { return }
+        c.add(shared, name: "atticusError")
+        c.addUserScript(WKUserScript(source: script(page), injectionTime: .atDocumentStart, forMainFrameOnly: true))
+    }
+    func userContentController(_ controller: WKUserContentController, didReceive m: WKScriptMessage) {
+        guard let r = m.body as? [Any], r.count == 5 else { return }
+        send(r.map { "\($0)" })
+    }
+    // An exception thrown by an evaluateJavaScript call; page is the object called (ui, ob, st, agents, meeting, drawingMath).
+    func evaluated(_ call: String, _ error: Error?) {
+        guard let e = error as NSError?, e.domain == WKError.errorDomain, e.code == WKError.javaScriptExceptionOccurred.rawValue else { return }
+        let message = e.userInfo["WKJavaScriptExceptionMessage"] as? String ?? ""
+        let type = message.range(of: #"^[A-Z]\w{0,30}(?:Error|Exception)(?=: )"#, options: .regularExpression).map { String(message[$0]) } ?? "thrown"
+        send([String(call.prefix { $0.isLetter }), type, "eval", "\(e.userInfo["WKJavaScriptExceptionLineNumber"] ?? 0)", "\(e.userInfo["WKJavaScriptExceptionColumnNumber"] ?? 0)"])
+    }
+    func send(_ fields: [String]) { if sent.insert(fields).inserted { telemetry(["error", "js"] + fields) } }
 }
 
 // Load ui/<name> with orbs.js and i18n.js inlined at their markers; these pages have no base URL.
 func loadPage(_ web: WKWebView, _ name: String) {
+    PageErrors.watch(web, (name as NSString).deletingPathExtension)
     let html = (try? String(contentsOfFile: dir + "/ui/" + name, encoding: .utf8)) ?? "missing " + name
     let orbs = (try? String(contentsOfFile: dir + "/ui/orbs.js", encoding: .utf8)) ?? ""
     let i18n = (try? String(contentsOfFile: dir + "/ui/i18n.js", encoding: .utf8)) ?? ""
@@ -1220,6 +1252,7 @@ final class DrawingMath: NSObject, WKScriptMessageHandler {
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let web, let data = try? JSONSerialization.data(withJSONObject:[text,font,color,width]), let args = String(data:data,encoding:.utf8) else { return }
         web.evaluateJavaScript("drawingMath(...\(args))") { [weak self] result, error in
+            PageErrors.shared.evaluated("drawingMath", error)   // the card falls back to plain text
             guard let self, error == nil, let size = result as? [String:Double], let w = size["width"], let h = size["height"],
                   w.isFinite, h.isFinite, w > 0, h > 0, w <= self.width, h <= 4096 else { self?.finish(); return }
             let config = WKSnapshotConfiguration(); config.rect = CGRect(x:0,y:0,width:w,height:h)
@@ -3256,7 +3289,7 @@ final class App: NSObject, WKScriptMessageHandler {
             guard p.terminationStatus == 0, let result = try JSONSerialization.jsonObject(with:data) as? [String:Any],
                   result["meaningful"] as? Bool == true else { talkPath = []; return }
             if text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty { text = result["silent"] as? String ?? "" }
-        } catch { if p.isRunning { p.terminate() }; talkPath = [] }
+        } catch { if p.isRunning { p.terminate() }; talkPath = []; telemetry(["error", "native", "talk_trail"]) }
     }
     var pointContext: [String:Any]?
     var voice: Process?   // `say` preserves Premium/Enhanced and unlisted saved Siri voices.
@@ -3291,7 +3324,7 @@ final class App: NSObject, WKScriptMessageHandler {
             self.voice = nil; self.speakNext()
             self.cueEnds = max(self.cueEnds, Date().addingTimeInterval(0.3)); self.hide(after: 2)
         } }
-        do { try p.run(); voice = p } catch { speakNext() }
+        do { try p.run(); voice = p } catch { telemetry(["error", "native", "speak"]); speakNext() }
     }
     func voiceQualityTip() {
         guard !UserDefaults.standard.bool(forKey: "voiceQualityTip") else { return }
@@ -3426,6 +3459,7 @@ final class App: NSObject, WKScriptMessageHandler {
         region = region.intersection(display)
         let path = NSTemporaryDirectory() + "atticus-point-" + UUID().uuidString + ".jpg"
         let captured = MiniScreen.shot(region, keep: Set((drawing.panels + drawing.inputPanels).map { CGWindowID($0.windowNumber) }), to: path)
+        if !captured && CGPreflightScreenCaptureAccess() { telemetry(["error", "native", "point_capture"]) }
         var context: [String:Any] = [
             "bounds":[Double(region.minX),Double(region.minY),Double(region.width),Double(region.height)],
             "path":points.map { [Double($0.x),Double($0.y)] },
@@ -6535,6 +6569,7 @@ enum Updater {
                           10: "Updated. Restarting when you’re not using it…"][r.code] ?? "Update failed. Your current app is still running."
                 repair = [3, 5, 7].contains(r.code) ? "Open Source Folder" : [0, 10].contains(r.code) ? "" : "Retry"
                 if r.code == 10 { awaitingRestart = true }
+                if ![0, 4, 5, 10].contains(r.code) { telemetry(["error", "native", "update_\(r.code)"]) }   // offline and local edits are the user's state
                 done(); settings.push()
                 if r.code == 10 { restartWhenIdle() }
             }
@@ -6837,7 +6872,7 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
             try? p.run(); p.waitUntilExit()
             let s = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
             guard s.hasPrefix("{") else { return }
-            DispatchQueue.main.async { self?.web?.evaluateJavaScript("st.state(\(s))") }
+            DispatchQueue.main.async { self?.web?.evaluateJavaScript("st.state(\(s))") { _, e in PageErrors.shared.evaluated("st", e) } }
         }
     }
     func feedbackPreview(_ include: Bool, _ text: String, _ revision: Int = 0) {
@@ -6907,7 +6942,7 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
     }
 
     func say(_ call: String) { js("st." + call) }
-    func js(_ s: String) { web?.evaluateJavaScript(s) }
+    func js(_ s: String) { web?.evaluateJavaScript(s) { _, e in PageErrors.shared.evaluated(s, e) } }
 
     func helper(_ args: [String]) { let p = py(args); try? p.run(); p.waitUntilExit() }
 
@@ -9900,6 +9935,7 @@ NSApplication.shared.delegate = delegate
 if !hotkeyRegistered || !dictateHotkeyRegistered { DispatchQueue.main.async { settings.open() } }   // another app owns a saved shortcut: show the warning, not a silent dead key
 Updater.noteLaunch()
 Updater.schedule()
+telemetry(["crashes"])   // app crashes macOS saved since the last launch
 
 // Test hook: `defaults write com.atticus.app demo -string "<request>"` then restart runs it once without the mic.
 if let demo = UserDefaults.standard.string(forKey: "demo") {

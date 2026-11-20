@@ -495,6 +495,7 @@ func loadPage(_ web: WKWebView, _ name: String) {
         .replacingOccurrences(of:"/*ORBS*/",with:try! String(contentsOf:root.appendingPathComponent("orbs.js"),encoding:.utf8))
     web.loadHTMLString(html,baseURL:root)
 }
+final class PageErrors { static let shared = PageErrors(); func evaluated(_ call: String, _ error: Error?) {} }
 ''' + math + card + r'''
 let app = NSApplication.shared; app.setActivationPolicy(.accessory)
 let short = "Click the table to compare the two entries."

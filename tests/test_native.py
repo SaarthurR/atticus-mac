@@ -169,8 +169,8 @@ Harness().feed(["✎ {\\"remembered\\":[\\"Use concise answers\\"]}", "✎ {\\"s
 
     def test_page_calls_skip_values_json_cannot_hold(self):
         source = (ROOT / 'Atticus.swift').read_text()
-        bridge = source[source.index('// Call a page function'):source.index('// Load ui/')]
-        out = run_swift(self, 'import Foundation\nclass WKWebView { func evaluateJavaScript(_ s: String) { print(s) } }\n' + bridge +
+        bridge = source[source.index('// Call a page function'):source.index('// Uncaught page errors')]
+        out = run_swift(self, 'import Foundation\nclass WKWebView { func evaluateJavaScript(_ s: String, _ done: ((Any?, Error?) -> Void)? = nil) { print(s) } }\nfinal class PageErrors { static let shared = PageErrors(); func evaluated(_ call: String, _ error: Error?) {} }\n' + bridge +
                         'let w = WKWebView()\ncallJS(w, "ui.a", [])\ncallJS(w, "ui.b", ["x/y"])\ncallJS(w, "ui.c", [NSValue(range: NSRange(location: 0, length: 1))])\n')
         self.assertEqual(out.splitlines(), ['ui.a(...[])', 'ui.b(...["x\\/y"])'])
 

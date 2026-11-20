@@ -2,6 +2,7 @@
 import json
 import os
 import platform
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -295,6 +296,104 @@ for (p, expected) in [(Worker(terminationReason: .exit, terminationStatus: 0), 0
             os.chmod(root, 0o755); log = Path(root, 'log.jsonl'); log.write_text(''); log.chmod(0o644)
             atticus.append_log({'task': 'Summarize my inbox'})
             self.assertEqual((os.stat(root).st_mode & 0o777, log.stat().st_mode & 0o777), (0o700, 0o600))
+
+    def test_page_errors_reach_native_as_code_locations_only(self):
+        source = Path(atticus.ME).with_name('Atticus.swift').read_text()
+        shared = source[source.index('// Call a page function with JSON arguments'):source.index('// The system arrow as window.obCursor')]
+        out = json.loads(run_swift(self, r'''import Cocoa
+import WebKit
+let dir = "''' + str(Path(atticus.ME).parent) + r'''"
+enum Prefs { static let uiLanguage = "en"; static func resolveUILanguage(_ s: String) -> String { "en" } }
+var reports: [[String]] = [], works: [String: Any] = [:], webs: [WKWebView] = []
+func telemetry(_ args: [String]) { reports.append(args) }
+''' + shared + r'''
+final class Sink: NSObject, WKScriptMessageHandler { func userContentController(_ c: WKUserContentController, didReceive m: WKScriptMessage) {} }
+let sink = Sink()
+let pages = [("ui.html", "typeof ui === 'object' && !!document.getElementById('card')", "ui.noSuchCall"),
+             ("drawing-math.html", "drawingMath('**Step one** then $x^2$', 22, 'white', 300).height > 0", "drawingMath.noSuchCall")]
+let boom = "const s = document.createElement('script'); s.textContent = \"const boom = () => { throw new TypeError('private words') }; setTimeout(boom); setTimeout(boom); Promise.reject(new RangeError('private words'))\"; document.body.append(s); 0"
+func open(_ i: Int) {
+    guard i < pages.count else { print(String(data: try! JSONSerialization.data(withJSONObject: ["works": works, "reports": reports]), encoding: .utf8)!); exit(0) }
+    let cfg = WKWebViewConfiguration()
+    for n in ["h", "c", "drawingMath", "agents"] { cfg.userContentController.add(sink, name: n) }
+    let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 600), configuration: cfg); webs.append(web)
+    loadPage(web, pages[i].0); loadPage(web, pages[i].0)   // a reload adds no second handler
+    func ready() {
+        web.evaluateJavaScript("document.readyState") { state, _ in
+            guard state as? String == "complete" else { return DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: ready) }
+            web.evaluateJavaScript(pages[i].1) { r, e in
+                works[pages[i].0] = r ?? String(describing: e)
+                callJS(web, pages[i].2, ["private words"]); callJS(web, pages[i].2, ["private words"])
+                web.evaluateJavaScript(boom) { _, _ in DispatchQueue.main.asyncAfter(deadline: .now() + 1) { open(i + 1) } }
+            }
+        }
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: ready)
+}
+NSApplication.shared.setActivationPolicy(.prohibited)
+open(0)
+DispatchQueue.main.asyncAfter(deadline: .now() + 50) { print("timeout"); exit(1) }
+NSApplication.shared.run()
+''', timeout=60).strip().splitlines()[-1])
+        self.assertEqual(out['works'], {'ui.html': True, 'drawing-math.html': True})
+        # one per signature and no load errors; window errors in these opaque-origin pages arrive muted, calls from Swift name their class and line
+        self.assertEqual(sorted((r[2], r[3], r[4]) for r in out['reports']),
+                         [('drawing-math', 'RangeError', 'about:blank'), ('drawing-math', 'muted', ''), ('drawingMath', 'TypeError', 'eval'),
+                          ('ui', 'RangeError', 'about:blank'), ('ui', 'TypeError', 'eval'), ('ui', 'muted', '')], out['reports'])
+        self.assertTrue(all(r[:2] == ['error', 'js'] and len(r) == 7 and r[5].isdigit() for r in out['reports']), out['reports'])
+        self.assertTrue(all(int(r[5]) > 0 for r in out['reports'] if r[3] != 'muted'), out['reports'])
+        self.assertNotIn('private', json.dumps(out))
+
+    def test_page_error_bridge_sends_only_names_and_numbers(self):
+        with patch.object(atticus, 'report_error') as sent:
+            for fields in (['ui', 'TypeError', 'about:blank', '12', '7'], ['ui', 'my private words', 'x y', 'twelve', '-1']):
+                with patch.object(sys, 'argv', ['atticus.py', '--telemetry', 'error', 'js', *fields]): atticus.main()
+        self.assertEqual(sent.call_args_list[0].kwargs, {'page': 'ui', 'exception': 'TypeError', 'file': 'about:blank', 'line': 12, 'column': 7})
+        self.assertEqual(sent.call_args_list[1].kwargs, {'page': 'ui', 'exception': 'other', 'file': 'other', 'line': 0, 'column': 0})
+        self.assertNotIn('private', str(sent.call_args_list))
+
+    def test_native_crashes_are_reported_once_with_type_signal_and_atticus_frame(self):
+        with tempfile.TemporaryDirectory() as root:
+            logs = Path(root, 'Library/Logs/DiagnosticReports'); logs.mkdir(parents=True)
+            head = {'app_name': 'Atticus', 'app_version': '2.0.0', 'bug_type': '309'}
+            body = {'exception': {'type': 'EXC_BREAKPOINT', 'signal': 'SIGTRAP', 'subtype': 'private words'}, 'procPath': '/Users/someone/Atticus.app',
+                    'usedImages': [{'name': 'libswiftCore.dylib', 'path': '/usr/lib/x'}, {'name': 'Atticus', 'path': '/Users/someone/Atticus.app'}],
+                    'threads': [{'frames': [{'imageIndex': 1, 'symbol': 'idle'}]},
+                                {'triggered': True, 'frames': [{'imageIndex': 0, 'symbol': 'swift_fatal'}, {'imageIndex': 1, 'symbol': 'App.run(_:)', 'imageOffset': 4096}]}]}
+            Path(logs, 'Atticus-2026-01-01-000000.ips').write_text(json.dumps(head) + '\n' + json.dumps(body))
+            Path(logs, 'Atticus-2026-01-01-000001.ips').write_text(json.dumps({**head, 'bug_type': '298'}) + '\n{}')   # a hang, not a crash
+            Path(logs, 'Other-2026-01-01-000000.ips').write_text(json.dumps(head) + '\n' + json.dumps(body))
+            with patch.object(atticus, 'HOME', root), patch.object(atticus, 'DIR', str(Path(root, 'data'))), patch.object(atticus, 'report_error') as sent:
+                atticus.report_crashes()
+                atticus.report_crashes()   # the stamp: each crash once
+        sent.assert_called_once_with('native_crash', exception='EXC_BREAKPOINT', signal='SIGTRAP', symbol='App.run(_:)', offset=4096, crashed='2.0.0')
+
+    def test_a_failed_tool_names_the_tool_helper_and_exit_code_only(self):
+        detail = atticus.failed_tool('Bash', '"$ATTICUS" --look "private words" ~/private/file', 'Exit code 2\nprivate output')
+        self.assertEqual(detail, {'tool': 'Bash', 'helper': 'look', 'exit': 2})
+        self.assertEqual(atticus.failed_tool('Read', '<Read>', 'private'), {'tool': 'Read'})
+        self.assertEqual(atticus.failed_tool('private words here', ''), {'tool': 'other'})
+        with patch.object(atticus, 'report_error') as sent:
+            atticus.report_worker_failure('claude', 'haiku', 'tool_failed', 'private output', detail)
+            atticus.report_worker_failure('claude', 'haiku', 'signed_out', '', {'exit': 1})
+        self.assertEqual(sent.call_args_list[0].kwargs, {'worker': 'claude', 'model': 'haiku', 'why': 'tool_failed', 'tool': 'Bash', 'helper': 'look', 'exit': 2})
+        self.assertNotIn('exit', sent.call_args_list[1].kwargs)
+        self.assertNotIn('private', str(sent.call_args_list))
+
+    def test_handled_feature_failures_send_stage_enums_only(self):
+        source = Path(atticus.ME).with_name('Atticus.swift').read_text()
+        stages = re.findall(r'telemetry\(\["error", "native", "([^"\\]*)', source)
+        self.assertGreaterEqual(len(stages), 5)
+        with patch.object(atticus, 'report_error') as sent:
+            for stage in stages:
+                with patch.object(sys, 'argv', ['atticus.py', '--telemetry', 'error', 'native', stage]): atticus.main()
+            with patch.object(sys, 'argv', ['atticus.py', '--telemetry', 'error', 'native', 'my private words']), \
+                 patch('sys.stderr', io.StringIO()), self.assertRaises(SystemExit): atticus.main()
+        self.assertEqual([c.kwargs['stage'] for c in sent.call_args_list], stages)   # every Swift stage passes, text does not
+        with patch.object(atticus, 'spotify_item', return_value=('spotify:track:fixture', 'Fixture song')), patch.object(atticus, 'osa', return_value=''), \
+             patch.object(atticus.subprocess, 'run', side_effect=subprocess.TimeoutExpired('osascript', 30)), patch.object(atticus, 'report_error') as sent:
+            self.assertIn('timed out', atticus.play('Fixture song'))
+        sent.assert_called_once_with('play', stage='timed_out')
 
     def test_disabled_does_not_send(self):
         with tempfile.TemporaryDirectory() as root, patch.object(atticus, 'DIR', root), \

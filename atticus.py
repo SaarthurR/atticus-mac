@@ -1845,15 +1845,19 @@ def play(name, anything=True, credited=False):
             ok = state == 'playing' and (now == p[0] if track else now != old or restarted == 'true')
             if ok: break
     except subprocess.TimeoutExpired:
+        report_error('play', stage='timed_out')
         return f'Could not start {p[1]} in Spotify: the playback command timed out.'
     except OSError as e:
+        report_error('play', stage='start')
         return f'Could not start {p[1]} in Spotify: {e}.'
     if played.returncode:
         if '-1743' in played.stderr:
             return ('Could not control Spotify: macOS denied Automation permission. '
                     'Enable Spotify under Atticus in System Settings > Privacy & Security > Automation, then try again.')
+        report_error('play', stage='script')
         return f'Could not start {p[1]} in Spotify: {played.stderr.strip() or "AppleScript failed"}.'
     if not ok:
+        report_error('play', stage='not_playing')
         return f'Could not start {p[1]} in Spotify: ' + ('it kept playing another track.' if state == 'playing' else 'playback did not reach the playing state.')
     try:
         with open(PLAYED) as f: saved = json.load(f)
@@ -4353,14 +4357,44 @@ def failure_why(detail, custom=False):
 
 
 ERROR_HINT = r'\b[A-Z]\w*(?:Error|Exception)\b|\b[Ee]xit code -?\d+|\bE[A-Z]{3,}\b|\bHTTP \d{3}\b'   # code words only, never user text
+HELPERS = r'--(place|show|hands|web|draw|look|search|read|front|watch|pick|play|queue|type|window)\b'   # Atticus helper flags
 
 
-def report_worker_failure(worker, model, why, error=''):
+def failed_tool(name, command='', output='', exit=None):
+    """Which step failed, for worker_exit: the tool's name, an Atticus helper flag and the exit code, never arguments or paths."""
+    helper, code = re.search(HELPERS, str(command)), re.search(r'\b[Ee]xit code (-?\d+)', str(output))
+    if exit is None and code: exit = int(code[1])
+    return {'tool': name if isinstance(name, str) and re.fullmatch(r'[A-Za-z]\w{0,39}', name) else 'other',
+            **({'helper': helper[1]} if helper else {}), **({'exit': exit} if isinstance(exit, int) else {})}
+
+
+def report_worker_failure(worker, model, why, error='', detail=None):
     if why in ('cancelled', 'paused'): return
     setup = why in ('setup_needed', 'provider_needed', 'model_missing', 'server_rejected', 'signed_out', 'too_long', 'plan_limit', 'billing', 'rate_limited', 'offline', 'unavailable', 'sandbox')
     hint = re.search(ERROR_HINT, str(error or ''))
     report_error('setup' if setup else 'worker_exit', worker=worker, model=model if model in ('haiku', 'sonnet', 'opus') else 'custom', why=why,
-                 **({'hint': hint[0][:40]} if hint and not setup else {}))
+                 **({'hint': hint[0][:40]} if hint and not setup else {}), **(detail if isinstance(detail, dict) and not setup else {}))
+
+
+def report_crashes():
+    """Atticus.app crashes macOS saved since the last check: exception type, signal and the first Atticus frame's symbol, nothing else."""
+    stamp, logs = os.path.join(DIR, 'crashes-checked'), os.path.join(HOME, 'Library/Logs/DiagnosticReports')
+    since = os.path.getmtime(stamp) if os.path.exists(stamp) else 0
+    try: found = sorted((e.stat().st_mtime, e.path) for e in os.scandir(logs) if e.name.startswith('Atticus-') and e.name.endswith('.ips'))
+    except OSError: found = []
+    os.makedirs(DIR, mode=0o700, exist_ok=True); Path(stamp).touch()
+    for _, path in [f for f in found if f[0] > since][-5:]:
+        try:
+            head, body = (json.loads(part) for part in Path(path).read_text().split('\n', 1))
+            images, exception = body.get('usedImages') or [], body.get('exception') or {}
+            thread = next((t for t in body.get('threads') or [] if t.get('triggered')), {})
+        except (OSError, ValueError, AttributeError): continue
+        if head.get('bug_type') != '309': continue   # 309 is a crash; hangs and resource reports are other types
+        frame = next((f for f in thread.get('frames') or [] if isinstance(f.get('imageIndex'), int) and f['imageIndex'] < len(images)
+                      and images[f['imageIndex']].get('name') == head.get('app_name')), {})
+        report_error('native_crash', exception=str(exception.get('type', ''))[:40], signal=str(exception.get('signal', ''))[:20],
+                     symbol=str(frame.get('symbol', ''))[:160], offset=frame.get('imageOffset', 0) if isinstance(frame.get('imageOffset'), int) else 0,
+                     crashed=str(head.get('app_version', ''))[:20])
 
 
 def exception_error(exc_type, tb, value=None, *, kind='exception', **props):
@@ -4416,7 +4450,7 @@ def tool_kinds(commands):
     """Command classes only, never their arguments."""
     kinds = []
     for command in commands:
-        helpers = re.findall(r'--(place|show|hands|web|draw|look|search|read|front|watch|pick|play|queue|type|window)\b', str(command))
+        helpers = re.findall(HELPERS, str(command))
         if helpers:
             found = helpers
         else:
@@ -6448,6 +6482,7 @@ def run(task, p=None, shots=(), auto_work=False, *, request=None, main_only=Fals
     run.observed = []
     run.work = False   # set before the Devin/Pi paths too: main() reads run.work after every client
     run.why = ''   # why it failed, one fixed word for PostHog
+    run.detail = {}   # which step failed (failed_tool)
     if client() == 'devin':
         return run_devin(task, shots, request=request)
     if client() == 'pi':
@@ -6517,7 +6552,7 @@ def run(task, p=None, shots=(), auto_work=False, *, request=None, main_only=Fals
     p.progress = reset_deadline
     reset_deadline()
     reply, managed_reply, cost, steps, cmds, last_failed, completed, result_error, ids, bad = '', '', 0, [], [], False, False, False, {}, set()
-    action_indexes, evidence, redirected = [], False, set()
+    action_indexes, evidence, redirected, names = [], False, set(), {}
     live, shown, drew = '', '', False   # the answer so far, as the box shows it ("… <text>"); the final reply always replaces it
     inline = InlineDrawing() if pref('draw', True) else None   # its [DRAW:…] tags
     spoken_shown = ''
@@ -6624,7 +6659,7 @@ def run(task, p=None, shots=(), auto_work=False, *, request=None, main_only=Fals
                             say('▸', steps[-1])
                             if TURN:
                                 TURN['step_times'].append({'label': steps[-1], 'secs': 0, 'status': 'running', '_start': time.monotonic()})
-                            ids[b.get('id')] = len(cmds)
+                            ids[b.get('id')], names[b.get('id')] = len(cmds), name
                             command = inp.get('command') or ''
                             if name == 'Bash' and not agent_read_command(command):
                                 run.work = True; action_indexes.append(len(cmds))
@@ -6654,6 +6689,8 @@ def run(task, p=None, shots=(), auto_work=False, *, request=None, main_only=Fals
                         content = b.get('content', '')
                         if isinstance(content, list):
                             content = '\n'.join(str(part.get('text', '')) for part in content if isinstance(part, dict))
+                        if b.get('is_error'):
+                            run.detail = failed_tool(names.get(b.get('tool_use_id')), cmds[i] if i is not None else '', content)
                         if b.get('is_error') and str(content).strip():
                             run.error = clean(str(content))
                         if i is not None and action_indexes and i >= action_indexes[0] and not b.get('is_error') and str(content or '').strip():
@@ -6733,6 +6770,7 @@ def run(task, p=None, shots=(), auto_work=False, *, request=None, main_only=Fals
         p.errors.seek(0)
         detail = '\n'.join(filter(None, [reply if result_error else '', p.errors.read(2000).strip()]))
         run.error = clean(detail)
+        if p.returncode: run.detail = {'exit': p.returncode}
         custom = bool(server())
         if custom and shots and not walkthrough and re.search(r'\bmultimodal\b', detail, re.I):
             if callable(getattr(getattr(p, 'stdout', None), 'close', None)): p.stdout.close()
@@ -6955,6 +6993,7 @@ def run_pi(task, shots=(), request=None):
             if not isinstance(event, dict): continue
             if event.get('type') == 'tool_execution_end':
                 failed = bool(event.get('isError'))
+                if failed: run.detail = failed_tool(event.get('toolName'), '', event.get('result', ''))
             else:
                 message = event.get('message')
                 if event.get('type') != 'message_end' or not isinstance(message, dict) or message.get('role') != 'assistant': continue
@@ -7651,7 +7690,7 @@ class InlineDrawing:
     def payload(self, steps):
         if self.target is None:
             try: self.target = (self.snapshot or {}).get('target') or draw_target()
-            except (OSError, ValueError, subprocess.TimeoutExpired): self.target = False
+            except (OSError, ValueError, subprocess.TimeoutExpired): self.target = False; report_error('guide', stage='target')
         return {'steps': steps, 'teaching': True, 'target': self.target, 'state': hands_state(), 'guide': f'{self.guide}-{self.clears}',
                 **({'cancelFile': os.path.join(os.environ['ATTICUS_ASK'], 'guide-cancelled')} if os.environ.get('ATTICUS_ASK') else {})} if self.target else None
 
@@ -7732,7 +7771,7 @@ def follow_walkthrough(task, reply, model):
             target = guide.get('target') or draw_target()
             changed = subprocess.run([APP, '--guide-watch', json.dumps(target), cancel], capture_output=True, text=True, timeout=95)
         except (OSError, ValueError, subprocess.TimeoutExpired):
-            show(index, 'stopped'); break
+            report_error('guide', stage='watch'); show(index, 'stopped'); break
         if changed.returncode or changed.stdout.strip() != 'changed' or os.path.exists(cancel):
             show(index, 'stopped'); break
         show(current, 'checking')
@@ -8811,8 +8850,14 @@ def main():
     if len(args) == 5 and args[:3] == ['--telemetry', 'error', 'worker_exit']:
         return report_error('worker_exit', worker=args[3] if args[3] in ('python', 'claude', 'devin', 'pi') else 'python',
                             exit=int(args[4]) if args[4].lstrip('-').isdigit() else -1)
-    if args == ['--telemetry', 'error', 'native', 'mic_start']:
-        return report_error('native', stage='mic_start')
+    if len(args) == 4 and args[:3] == ['--telemetry', 'error', 'native'] and re.fullmatch(r'[a-z0-9_-]{1,30}', args[3]):   # Swift nativeError stages
+        return report_error('native', stage=args[3])
+    if len(args) == 8 and args[:3] == ['--telemetry', 'error', 'js']:   # an uncaught page error: code names and numbers only
+        name = lambda s: s if re.fullmatch(r'[\w$.:-]{0,60}', s) else 'other'
+        return report_error('js', page=name(args[3]), exception=name(args[4]), file=name(args[5]),
+                            line=int(args[6]) if args[6].isdigit() else 0, column=int(args[7]) if args[7].isdigit() else 0)
+    if args == ['--telemetry', 'crashes']:
+        return report_crashes()
     if len(args) == 3 and args[:2] == ['--telemetry', 'support']:   # a Leave a Tip click in the app
         return posthog('support', {'action': 'clicked', 'from': args[2] if args[2] in ('overlay', 'setup', 'settings', 'menu') else 'other'})
     if len(args) == 4 and args[:2] == ['--telemetry', 'idea'] and args[2] in ('shown', 'clicked') and args[3].isdigit():   # "Ideas when I'm away": which one, never its text
@@ -9424,7 +9469,7 @@ def main():
     failed = failed_action_reply(reply, run.work)
     final_ran = list(failed_replay.get('output', ())) + run.ran if failed_replay else run.ran
     if not run.ok or failed: report(task, reply, final_ran, time.time() - t, 'error' if not run.ok else 'could not do it')
-    if not run.ok: report_worker_failure(client(), model, getattr(run, 'why', '') or 'other', getattr(run, 'error', ''))
+    if not run.ok: report_worker_failure(client(), model, getattr(run, 'why', '') or 'other', getattr(run, 'error', ''), getattr(run, 'detail', None))
     learned_entry = skills().get(learned_key) if learned_key else None
     learned_turn = {'key': learned_key, 'commands': learned_entry['cmds'],
                     'output': [f'{o.get("action", "")} => {str(o.get("result", ""))[:400]}' for o in run.observed] or [reply[:400]]} if learned_entry else None

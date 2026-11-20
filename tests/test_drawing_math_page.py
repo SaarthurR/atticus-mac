@@ -127,6 +127,7 @@ func loadPage(_ web: WKWebView, _ name: String) {
     let html = try! String(contentsOfFile: ui + name, encoding: .utf8), orbs = try! String(contentsOfFile: ui + "orbs.js", encoding: .utf8)
     web.loadHTMLString(html.replacingOccurrences(of: "/*ORBS*/", with: orbs), baseURL: nil)
 }
+final class PageErrors { static let shared = PageErrors(); func evaluated(_ call: String, _ error: Error?) {} }
 ''' + cls + r'''
 NSApplication.shared.setActivationPolicy(.prohibited)
 let cases: [(String, CGFloat, CGFloat)] = [("A **bold** word.", 22, 300), (CommandLine.arguments[2], 22, 160), (CommandLine.arguments[3], 22, 160)]
