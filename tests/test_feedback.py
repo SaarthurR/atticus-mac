@@ -32,6 +32,13 @@ class FeedbackTests(unittest.TestCase):
         self.assertEqual(query['body'], [report['body']])
         self.assertIn('What happened', report['body']); self.assertIn('What you expected', report['body'])
 
+    def test_other_clients_report_their_own_cli_model(self):
+        # issue #30: a Pi report said "Model: haiku", which Pi never uses
+        with patch.object(atticus, 'pref', side_effect=lambda k, d: {'client': 'pi', 'model': 'haiku'}.get(k, d)):
+            body = atticus.feedback({})['body']
+        self.assertIn('AI client: pi\nModel: set in the Pi CLI\n', body)
+        self.assertNotIn('haiku', body); self.assertNotIn('Routing: ', body)
+
     def test_opt_in_shows_exact_previous_ask_only(self):
         report = atticus.feedback({'include': True})
         self.assertIn('Private ask /Users/person/name', report['body'])

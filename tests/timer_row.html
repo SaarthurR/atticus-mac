@@ -14,6 +14,7 @@ try {
   await new Promise(resolve => setTimeout(resolve, 500));
 
   const ui = frame.contentWindow.ui, d = frame.contentDocument;
+  ui.autoMinimize(false);   // expanded-box interactions; the default-on lifecycle has its own native regression
   ui.listen(true); ui.words('Earlier ask'); ui.think(); ui.line('✓ Earlier answer');
   ui.dictate(true); ui.listen('dict'); ui.finishing(''); ui.dictated({text: '', ok: true});
   ui.listen(); ui.dictate(false); ui.words('Why is the sky blue?'); ui.think(); ui.line('▸ Thinking it through');

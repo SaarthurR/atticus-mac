@@ -21,6 +21,7 @@ import AVFoundation
 import ScreenCaptureKit
 
 enum Prefs { static func str(_ key: String) -> String { "back" } }
+enum Apps { static let allowed: Set<String> = [] }
 __NATIVE__
 let app = NSApplication.shared; app.setActivationPolicy(.accessory)
 let activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleDisplaySleepDisabled], reason: "Atticus isolated window fixtures")
@@ -170,7 +171,7 @@ class MiniScreenNativeTests(unittest.TestCase):
         cls.env = {**os.environ, 'ATTICUS_DIR':str(cls.root), 'ATTICUS_RESOURCES_DIR':str(ROOT)}
         swift = (ROOT / 'Atticus.swift').read_text()
         ax = swift[swift.index('func axAttribute('):swift.index('struct TextSelection')]
-        mini = swift[swift.index('final class PassView:'):swift.index('final class App:')]
+        mini = swift[swift.index('final class PassView:'):swift.index('final class TalkPen:')]
         source = cls.root / 'main.swift'; source.write_text(HARNESS.replace('__NATIVE__',ax + mini))
         result = subprocess.run(['swiftc','-O',str(source),'-o',str(cls.binary)],capture_output=True,text=True,env=cls.env)
         if result.returncode: raise AssertionError(result.stderr)
@@ -242,7 +243,7 @@ class MiniScreenNativeTests(unittest.TestCase):
 
     def test_target_selection_and_minimized_fallback_with_fake_ax(self):
         swift = (ROOT / 'Atticus.swift').read_text()
-        mini = swift[swift.index('final class PassView:'):swift.index('final class App:')]
+        mini = swift[swift.index('final class PassView:'):swift.index('final class TalkPen:')]
         stub = r'''
 import Cocoa
 import AVFoundation
@@ -262,8 +263,9 @@ func axWindowNumber(_ element: AXUIElement) -> NSNumber? { NSNumber(value:42) }
 '''
         start_at=swift.index('    func start(dictate: Bool, quiet: Bool = false)')
         body_at=swift.index('        drawingReply = !dictate',start_at)
-        start='    func start() { let dictate = false\n'+swift[body_at:swift.index('        guard !Prefs.bool("paused")',start_at)]+'    }\n'
+        start='    func start() { let dictate = false\n'+swift[body_at:swift.index('        guard !Prefs.bool("paused")',body_at)]+'    }\n'
         starter='''enum Prefs { static func bool(_ name:String)->Bool { false }; static func str(_ name:String)->String { "back" } }
+enum Apps { static let allowed: Set<String> = [] }
 final class EngineStub { var isRunning=false }
 final class PanelStub { var isVisible=false }
 final class DrawingStub { var active=false,hasInput=false,clears=0;func clear() {clears += 1;active=false;hasInput=false};func stopVoice() {} }

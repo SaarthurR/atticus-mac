@@ -49,6 +49,37 @@ const tick = ms => new Promise(r => setTimeout(r, ms));
 
 @unittest.skipUnless(sys.platform == 'darwin', 'macOS WebKit page check')
 class SettingsPageTests(unittest.TestCase):
+    def test_auto_minimize_hydrates_and_updates_without_reopening_settings(self):
+        out = self.page("""
+st.load({prefs:{hotkeyLabel:'⌃⌥Space',autoMinimize:true}});
+const toggle=document.querySelector('[data-k=autoMinimize]'), first=toggle.checked;
+toggle.click();st.load({prefs:{hotkeyLabel:'⌃⌥Space',autoMinimize:true}});const fromBox=toggle.checked;
+st.load({prefs:{hotkeyLabel:'⌃⌥Space',autoMinimize:false}});
+return {first,fromBox,off:!toggle.checked};
+""")
+        self.assertEqual(out['result'], {'first':True,'fromBox':True,'off':True})
+        self.assertEqual([p for p in out['posts'] if p.get('k')=='autoMinimize'], [{'do':'set','k':'autoMinimize','v':False}])
+        native=(ROOT/'Atticus.swift').read_text()
+        self.assertIn('Atticus.settings.apply("autoMinimize", on); Atticus.settings.push()',native)
+        self.assertIn('if k == "autoMinimize" { app.js("autoMinimize", Prefs.bool("autoMinimize")) }',native)
+
+    def test_segmented_choices_use_radio_keys_and_skip_disabled_options(self):
+        out = self.page('''
+st.load({prefs:{hotkeyLabel:'⌃⌥Space',routing:'balanced',client:'claude',dictateHotkeyLabel:'fn',dictateMode:'verbatim'}});
+st.tab('brain');
+const group=document.querySelector('[data-k=routing]'), choices=[...group.querySelectorAll('button')];
+choices[1].focus(); choices[1].dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true,cancelable:true}));
+const after=[group.getAttribute('role'),choices.map(b=>b.getAttribute('role')),choices.map(b=>b.getAttribute('aria-checked')),choices.map(b=>b.tabIndex)];
+choices[2].dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true}));
+st.load({prefs:{hotkeyLabel:'⌃⌥Space',client:'pi',dictateMode:'cleanup',dictateHotkeyLabel:'fn'}}); st.tab('dictation');
+const mode=document.querySelector('[data-k=dictateMode] button');
+mode.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true,cancelable:true}));
+return [after,mode.tabIndex];
+''')
+        self.assertEqual(out['result'], [['radiogroup', ['radio']*3, ['false','false','true'], [-1,-1,0]], 0])
+        changes = [p for p in out['posts'] if isinstance(p, dict) and p.get('do') == 'set']
+        self.assertEqual(changes, [{'do':'set','k':'routing','v':'capable'}, {'do':'set','k':'routing','v':'cheapest'}])
+
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
@@ -61,11 +92,66 @@ class SettingsPageTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.tmp.cleanup()
 
-    def page(self, script):
-        p = subprocess.run([str(self.binary), str(ROOT / 'ui/settings.html'), SETUP + script], capture_output=True, text=True,
+    def page(self, script, translated=False):
+        path = ROOT / 'ui/settings.html'
+        if translated:
+            path = Path(self.tmp.name) / 'settings.html'
+            path.write_text((ROOT / 'ui/settings.html').read_text().replace('/*I18N*/', (ROOT / 'ui/i18n.js').read_text()))
+        p = subprocess.run([str(self.binary), str(path), SETUP + script], capture_output=True, text=True,
                            timeout=30, env={**os.environ, 'ATTICUS_DIR': self.tmp.name})
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         return json.loads(p.stdout.strip().splitlines()[-1])
+
+    def test_models_show_one_short_localized_line_for_the_selected_mode(self):
+        html = (ROOT / 'ui/settings.html').read_text().replace('/*I18N*/', (ROOT / 'ui/i18n.js').read_text())
+        page = Path(self.tmp.name) / 'settings.html'
+        page.write_text(html)
+        script = SETUP + r"""
+st.tab('brain');
+const lines=[], translated=[], fits=[];
+for(const language of ['en','it','de','es','fr']) {
+  st.load({prefs:{hotkeyLabel:'⌃⌥Space',routing:'balanced',uiLanguage:language}});
+  for(const mode of ['cheapest','balanced','capable']) {
+    document.querySelector('[data-k=routing] [data-v='+mode+']').click();
+    await tick(30);
+    const note=$('routingwhy'), text=note.textContent;
+    if(language==='en')lines.push(text); else translated.push(text);
+    const style=getComputedStyle(note);
+    fits.push(note.children.length===0 && note.getBoundingClientRect().height<=parseFloat(style.lineHeight)+1
+      && note.scrollWidth<=note.clientWidth && !/[×≈]|\d/.test($('models').textContent));
+  }
+}
+return {lines,translated,fits};
+"""
+        p = subprocess.run([str(self.binary), str(page), script], capture_output=True, text=True,
+                           timeout=30, env={**os.environ, 'ATTICUS_DIR': self.tmp.name})
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        out = json.loads(p.stdout.strip().splitlines()[-1])
+        lines = ['Haiku for everything. Lightest on your plan.',
+                 'Haiku for quick asks; work model otherwise.',
+                 'Work model for everything. Highest plan use.']
+        self.assertEqual(out['result']['lines'], lines)
+        self.assertTrue(all(out['result']['fits']))
+        self.assertTrue(all(t not in lines for t in out['result']['translated']))
+        self.assertEqual(len(set(out['result']['translated'])), 12)
+        changes = [p for p in out['posts'] if isinstance(p, dict) and p.get('k') == 'routing']
+        self.assertEqual([p['v'] for p in changes], ['cheapest','balanced','capable'] * 5)
+
+    def test_type_right_away_is_one_switch_beside_the_shortcut(self):
+        sys.path.insert(0, str(ROOT)); import atticus
+        page, i18n = (ROOT / 'ui/settings.html').read_text(), (ROOT / 'ui/i18n.js').read_text()
+        self.assertEqual(atticus.switches().get('typeRight'), 'Type right away')   # settings by voice find it too
+        self.assertNotIn('data-k="input"', page); self.assertNotIn('P.input', page)
+        for text in ['Type right away', 'Start typing after the shortcut to ask in words.']:
+            self.assertEqual(i18n.count(f'"{text}":'), 4, text)
+        for text in ['Shortcut opens', 'Typing', 'Press to type. Return sends.']:
+            self.assertNotIn(f'"{text}":', i18n)
+        out = self.page("""st.load({prefs:{hotkeyLabel:'⌃⌥Space',typeRight:true,talkMode:'hold'}});
+            const t=document.querySelector('[data-k=typeRight]'), mode=document.querySelector('[data-k=talkMode]');
+            const before=[t.checked, mode.closest('.row').hidden, t.closest('.group')===mode.closest('.group'), $('schint').textContent];
+            t.click(); await tick(20); return [...before, t.checked];""")
+        self.assertEqual(out['result'], [True, False, True, 'Hold it, talk, let go.', False])
+        self.assertTrue(any(isinstance(p, dict) and p.get('do') == 'set' and p.get('k') == 'typeRight' and p.get('v') is False for p in out['posts']))
 
     def test_wake_word_defaults_off_and_saves_one_toggle(self):
         out = self.page("""const wake=document.querySelector('[data-k=wakeWord]');
@@ -75,6 +161,25 @@ class SettingsPageTests(unittest.TestCase):
         self.assertEqual(out['result'], [False, False, True, True])
         self.assertIn({'do': 'set', 'k': 'wakeWord', 'v': True}, out['posts'])
 
+    def test_model_suggestion_switch_is_independent_and_keep_model_is_visible(self):
+        out = self.page("""st.load({prefs:{hotkeyLabel:'⌃⌥Space',modelSuggestions:false,tips:false,model:'opus',routing:'capable'}});
+            const toggle=document.querySelector('[data-k=modelSuggestions]');
+            const before=toggle.checked; toggle.click(); await tick(20);
+            return [before,toggle.checked,P.tips,
+                document.querySelector('[data-k=model] .on').dataset.v,document.querySelector('[data-k=routing] .on').dataset.v];""")
+        self.assertEqual(out['result'], [False, True, False, 'opus', 'capable'])
+        self.assertEqual([p for p in out['posts'] if p.get('do') == 'set'],
+                         [{'do':'set','k':'modelSuggestions','v':True}])
+
+    def test_drawing_model_saves_and_restores_the_selected_choice(self):
+        out = self.page("""st.load({prefs:{hotkeyLabel:'⌃⌥Space',routing:'balanced',drawModel:'sonnet'}});
+            const group=document.querySelector('[data-k=drawModel]');
+            group.querySelector('[data-v=opus]').click(); await tick(20);
+            st.load({prefs:{hotkeyLabel:'⌃⌥Space',routing:'balanced',drawModel:'opus'}});
+            return [...group.querySelectorAll('.on')].map(b=>b.dataset.v);""")
+        self.assertEqual(out['result'], ['opus'])
+        self.assertIn({'do': 'set', 'k': 'drawModel', 'v': 'opus'}, out['posts'])
+
     def test_wake_word_name_saves_trimmed_and_shows_saved(self):
         out = self.page("""const name=document.querySelector('[data-k=wakeWordName]');
             st.load({prefs:{hotkeyLabel:'⌃⌥Space',wakeWordName:'Jarvis'}}); const shown=name.value;
@@ -83,12 +188,30 @@ class SettingsPageTests(unittest.TestCase):
         self.assertEqual(out['result'], 'Jarvis')
         self.assertIn({'do': 'set', 'k': 'wakeWordName', 'v': 'Friday'}, out['posts'])
 
-    def test_sharing_compatibility_notice_preserves_saved_choice(self):
-        out = self.page("""st.load({prefs:{hotkeyLabel:'⌃⌥Space',hideWhenSharing:true},sharingUnavailable:true});
-            const before=[!$('sharingUnavailable').hidden,document.querySelector('[data-k=hideWhenSharing]').checked];
-            st.load({prefs:{hotkeyLabel:'⌃⌥Space',hideWhenSharing:false},sharingUnavailable:false});
-            return [before,$('sharingUnavailable').hidden,document.querySelector('[data-k=hideWhenSharing]').checked];""")
-        self.assertEqual(out['result'], [[True, True], True, False])
+    def test_voice_speed_saves_on_release_and_speaks_one_demo(self):
+        out = self.page("""st.load({prefs:{hotkeyLabel:'⌃⌥Space',voiceRate:196}});
+            const r=document.querySelector('[data-k=voiceRate]'), shown=[r.value,$('ratev').textContent];
+            for (const v of [220,240,252]) { r.value=v; r.dispatchEvent(new Event('input')); }
+            await tick(20); const dragging=[$('ratev').textContent];
+            r.dispatchEvent(new Event('change')); await tick(20);
+            window.i18n.setLanguage('it'); r.dispatchEvent(new Event('change')); await tick(20);
+            return [...shown,...dragging];""", translated=True)
+        self.assertEqual(out['result'], ['196', '1.1×', '1.4×'])
+        speed = [p for p in out['posts'] if p.get('k') == 'voiceRate' or p.get('do') == 'testVoice']
+        self.assertEqual(speed, [{'do': 'set', 'k': 'voiceRate', 'v': 252}, {'do': 'testVoice', 'text': 'This is how fast I will talk.'},
+                                 {'do': 'set', 'k': 'voiceRate', 'v': 252}, {'do': 'testVoice', 'text': 'Ecco quanto velocemente parlerò.'}])   # drag ticks post nothing
+        native = (ROOT/'Atticus.swift').read_text()
+        self.assertIn('"voiceRate": 196]', native)
+        self.assertIn('rate: Double = Prefs.num("voiceRate")', native)
+        test_voice = native[native.index('case "testVoice":'):native.index('case "preview":')]
+        self.assertLess(test_voice.index('app.shush()'), test_voice.index('b["text"]'))   # a playing demo stops before the next starts
+
+    def test_sharing_switch_shows_saved_choice(self):
+        out = self.page("""st.load({prefs:{hotkeyLabel:'⌃⌥Space',hideWhenSharing:true}});
+            const before=document.querySelector('[data-k=hideWhenSharing]').checked;
+            st.load({prefs:{hotkeyLabel:'⌃⌥Space',hideWhenSharing:false}});
+            return [before,document.querySelector('[data-k=hideWhenSharing]').checked];""")
+        self.assertEqual(out['result'], [True, False])
         self.assertNotIn({'do': 'set', 'k': 'hideWhenSharing', 'v': False}, out['posts'])
 
     def test_row_lines_stay_short(self):
@@ -140,17 +263,31 @@ class SettingsPageTests(unittest.TestCase):
     def test_dictation_stays_off_until_its_shortcut_is_recorded(self):
         out = self.page("""const field=$('dictatechange'),mode=()=>document.querySelector('[data-k=dictateMode]').closest('.row').classList.contains('dim');
             const before=[field.textContent,$('dictateclear').hidden,mode()];
-            document.querySelector('[data-k=dictateMode] [data-v=cleanup]').click(); const chosen=P.dictateMode;
             field.click(); await tick(20); const typing=[field.textContent,field.classList.contains('rec')];
             st.rec('⌃⌥'); const held=[...field.querySelectorAll('.cap')].map(c=>c.textContent).join('');
             st.load({prefs:{hotkeyLabel:'⌃⌥Space',dictateHotkeyLabel:'⌃⌥D'}});
             const set=[[...field.querySelectorAll('.cap')].map(c=>c.textContent).join(''),field.classList.contains('rec'),$('dictateclear').hidden,mode()];
             $('dictateclear').click(); await tick(20);
-            return [before,chosen,typing,held,set];""")
-        self.assertEqual(out['result'], [['Record Shortcut', True, True], 'cleanup', ['Type Shortcut', True], '⌃⌥', ['⌃⌥D', False, False, False]])
-        self.assertIn({'do': 'set', 'k': 'dictateMode', 'v': 'cleanup'}, out['posts'])
+            return [before,typing,held,set];""")
+        self.assertEqual(out['result'], [['Record Shortcut', True, True], ['Type Shortcut', True], '⌃⌥', ['⌃⌥D', False, False, False]])
         self.assertIn({'do': 'recordDictate'}, out['posts'])
         self.assertIn({'do': 'clearDictate'}, out['posts'])
+
+    def test_a_greyed_row_ignores_clicks_and_keys_until_it_is_live_again(self):
+        out = self.page("""const click=b=>{b.scrollIntoView({block:'center'});const r=b.getBoundingClientRect();document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.click();};
+            const key=b=>{b.focus();document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true,cancelable:true}));};
+            const btn=(k,v)=>document.querySelector(`[data-k=${k}] [data-v=${v}]`), saved=()=>[P.drawModel,P.dictateMode];
+            const tries=()=>{st.tab('brain');click(btn('drawModel','opus'));key(btn('drawModel','sonnet'));
+              st.tab('dictation');click(btn('dictateMode','cleanup'));key(btn('dictateMode','verbatim'));return saved();};
+            st.load({prefs:{hotkeyLabel:'⌃⌥Space',client:'claude',routing:'capable',drawModel:'sonnet',dictateMode:'verbatim'}});
+            const off=tries();
+            st.load({prefs:{hotkeyLabel:'⌃⌥Space',client:'claude',routing:'balanced',drawModel:'sonnet',dictateMode:'verbatim',dictateHotkeyLabel:'fn'}});
+            st.tab('brain');click(btn('drawModel','opus'));const drawn=P.drawModel;
+            st.tab('dictation');key(btn('dictateMode','verbatim'));
+            return [off,drawn,P.dictateMode];""")
+        self.assertEqual(out['result'], [['sonnet', 'verbatim'], 'opus', 'cleanup'])
+        changes = [p for p in out['posts'] if isinstance(p, dict) and p.get('do') == 'set']
+        self.assertEqual(changes, [{'do':'set','k':'drawModel','v':'opus'}, {'do':'set','k':'dictateMode','v':'cleanup'}])
 
     def test_globe_key_fix_shows_only_while_macos_takes_fn(self):
         out = self.page("""st.load({prefs:{hotkeyLabel:'⌃⌥Space',dictateHotkeyLabel:'fn'},globeTaken:true});

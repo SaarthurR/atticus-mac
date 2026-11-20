@@ -2,7 +2,9 @@
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Meeting Copilot</title>
 <!-- Meeting Copilot panel. Atticus.swift calls window.meeting.* and gets {do: …} messages back. States: nudge · prep · live · ended. -->
 <style>
-:root{color-scheme:dark;--fg:#f5f5f7;--fg2:#a1a1a6;--fg3:#8e8e93;--card:rgba(255,255,255,.06);--card2:rgba(255,255,255,.1);--line:rgba(255,255,255,.12);--accent:#0a84ff;--ease:cubic-bezier(.2,.8,.2,1);--spring:cubic-bezier(.34,1.56,.64,1)}
+:root{color-scheme:dark;--fg:#f5f5f7;--fg2:#a1a1a6;--fg3:#8e8e93;--card:rgba(255,255,255,.06);--card2:rgba(255,255,255,.1);--line:rgba(255,255,255,.12);--accent:#0a84ff;
+  /* motion: the same tokens in every page and in Atticus.swift's Motion (Plip's ease and Island spring, MIT, LICENSE-Plip) */
+  --t-fast:120ms;--t-base:200ms;--t-slow:280ms;--ease:cubic-bezier(.32,.72,0,1);--spring:linear(0, .057, .184, .334, .48, .61, .717, .801, .865, .912, .946, .969, .984, .993, .999, 1.002, 1)}
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:transparent;font:13px/1.4 -apple-system,system-ui,sans-serif;color:var(--fg);-webkit-font-smoothing:antialiased;-webkit-user-select:none;user-select:none;cursor:default}
 html{overflow:hidden;background:rgba(18,18,20,.55)}
@@ -177,7 +179,8 @@ body.compact{padding:8px 12px;overflow:hidden}
 
 @keyframes reveal{from{opacity:0}to{opacity:1}}
 @keyframes rise{from{opacity:0;transform:translateY(6px)}}
-@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+/* crossfade only: what appears still fades, nothing moves */
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-name:reveal!important;animation-iteration-count:1!important;transition-property:opacity,color,background-color,box-shadow!important}}
 body.reduce *{animation:none!important;transition:none!important}
 </style></head><body class="fit">
 <header id="head" hidden><canvas id="orb" aria-hidden="true"></canvas><div id="title"><b id="h1">Meeting Copilot</b><span id="status">Getting ready</span><span id="prepstatus" role="status" hidden>Before the call</span><span id="saving" hidden>Saving transcript</span></div><button id="minimize" class="quiet icon" aria-label="Minimize meeting panel" title="Minimize" hidden><svg viewBox="0 0 16 16"><path d="M4 8h8"/></svg></button><button id="pause" class="quiet icon" aria-label="Pause meeting" title="Pause" hidden><svg class="solid" viewBox="0 0 16 16"><rect x="4.5" y="3.5" width="2.4" height="9" rx="1"/><rect x="9.1" y="3.5" width="2.4" height="9" rx="1"/></svg></button><button id="stop" hidden>End</button><button id="close" class="quiet icon" aria-label="Close" title="Close (Esc)"><svg viewBox="0 0 16 16"><path d="M5 5l6 6M11 5l-6 6"/></svg></button></header>

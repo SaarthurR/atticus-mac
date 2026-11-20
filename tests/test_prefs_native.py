@@ -1,5 +1,6 @@
 """Native settings and usage regressions in a scratch ATTICUS_DIR."""
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -11,31 +12,60 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @unittest.skipUnless(sys.platform == "darwin", "macOS Swift regression")
 class PrefsNativeTests(unittest.TestCase):
+    def test_auto_minimize_default_and_saved_choice_across_launches(self):
+        source = (ROOT / "Atticus.swift").read_text()
+        prefs = source[source.index("enum Prefs"):source.index("func applySharing(")]
+        swift = "import Foundation\nlet controlKey = 1, optionKey = 2\n" + prefs + r'''
+print(Prefs.bool("autoMinimize"))
+if CommandLine.arguments.count > 1 { precondition(Prefs.set("autoMinimize", CommandLine.arguments[1] == "true")) }
+'''
+        with tempfile.TemporaryDirectory() as root:
+            src, binary = Path(root)/'prefs.swift', Path(root)/'prefs'
+            src.write_text(swift)
+            built = subprocess.run(['swiftc', str(src), '-o', str(binary)], capture_output=True, text=True)
+            self.assertEqual(built.returncode, 0, built.stderr)
+            for args, expected in [(['false'], 'true'), (['true'], 'false'), ([], 'true')]:
+                run = subprocess.run([str(binary)] + args, capture_output=True, text=True,
+                                     env={**os.environ, 'ATTICUS_DIR': root})
+                self.assertEqual(run.returncode, 0, run.stderr)
+                self.assertEqual(run.stdout.strip(), expected)
+
     def test_all_windows_follow_sharing_preference(self):
         source = (ROOT / "Atticus.swift").read_text()
         self.assertEqual(source.count(".sharingType ="), 1)
+        classes = re.findall(r'^final class (\w+): NS(?:Panel|Window) \{', source, re.M)
+        self.assertGreaterEqual(len(classes), 3)
+        made = r'let (\w+) = (?:(NSWindow|NSPanel|%s)\(contentRect|(NSAlert|NSSavePanel|NSOpenPanel)\(\))' % '|'.join(classes)
+        web = source[source.index('    func makeWeb('):source.index('loadPage(web, "agents.html")')]
+        self.assertIn('applySharing(panel)', web)
+        sites = list(re.finditer(made, source))
+        self.assertGreaterEqual(len(sites), 19)
+        for site in sites:   # every window Atticus makes or shows, built in or system, is given the sharing rule before its name is reused
+            name = site.group(1)
+            later = source[site.end():]
+            reuse = re.search(r'\blet %s = ' % name, later)
+            scope = later[:reuse.start() if reuse else len(later)]
+            target = name + '.window' if site.group(3) == 'NSAlert' else name
+            self.assertTrue(f'applySharing({target})' in scope or f'makeWeb({name},' in scope,
+                            f'{site.group(0)} at line {source[:site.start()].count(chr(10)) + 1} skips applySharing')
         prefs = source[source.index("enum Prefs"):source.index("func profileName(")]
         live = next(line for line in source.splitlines() if 'if k == "hideWhenSharing"' in line)
+        subclasses = ''.join(re.search(r'^final class %s: (?:[^\n]*\}|[^\n]*\{\n.*?\n\})\n' % c, source, re.M | re.S).group(0) for c in classes)
         swift = """import Cocoa
 let controlKey = 1, optionKey = 2
-""" + prefs + """
+""" + prefs + subclasses + """
 let nsapp = NSApplication.shared
-let windows: [NSWindow] = [NSWindow(), NSPanel(), NSPanel()]
+let windows: [NSWindow] = [NSWindow(), NSPanel(), NSAlert().window, NSSavePanel(), NSOpenPanel()] + [""" + ', '.join(f'{c}()' for c in classes) + """]
 precondition(Prefs.bool("hideWhenSharing"), "sharing must be hidden by default")
 windows.forEach(applySharing)
-for major in [26, 27, 28] {
-    precondition(sharingType(hidden: true, majorVersion: major) == (major < 27 ? .none : .readOnly))
-    precondition(sharingType(hidden: false, majorVersion: major) == .readOnly)
-}
-let major = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
-precondition(windows.allSatisfy { $0.sharingType == sharingType(hidden: true, majorVersion: major) })
+precondition(windows.allSatisfy { $0.sharingType == .none })
 let k = "hideWhenSharing"
 for enabled in [false, true, false] {
     Prefs.set(k, enabled)
 """ + live + """
-    precondition(windows.allSatisfy { $0.sharingType == sharingType(hidden: enabled, majorVersion: major) }, "live change missed a window")
+    precondition(windows.allSatisfy { $0.sharingType == (enabled ? .none : .readOnly) }, "live change missed a window")
     let later = NSPanel(); applySharing(later)
-    precondition(later.sharingType == sharingType(hidden: enabled, majorVersion: major), "new window missed preference")
+    precondition(later.sharingType == (enabled ? .none : .readOnly), "new window missed preference")
 }
 """
         with tempfile.TemporaryDirectory() as root:
@@ -152,8 +182,8 @@ precondition(usage == "Today: $0.03 · asks $0.01 · agents $0.02", "usage did n
         swift = """import Cocoa
 let controlKey = 1, optionKey = 2
 """ + prefs + """
-precondition(!Prefs.set("speak", true), "a write to an unwritable folder reported success")
-precondition(!Prefs.bool("speak"), "the unsaved value stayed in memory")
+precondition(!Prefs.set("speak", false), "a write to an unwritable folder reported success")
+precondition(Prefs.bool("speak"), "the unsaved value stayed in memory")
 """
         with tempfile.TemporaryDirectory() as root:
             path, binary, blocked = Path(root) / "check.swift", Path(root) / "check", Path(root) / "not-a-folder"

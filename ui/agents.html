@@ -2,13 +2,16 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 :root { color-scheme:dark; --fg:#f5f5f7; --fg2:#a1a1a6; --fg3:#8e8e93; --card:rgba(30,30,34,.92); --line:rgba(255,255,255,.08); --fill:rgba(255,255,255,.05); --fill2:rgba(255,255,255,.09);
-  --accent:#0a84ff; --green:#30d158; --amber:#ff9f0a; --red:#ff453a; --spring:cubic-bezier(.16,1,.3,1); --ease:cubic-bezier(.2,.7,.3,1); }
+  --accent:#0a84ff; --green:#30d158; --amber:#ff9f0a; --red:#ff453a; 
+  /* motion: the same tokens in every page and in Atticus.swift's Motion (Plip's ease and Island spring, MIT, LICENSE-Plip) */
+  --t-fast:120ms; --t-base:200ms; --t-slow:280ms; --ease:cubic-bezier(.32,.72,0,1);
+  --spring:linear(0, .057, .184, .334, .48, .61, .717, .801, .865, .912, .946, .969, .984, .993, .999, 1.002, 1); }
 * { box-sizing:border-box } html,body { margin:0; background:transparent }
 body { color:var(--fg); font:13px -apple-system,BlinkMacSystemFont,sans-serif; -webkit-font-smoothing:antialiased; user-select:none; cursor:default }
 body.view { background:rgba(15,15,18,.9) }
 button,input { font:inherit; color:inherit } a { color:inherit; text-decoration:none; cursor:pointer }
 button { display:inline-flex; align-items:center; justify-content:center; gap:5px; border:0; border-radius:8px; padding:0 11px; height:26px; background:var(--fill2); cursor:pointer; font-weight:500; font-size:12px; white-space:nowrap;
-  box-shadow:inset 0 0 0 .5px rgba(255,255,255,.1); transition:background .2s, transform .3s var(--spring) } button:hover,button.hot { background:rgba(255,255,255,.14) } button:active { transform:scale(.96) }
+  box-shadow:inset 0 0 0 .5px rgba(255,255,255,.1); transition:background var(--t-base), transform var(--t-slow) var(--spring) } button:hover,button.hot { background:rgba(255,255,255,.14) } button:active { transform:scale(.96) }
 button.go { background:var(--accent); box-shadow:none } button.go:hover,button.go.hot { background:#2b95ff } button.ghost { background:transparent; box-shadow:none; color:var(--fg2) } button.ghost:hover { background:var(--fill); color:var(--fg) }
 button:disabled { opacity:.35; cursor:default; transform:none } :focus-visible { outline:2px solid var(--accent); outline-offset:2px }
 svg.i { width:14px; height:14px; flex:none; fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round }
@@ -17,18 +20,18 @@ svg.i { width:14px; height:14px; flex:none; fill:none; stroke:currentColor; stro
 .s-needs-you .dot,.s-waiting-screen .dot { background:var(--amber); box-shadow:0 0 8px rgba(255,159,10,.6); animation:breathe 2.4s ease-in-out infinite }
 .s-done .dot { background:var(--green) } .s-failed .dot { background:var(--red) }
 .live-text { background:linear-gradient(90deg,var(--fg) 0 40%,#fff8 50%,var(--fg) 60% 100%) 0/250% 100%; -webkit-background-clip:text; color:transparent; animation:sheen 2.4s linear infinite }
-.enter { animation:enter .42s var(--spring) both }
+.enter { animation:enter var(--t-slow) var(--spring) both }
 
 /* sources: favicon chips (the site's own icon over a monogram) */
 .sources { display:flex; flex-wrap:wrap; gap:5px } .source { display:inline-flex; align-items:center; gap:6px; max-width:180px; height:22px; padding:0 8px 0 4px; border-radius:11px; background:var(--fill);
-  box-shadow:inset 0 0 0 .5px var(--line); font-size:11px; color:var(--fg2); transition:background .2s, color .2s } .source:hover,.source.hot { background:var(--fill2); color:var(--fg) }
+  box-shadow:inset 0 0 0 .5px var(--line); font-size:11px; color:var(--fg2); transition:background var(--t-base), color var(--t-base) } .source:hover,.source.hot { background:var(--fill2); color:var(--fg) }
 .source span { overflow:hidden; white-space:nowrap; text-overflow:ellipsis } .fav { position:relative; width:14px; height:14px; border-radius:4px; flex:none; overflow:hidden; display:grid; place-items:center;
   background:rgba(255,255,255,.14); font-size:8.5px; font-weight:700; color:var(--fg) } .fav img { position:absolute; inset:0; width:100%; height:100%; background:#fff }
 .more { font-size:11px; color:var(--fg3); align-self:center; padding:0 4px }
 
 /* made things: one card per created doc, sheet, event, file or link */
 .made { display:grid; grid-template-columns:minmax(0,1fr); gap:6px } .thing { display:flex; align-items:center; gap:11px; padding:9px 10px 9px 9px; border-radius:11px; background:var(--fill); box-shadow:inset 0 0 0 .5px var(--line); text-align:left;
-  height:auto; width:100%; font-weight:400; transition:background .2s } .thing:hover { background:var(--fill2) } .thing:active { transform:scale(.99) }
+  height:auto; width:100%; font-weight:400; transition:background var(--t-base) } .thing:hover { background:var(--fill2) } .thing:active { transform:scale(.99) }
 .tile { width:34px; height:34px; border-radius:9px; flex:none; display:grid; place-items:center; background:rgba(255,255,255,.08); box-shadow:inset 0 0 0 .5px rgba(255,255,255,.12) } .tile svg.i { width:17px; height:17px }
 .thing.main .tile { background:var(--accent); box-shadow:0 4px 14px rgba(10,132,255,.35) } .thing .t { min-width:0; flex:1 } .thing b { display:block; font-size:12.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
 .thing small { display:block; margin-top:2px; font-size:11px; color:var(--fg3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis } .inside .thing .open { font-size:0 } .thing .open { font-size:11.5px; font-weight:500; color:var(--accent); flex:none; display:flex; align-items:center; gap:3px }
@@ -49,12 +52,12 @@ kbd { min-width:20px; height:18px; padding:0 5px; border-radius:5px; display:inl
 /* Motion is transforms, opacity and clip only (Web Animations); layout changes once per state, never per frame. */
 #shelf { padding:4px; display:flex; flex-direction:column; gap:6px }
 .chip { position:relative; flex:none; border-radius:14px; background:var(--card); overflow:hidden; box-shadow:inset 0 0 0 .5px rgba(255,255,255,.11), 0 6px 18px rgba(0,0,0,.28) }
-.chip.waiting { opacity:0 } .chip.steered { box-shadow:inset 0 0 0 1px rgba(10,132,255,.7), 0 0 0 3px rgba(10,132,255,.18), 0 6px 18px rgba(0,0,0,.28); transition:box-shadow .4s var(--ease) } .chip.steered .head .step { color:#64b5ff }
-.ctl { position:absolute; top:11px; right:7px; display:flex; gap:3px; opacity:0; pointer-events:none; transition:opacity .15s } .chip.hover .ctl,.chip:focus-within .ctl,.tray:focus-within .clear,#shelf.near :is(.ctl,.clear,.hide-all),#shelf:hover :is(.ctl,.clear,.hide-all),.hide-all:focus-visible { opacity:1; pointer-events:auto } .chip.hover .badge,.chip:focus-within .badge,#shelf.near .badge,#shelf:hover .badge { opacity:0 }
+.chip.waiting { opacity:0 } .chip.steered { box-shadow:inset 0 0 0 1px rgba(10,132,255,.7), 0 0 0 3px rgba(10,132,255,.18), 0 6px 18px rgba(0,0,0,.28); transition:box-shadow var(--t-slow) var(--ease) } .chip.steered .head .step { color:#64b5ff }
+.ctl { position:absolute; top:11px; right:7px; display:flex; gap:3px; opacity:0; pointer-events:none; transition:opacity var(--t-fast) } .chip.hover .ctl,.chip:focus-within .ctl,.tray:focus-within .clear,#shelf.near :is(.ctl,.clear,.hide-all),#shelf:hover :is(.ctl,.clear,.hide-all),.hide-all:focus-visible { opacity:1; pointer-events:auto } .chip.hover .badge,.chip:focus-within .badge,#shelf.near .badge,#shelf:hover .badge { opacity:0 }
 .chip.s-done:not(.hover),.chip.s-failed:not(.hover) { opacity:.82 } .chip { cursor:pointer } .chip.hover { background:rgb(16,16,19) } .chip .pk { cursor:default }
 .ctl button { width:22px; height:22px; padding:0; border-radius:11px; background:rgba(255,255,255,.09); box-shadow:none; color:var(--fg2) } .ctl button:hover,.ctl button.hot { background:rgba(255,255,255,.22); color:var(--fg) } .ctl svg.i { width:10px; height:10px; stroke-width:2 }
 .thumb { width:40px; height:28px; flex:none; border-radius:7px; background:#000; box-shadow:inset 0 0 0 .5px rgba(255,255,255,.18); display:grid; place-items:center; font-size:10px; font-weight:600; color:var(--fg3); pointer-events:none }
-.hide-all,.clear { align-self:flex-end; flex:none; width:26px; height:18px; padding:0; border-radius:9px; background:rgba(30,30,34,.86); box-shadow:inset 0 0 0 .5px rgba(255,255,255,.12); color:var(--fg2); opacity:0; pointer-events:none; transition:opacity .15s, background .15s, color .15s }
+.hide-all,.clear { align-self:flex-end; flex:none; width:26px; height:18px; padding:0; border-radius:9px; background:rgba(30,30,34,.86); box-shadow:inset 0 0 0 .5px rgba(255,255,255,.12); color:var(--fg2); opacity:0; pointer-events:none; transition:opacity var(--t-fast), background var(--t-fast), color var(--t-fast) }
 .hide-all:hover,.clear:hover,.hide-all.hot,.clear.hot { color:var(--fg); background:rgb(60,60,66) } .hide-all svg.i,.clear svg.i { width:10px; height:10px; stroke-width:2 } .hide-all svg.i { transform:rotate(-90deg) } .clear { align-self:center; width:22px; height:22px; border-radius:11px }
 .tray { align-self:flex-end; flex:none; max-width:100%; display:flex; align-items:center; gap:4px } .pill.hot { background:rgb(16,16,19) }
 .pill { flex:0 1 auto; min-width:0; display:flex; align-items:center; gap:7px; height:36px; padding:0 11px 0 7px; border-radius:18px; background:var(--card); font-size:11px; font-weight:600;
@@ -66,7 +69,7 @@ kbd { min-width:20px; height:18px; padding:0 5px; border-radius:5px; display:inl
 .step { font-size:11px; color:var(--fg2); overflow:hidden; white-space:nowrap; text-overflow:ellipsis } .s-needs-you .head .step { color:var(--amber) } .s-failed .head .step { color:#ff8a80 }
 .badge { flex:none; display:grid; place-items:center; width:18px; height:18px } .s-done .badge { border-radius:50%; background:rgba(48,209,88,.16); color:var(--green) } .badge svg.i { width:11px; height:11px; stroke-width:2.2 }
 .chip progress { position:absolute; left:14px; right:14px; bottom:0; width:auto; display:block; height:2px; border:0; margin:0; -webkit-appearance:none; appearance:none; background:transparent }
-.chip progress::-webkit-progress-bar { background:transparent } .chip progress::-webkit-progress-value { background:var(--accent); border-radius:1px; transition:width .5s var(--spring) }
+.chip progress::-webkit-progress-bar { background:transparent } .chip progress::-webkit-progress-value { background:var(--accent); border-radius:1px; transition:width var(--t-slow) var(--spring) }
 .detail { display:none } .expanded .detail { display:block }
 .inside { padding:2px 12px 12px; display:grid; grid-template-columns:minmax(0,1fr); gap:10px }
 .current { font-size:13px; font-weight:500; line-height:1.4; overflow-wrap:anywhere } .steps { list-style:none; padding:0; margin:0; display:grid; gap:5px }
@@ -76,7 +79,7 @@ kbd { min-width:20px; height:18px; padding:0 5px; border-radius:5px; display:inl
 #full { height:100vh; display:none; grid-template-columns:232px minmax(0,1fr) } body.view #full { display:grid } body.view #shelf { display:none }
 aside { display:flex; flex-direction:column; min-height:0; border-right:.5px solid var(--line); background:rgba(0,0,0,.12) }
 .side-head { padding:10px 16px 4px } .side-head b { font-size:13px; font-weight:600; letter-spacing:-.1px } .side-head:has(.seg:not([hidden])) { padding:10px 10px 4px } .side-head:has(.seg:not([hidden])) b { display:none }
-.seg { display:flex; padding:2px; border-radius:8px; background:var(--fill) } .seg[hidden] { display:none } .seg button { all:unset; flex:1; text-align:center; padding:3px 0; border-radius:6px; font-size:12px; color:var(--fg2); transition:background .2s, color .2s }
+.seg { display:flex; padding:2px; border-radius:8px; background:var(--fill) } .seg[hidden] { display:none } .seg button { all:unset; flex:1; text-align:center; padding:3px 0; border-radius:6px; font-size:12px; color:var(--fg2); transition:background var(--t-base), color var(--t-base) }
 .seg button[aria-pressed="true"] { background:var(--fill2); color:var(--fg); box-shadow:0 1px 3px rgba(0,0,0,.15), inset 0 0 0 .5px var(--line) } .seg button:not([aria-pressed="true"]):hover { color:var(--fg) } .seg button:focus-visible { outline:2px solid var(--accent) }
 .side-foot { display:flex; align-items:center; justify-content:space-between; height:66.5px; padding:0 10px; border-top:.5px solid var(--line) } .side-foot .ghost { font-size:11px; height:24px; padding:0 8px } .side-foot[hidden] { display:none }
 ::-webkit-scrollbar { width:10px; height:10px } ::-webkit-scrollbar-thumb { background:rgba(255,255,255,.14); border-radius:5px; border:3px solid transparent; background-clip:padding-box } ::-webkit-scrollbar-track { background:transparent }
@@ -85,8 +88,8 @@ aside { display:flex; flex-direction:column; min-height:0; border-right:.5px sol
 .item:hover { background:var(--fill) } .item.selected { background:rgba(255,255,255,.1) } .item .dot { margin-top:5px } .item.chat { padding-left:23px }
 .item>span { min-width:0; flex:1 } .meta { display:flex; margin-top:2px } .meta small:first-child { min-width:0 } .meta .started { flex:none } .meta small+small::before { content:' · '; white-space:pre } .item .meta small { margin-top:0 }
 .remove,.named-actions button { width:20px; height:20px; padding:0; border-radius:50%; background:var(--fill2); box-shadow:none; color:var(--fg2) } :is(.remove,.named-actions button):is(:hover,.hot) { background:rgba(255,255,255,.18); color:var(--fg) } :is(.remove,.named-actions) svg.i { width:10px; height:10px; stroke-width:2 }
-.agent-row { position:relative; min-width:0 } .agent-row:has(.remove):is(:hover,:focus-within) .item { padding-right:32px } .remove { position:absolute; right:6px; top:0; bottom:0; margin:auto 0; opacity:0; transition:opacity .18s, background .2s, color .2s } .agent-row:hover .remove,.agent-row:focus-within .remove { opacity:1 }
-.named-row { position:relative; min-width:0 } .named-row .item { padding-right:56px; cursor:default } .named-actions { position:absolute; right:6px; top:0; bottom:0; display:flex; align-items:center; gap:4px; opacity:0; transition:opacity .18s } .named-row:hover .named-actions,.named-row:focus-within .named-actions { opacity:1 } .named-actions button.confirm { width:auto; padding:0 8px; border-radius:10px; font-size:10.5px } .named-edit { display:flex; gap:4px; padding:5px 4px } .named-edit input { min-width:0; width:100%; padding:5px 7px; border-radius:6px; border:.5px solid var(--line); background:var(--fill); color:var(--fg) } .named-edit button { padding:4px 6px; font-size:10px }
+.agent-row { position:relative; min-width:0 } .agent-row:has(.remove):is(:hover,:focus-within) .item { padding-right:32px } .remove { position:absolute; right:6px; top:0; bottom:0; margin:auto 0; opacity:0; transition:opacity var(--t-base), background var(--t-base), color var(--t-base) } .agent-row:hover .remove,.agent-row:focus-within .remove { opacity:1 }
+.named-row { position:relative; min-width:0 } .named-row .item { padding-right:56px; cursor:default } .named-actions { position:absolute; right:6px; top:0; bottom:0; display:flex; align-items:center; gap:4px; opacity:0; transition:opacity var(--t-base) } .named-row:hover .named-actions,.named-row:focus-within .named-actions { opacity:1 } .named-actions button.confirm { width:auto; padding:0 8px; border-radius:10px; font-size:10.5px } .named-edit { display:flex; gap:4px; padding:5px 4px } .named-edit input { min-width:0; width:100%; padding:5px 7px; border-radius:6px; border:.5px solid var(--line); background:var(--fill); color:var(--fg) } .named-edit button { padding:4px 6px; font-size:10px }
 #named-status { padding:0 16px 8px; color:var(--fg2); font-size:11px; line-height:1.35 } #named-status:empty { display:none }
 .item b,.item small { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis } .item b { font-size:12.5px; font-weight:500 } .item small { color:var(--fg3); margin-top:2px; font-size:11px; font-variant-numeric:tabular-nums }
 main { display:flex; min-width:0; flex-direction:column; height:100%; min-height:0 }
@@ -115,24 +118,24 @@ td { padding:8px 10px; border-bottom:.5px solid var(--line); vertical-align:top 
 .writing .label { color:var(--accent) } .writing .result>:last-child::after { content:''; display:inline-block; width:6px; height:13px; margin-left:3px; vertical-align:-2px; border-radius:1px; background:var(--accent); animation:breathe 1s ease-in-out infinite }
 .result .changes { color:var(--fg2); font-size:12.5px } .cost { font-size:11px; color:var(--fg3); margin-top:12px; font-variant-numeric:tabular-nums }
 .fold { display:flex; justify-content:flex-start; align-items:center; gap:7px; width:100%; height:auto; padding:0; background:none; box-shadow:none; color:var(--fg3); font-size:10.5px; font-weight:600; letter-spacing:.3px } .fold:hover { background:none; color:var(--fg2) } .fold:active { transform:none }
-.fold svg.i { width:10px; height:10px; stroke-width:2; transition:transform .3s var(--spring) } .open-fold>.fold svg.i { transform:rotate(90deg) } .fold small { font-weight:400; letter-spacing:0; color:var(--fg3) }
-#timeline { display:grid; grid-template-rows:0fr; transition:grid-template-rows .42s var(--spring) } .open-fold #timeline { grid-template-rows:1fr } #timeline>div { overflow:hidden; min-height:0 }
+.fold svg.i { width:10px; height:10px; stroke-width:2; transition:transform var(--t-slow) var(--spring) } .open-fold>.fold svg.i { transform:rotate(90deg) } .fold small { font-weight:400; letter-spacing:0; color:var(--fg3) }
+#timeline { display:grid; grid-template-rows:0fr; transition:grid-template-rows var(--t-slow) var(--spring) } .open-fold #timeline { grid-template-rows:1fr } #timeline>div { overflow:hidden; min-height:0 }
 .track { position:relative; padding:10px 0 2px } .track::before { content:''; position:absolute; left:11px; top:14px; bottom:14px; width:1px; background:linear-gradient(var(--line),var(--line) 80%,transparent) }
 .entry { position:relative; display:grid; grid-template-columns:23px minmax(0,1fr); column-gap:9px; padding:5px 0 }
 .entry .ico { width:23px; height:23px; border-radius:50%; display:grid; place-items:center; background:#232327; box-shadow:inset 0 0 0 .5px rgba(255,255,255,.12); color:var(--fg2); z-index:1 } .entry .ico svg.i { width:12px; height:12px }
 .entry.note .ico { background:transparent; box-shadow:none } .entry.note .ico i { width:5px; height:5px; border-radius:50%; background:var(--fg3) } .entry.made .ico { color:var(--green) } .entry.last.live .ico { color:var(--accent); box-shadow:inset 0 0 0 .5px rgba(10,132,255,.6), 0 0 10px rgba(10,132,255,.35) }
 .entry .line { display:flex; align-items:center; gap:7px; min-height:23px; font-size:12.5px; color:var(--fg2); min-width:0 } .entry .line span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
-.entry.user .ico { visibility:hidden } .entry.user .line span { margin-left:auto; max-width:85%; white-space:normal; line-height:1.4; color:var(--fg); background:rgba(10,132,255,.2); padding:5px 10px; border-radius:12px 12px 4px 12px; animation:enter .35s var(--spring) }
+.entry.user .ico { visibility:hidden } .entry.user .line span { margin-left:auto; max-width:85%; white-space:normal; line-height:1.4; color:var(--fg); background:rgba(10,132,255,.2); padding:5px 10px; border-radius:12px 12px 4px 12px; animation:enter var(--t-slow) var(--spring) }
 .entry.note .line span { white-space:normal; color:var(--fg); line-height:1.45 } .entry .count { flex:none; font-size:10px; color:var(--fg3); background:var(--fill); border-radius:8px; padding:1px 6px; font-variant-numeric:tabular-nums }
-.entry .line button { height:20px; padding:0 4px; background:none; box-shadow:none; color:var(--fg3); flex:none } .entry .line button:hover { color:var(--fg) } .entry .line button svg.i { width:10px; height:10px; stroke-width:2; transition:transform .3s var(--spring) } .entry.opened .line button svg.i { transform:rotate(90deg) }
+.entry .line button { height:20px; padding:0 4px; background:none; box-shadow:none; color:var(--fg3); flex:none } .entry .line button:hover { color:var(--fg) } .entry .line button svg.i { width:10px; height:10px; stroke-width:2; transition:transform var(--t-slow) var(--spring) } .entry.opened .line button svg.i { transform:rotate(90deg) }
 .entry .body { grid-column:2; display:grid; gap:7px; margin-top:4px } .entry .body:empty { display:none } .entry .more-steps { display:none; font-size:11.5px; color:var(--fg3); line-height:1.7 } .entry.opened .more-steps { display:block } .more-steps code { font:10.5px ui-monospace,Menlo,monospace; color:var(--fg3) }
-footer { padding:12px 20px 16px; border-top:.5px solid var(--line) } .ask { display:flex; align-items:center; gap:6px; max-width:680px; margin:0 auto; padding:4px 4px 4px 14px; border-radius:20px; background:var(--fill); box-shadow:inset 0 0 0 .5px rgba(255,255,255,.12); transition:box-shadow .2s, background .2s }
+footer { padding:12px 20px 16px; border-top:.5px solid var(--line) } .ask { display:flex; align-items:center; gap:6px; max-width:680px; margin:0 auto; padding:4px 4px 4px 14px; border-radius:20px; background:var(--fill); box-shadow:inset 0 0 0 .5px rgba(255,255,255,.12); transition:box-shadow var(--t-base), background var(--t-base) }
 .ask:focus-within { background:rgba(255,255,255,.07); box-shadow:inset 0 0 0 .5px rgba(10,132,255,.6), 0 0 0 3px rgba(10,132,255,.16) } .ask input { flex:1; min-width:0; border:0; background:none; height:30px; outline:none; font-size:13px } .ask input::placeholder { color:var(--fg3) }
 #send { width:30px; height:30px; padding:0; border-radius:50%; display:grid; place-items:center } #send svg.i { width:14px; height:14px; stroke-width:2 }
 .empty { padding:80px 24px; text-align:center; color:var(--fg3); display:grid; gap:6px; justify-items:center } .empty b { color:var(--fg2); font-size:14px; font-weight:600 }
 @media (max-width:640px) { #full { grid-template-columns:172px minmax(0,1fr) } #page { padding:6px 18px 22px } .meta { display:block } .item .meta small+small { margin-top:2px } .meta small+small::before { content:none } }
 @keyframes breathe { 50% { opacity:.4 } } @keyframes sheen { to { background-position:-150% 0 } } @keyframes enter { from { opacity:0; transform:translateY(6px) } }
-@media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none!important; transition:opacity .16s!important } .live-text { color:var(--fg); background:none } }
+@media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation:fade var(--t-base) var(--ease) 1 both!important; transition:opacity var(--t-fast)!important } @keyframes fade { from { opacity:0 } }   /* crossfade only */ .live-text { color:var(--fg); background:none } }
 </style>
 <div id="shelf"></div>
 <div id="full"><aside><div class="side-head"><b>Agents</b><div class="seg" id="tabs" role="group" aria-label="Show" hidden><button data-v="">Agents</button><button data-v="chats">Chats</button></div></div><div id="named-status" role="status" aria-live="polite"></div><div id="list"></div><div class="side-foot" id="aside-foot"><button id="clear-failed" class="ghost">Clear failed</button><button id="clear" class="ghost">Clear done</button></div></aside>
@@ -244,7 +247,7 @@ function chipParts(r){const parts=[],now=r.status==='running'||r.status==='queue
   a.append(button('Open',()=>command('view',r.id),live?'':'go'));a.append(el('span','time',time(r)));return a;}]);
  return parts;}
 let motionUntil=0, dismissed=new Set(), arriving=new Set(), stack='', home='', listed=false, posted=0, previewing='', lingering=null, held='';
-const SPRING='cubic-bezier(.16,1,.3,1)', EASE='cubic-bezier(.2,.7,.3,1)';
+const tok=n=>getComputedStyle(document.documentElement).getPropertyValue('--'+n).trim(), SPRING=tok('spring'), EASE=tok('ease'), T={fast:parseFloat(tok('t-fast')),base:parseFloat(tok('t-base')),slow:parseFloat(tok('t-slow'))};
 const chipOf=id=>$('shelf').querySelector('.chip[data-id="'+id+'"]');
 const shelfRows=()=>rows.filter(r=>(active(r)||fin(r)&&onScreen.get(r.id)<LINGER)&&!dismissed.has(r.id))
  .sort((a,b)=>tucked(a)-tucked(b)||(tucked(a)?b.ended-a.ended:(b.started||b.created)-(a.started||a.created)));   // working first, newest on top
@@ -255,7 +258,7 @@ const tops=()=>new Map([...$('shelf').children].map(n=>[n,n.getBoundingClientRec
 const moving=(ms=480)=>{motionUntil=Math.max(motionUntil,performance.now()+ms);};   // orbs pause while chips move: motion gets the frame budget
 function settle(){for(const n of $('shelf').children){n.getAnimations().forEach(a=>a.cancel());n.classList.toggle('expanded',n.dataset.id===expanded);}}
 // FLIP: layout is already final; every moved element glides from where it was, on the compositor.
-function glide(before){if(reduced.matches)return;moving();for(const [n,top] of before){if(!n.isConnected)continue;const d=top-n.getBoundingClientRect().top;if(Math.abs(d)>.5)n.animate([{transform:'translateY('+d+'px)'},{transform:'none'}],{duration:440,easing:SPRING});}}
+function glide(before){if(reduced.matches)return;moving();for(const [n,top] of before){if(!n.isConnected)continue;const d=top-n.getBoundingClientRect().top;if(Math.abs(d)>.5)n.animate([{transform:'translateY('+d+'px)'},{transform:'none'}],{duration:T.slow,easing:SPRING});}}
 function buildChip(r){const chip=el('div','chip');chip.dataset.id=r.id;
  chip.innerHTML='<button class="head"><canvas data-size="28"></canvas><span class="copy"><span class="title"></span><span class="step"></span></span><span class="badge"></span></button><span class="ctl"></span><div class="detail"><div class="inside"></div></div>';
  const x=button([icon('x')],()=>dismiss(r.id));x.setAttribute('aria-label','Hide '+r.title+' from the screen');chip.querySelector('.ctl').append(x);
@@ -296,7 +299,7 @@ function renderShelf(){const shelf=$('shelf'),list=shelfRows(),want=[];
  for(const n of [...shelf.children])if(!want.includes(n))n.remove();
  want.forEach((n,i)=>{if(shelf.children[i]!==n)shelf.insertBefore(n,shelf.children[i]||null);});
  for(const r of shown)paintChip(chipOf(r.id),r);
- for(const n of want)if(moved&&!before.has(n)&&!n.classList.contains('waiting')&&!reduced.matches)n.animate([{opacity:0,transform:'translateY(-6px) scale(.97)'},{opacity:1,transform:'none'}],{duration:420,easing:SPRING});
+ for(const n of want)if(moved&&!before.has(n)&&!n.classList.contains('waiting')&&!reduced.matches)n.animate([{opacity:0,transform:'translateY(-6px) scale(.97)'},{opacity:1,transform:'none'}],{duration:T.slow,easing:SPRING});
  if(moved)glide(before);fit();
  if(finished!==lingering){lingering=finished;post({action:'lingering',value:finished});}}   // native keeps the shelf up for them
 function setExpanded(id){if(expanded===id)return;if(onScreen.has(id))onScreen.set(id,0);const old=expanded?chipOf(expanded):null;expanded=id;const next=id?chipOf(id):null;
@@ -304,14 +307,14 @@ function setExpanded(id){if(expanded===id)return;if(onScreen.has(id))onScreen.se
  if(!next){if(old)collapse(old);else fit();post({action:'hover',id:previewId()});return;}
  settle();const before=tops();before.delete(next);fit(true);moving();   // grow the panel once, before the content needs it
  const full=next.offsetHeight;glide(before);
- if(!reduced.matches){next.animate([{clipPath:'inset(0 0 '+(full-44)+'px 0 round 14px)'},{clipPath:'inset(0 0 0 0 round 14px)'}],{duration:380,easing:SPRING});
-  next.querySelector('.inside').animate([{opacity:0,transform:'translateY(-4px)'},{opacity:1,transform:'none'}],{duration:260,delay:50,easing:EASE,fill:'backwards'});}
+ if(!reduced.matches){next.animate([{clipPath:'inset(0 0 '+(full-44)+'px 0 round 14px)'},{clipPath:'inset(0 0 0 0 round 14px)'}],{duration:T.slow,easing:SPRING});
+  next.querySelector('.inside').animate([{opacity:0,transform:'translateY(-4px)'},{opacity:1,transform:'none'}],{duration:T.base,delay:50,easing:EASE,fill:'backwards'});}
  post({action:'hover',id:previewId()});fit();}
 // Collapse plays first and commits at the end, so the panel shrinks once, after the motion.
 function collapse(chip){const delta=chip.offsetHeight-44;if(reduced.matches||delta<=0){settle();renderShelf();return;}fit(false,true);
  moving(300);const after=[...$('shelf').children].slice([...$('shelf').children].indexOf(chip)+1);
- const shut=chip.animate([{clipPath:'inset(0 0 0 0 round 14px)'},{clipPath:'inset(0 0 '+delta+'px 0 round 14px)'}],{duration:240,easing:EASE,fill:'forwards'});
- after.forEach(n=>n.animate([{transform:'none'},{transform:'translateY('+(-delta)+'px)'}],{duration:240,easing:EASE,fill:'forwards'}));
+ const shut=chip.animate([{clipPath:'inset(0 0 0 0 round 14px)'},{clipPath:'inset(0 0 '+delta+'px 0 round 14px)'}],{duration:T.base,easing:EASE,fill:'forwards'});
+ after.forEach(n=>n.animate([{transform:'none'},{transform:'translateY('+(-delta)+'px)'}],{duration:T.base,easing:EASE,fill:'forwards'}));
  shut.finished.then(()=>{if(expanded!==chip.dataset.id){settle();renderShelf();}},()=>{});}   // cancelled: a newer state took over
 // A finish pops its chip open and agents starting together all show; 4 s after the last, with the pointer off the shelf, they fold back. Pointer on the shelf holds them; a click on one keeps them until Esc or a click off.
 let popped='', starting=new Set(), rested=new Set(), kept=false, popTimer=0;
@@ -320,10 +323,10 @@ const arm=()=>{clearTimeout(popTimer);if((popped||starting.size)&&!kept&&!$('she
 function setStack(value){unpop();over?.classList.remove('hover');over=null;held='';stack=value;if(value!=='open')home=value;post({action:'stack',value:home});if(value==='min')expanded='';renderShelf();post({action:'hover',id:previewId()});}
 function dismiss(...ids){for(const id of ids){dismissed.add(id);post({action:'dismiss',id});}ids.forEach(leave);}
 function leave(id){const chip=chipOf(id);if(expanded===id)expanded='';if(!chip||reduced.matches)return renderShelf();settle();
- chip.animate([{opacity:1,transform:'none'},{opacity:0,transform:'scale(.92)'}],{duration:240,easing:EASE,fill:'forwards'}).onfinish=()=>{renderShelf();post({action:'hover',id:previewId()});};}
+ chip.animate([{opacity:1,transform:'none'},{opacity:0,transform:'scale(.92)'}],{duration:T.base,easing:EASE,fill:'forwards'}).onfinish=()=>{renderShelf();post({action:'hover',id:previewId()});};}
 function land(id){if(!arriving.delete(id))return;arm();const chip=chipOf(id);if(chip){chip.classList.remove('waiting');
-  chip.animate(reduced.matches?[{opacity:0},{opacity:1}]:[{clipPath:'circle(15px at 24px 22px)',opacity:.7},{clipPath:'circle(150% at 24px 22px)',opacity:1}],{duration:reduced.matches?200:520,easing:SPRING});}
- else $('shelf').querySelector('.pill')?.animate([{transform:'scale(1)'},{transform:'scale(1.08)'},{transform:'scale(1)'}],{duration:360,easing:SPRING});
+  chip.animate(reduced.matches?[{opacity:0},{opacity:1}]:[{clipPath:'circle(15px at 24px 22px)',opacity:.7},{clipPath:'circle(150% at 24px 22px)',opacity:1}],{duration:reduced.matches?T.base:T.slow,easing:SPRING});}
+ else $('shelf').querySelector('.pill')?.animate([{transform:'scale(1)'},{transform:'scale(1.08)'},{transform:'scale(1)'}],{duration:T.slow,easing:SPRING});
  post({action:'hover',id:previewId()});fit();}
 // One live window stream at a time: the expanded chip's, else the newest window agent on screen.
 function previewId(){const shown=split(shelfRows())[0];const open=shown.find(r=>r.id===expanded&&r.target);return (open||shown.find(r=>r.target&&ACTIVE.includes(r.status)))?.id||'';}

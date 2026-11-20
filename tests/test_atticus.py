@@ -236,11 +236,14 @@ print(json.dumps({{"type": "result", "is_error": True, "result": "Authentication
             self.assertEqual(atticus.main_model(), 'haiku')  # server() maps the alias to its chosen model
             self.assertEqual(atticus.agent_model(), 'custom')
 
-    def routing_ask(self, prefs, outcomes, *, quick=None, retry='n', tip=None, why=''):
+    def routing_ask(self, prefs, outcomes, *, quick=None, retry='n', tip=None, why='', guide=None, restored=None, warm=False, task='Open Fixture'):
+        worker = unittest.mock.Mock(ask=str(self.root/'warm'), atticus_model='haiku') if warm else None
+        if worker: Path(worker.ask).mkdir(exist_ok=True)
         def attempt(*args, **kwargs):
             reply, ok, actions = outcomes[min(brain.call_count - 1, len(outcomes) - 1)]
             brain.ok = ok; brain.cmds = actions[:] if ok else []; brain.ran = actions[:]; brain.handoff = None; brain.work = bool(actions)
-            brain.why = why
+            brain.why = why[min(brain.call_count - 1, len(why) - 1)] if isinstance(why, list) else why
+            brain.guide = guide
             brain.observed = [{'action': action, 'result': 'Verified fixture state', 'error': False} for action in actions]
             prior = Path(os.environ['ATTICUS_ASK'], 'prior-work.json'); brain.prior = json.loads(prior.read_text()) if prior.exists() else None   # the ask folder goes with main()
             return reply, .001, actions[:]
@@ -249,14 +252,16 @@ print(json.dumps({{"type": "result", "is_error": True, "result": "Authentication
                             front=lambda: ('Fixture', 'Scratch'), osa=lambda *a: '', screens=lambda: [],
                             describe=lambda *a: '', selection_context=lambda: '', relevant_rules=lambda _: '',
                             recent=lambda: [], workflows=lambda *a: '', screen_for=lambda *a: None, wait_commit=lambda: True,
-                            run=brain, remember_turn=lambda *a: None, restore_focus=lambda *a: None,
+                            run=brain, remember_turn=lambda *a: None, restore_focus=restored or (lambda *a: None),
                             remember_workflow=lambda task, reply, *a: (reply, False), learn=lambda *a: False, tip=tip or (lambda *a: None)), \
              patch.object(atticus, 'pref', side_effect=lambda k,d:prefs.get(k,d)), \
-             patch.object(atticus, 'ask_user', return_value=retry) as ask, \
-             patch.object(atticus, 'start_ai', return_value=None) as start, \
-             patch.object(atticus, 'log_turn') as log, patch.object(atticus.threading, 'Thread'), \
-             patch('sys.argv', ['atticus.py', 'Fixture task']), patch('sys.stdout', io.StringIO()):
+             patch.object(atticus, 'ask_user', side_effect=retry if callable(retry) else None, return_value=retry) as ask, \
+             patch.object(atticus, 'start_ai', return_value=worker) as start, \
+             patch.object(atticus, 'log_turn') as log, patch.object(atticus.threading, 'Thread') as threads, \
+             patch('sys.argv', ['atticus.py', '--wait' if warm else task]), \
+             patch('sys.stdin', io.StringIO(f'Fixture\t{task}\n')), patch('sys.stdout', io.StringIO()):
             atticus.main()
+        brain.threads = threads
         return brain, start, ask, log
 
     def test_a_declined_model_action_is_not_retried_or_reported_as_a_failure(self):
@@ -402,6 +407,64 @@ print(json.dumps({{"type": "result", "is_error": True, "result": "Authentication
         self.assertEqual(log.call_args.kwargs, {'model':'sonnet', 'escalated':True, 'escalate_why':'asked',
                                                 'attempt_usd':[.001, .001]})
 
+    def test_balanced_explain_moves_to_the_drawing_model_without_a_status_line(self):
+        for chosen, model in (('sonnet','sonnet'), ('opus','opus'), ('gpt','sonnet')):
+            with patch.object(atticus, 'say') as say:
+                brain, start, _, log = self.routing_ask({'routing':'balanced','drawModel':chosen}, [('[explain]',True,[]), ('Here is how.',True,[])])
+            self.assertEqual(brain.call_count, 2); start.assert_called_once_with(model)
+            self.assertEqual(log.call_args.kwargs['escalate_why'], 'explain'); self.assertEqual(log.call_args.args[1], 'Here is how.')
+            self.assertFalse([c for c in say.call_args_list if 'Continuing' in str(c.args)])   # the switch happens; no line announces it
+        self.assertIn('[explain] to show, explain or teach', atticus.MODEL_OFFER)
+        self.assertTrue(atticus.agent_routing_result('[explain]'))
+
+    def test_balanced_picks_the_model_from_the_ask_before_it_runs(self):
+        # Nov 16: "Teach me how to use orca." stayed on Haiku, which skipped [explain] and listed text instead of pointing
+        asks = {'show': ['Teach me how to use orca.', 'Can you teach me how to use orga', 'explain how to use these apps',
+                         'how do i solve problem 21', 'can you show me on my screen how to do problem 36'],
+                'easy': ["Hey, how's it going?", 'Hey, what’s up?', 'Open Notes', 'Atticus, can you open up Spotify?', 'turn dark mode off',
+                         'Can you skip?', 'What does CRT mean in trading?', 'How much is 50 Celsius in Fahrenheit?', '2026-1977.',
+                         'type see you at five'],
+                'work': ['answer problem 30', 'How do you calculate discriminant?', 'Is x squared minus 2 x plus 4 factorable?',
+                         'What is this?', "what's the answer for 33", 'Open my study guide.', 'Quit, whisper flow, and open willow voice.',
+                         'Turn the Gofi lights off.', 'is it going to be raining in marine valley tomorrow can you check',
+                         'Turn your voice on, and then solve problem 4.', 'graph y is equal to x squared minus four']}
+        for route, texts in asks.items():
+            for text in texts:
+                with self.subTest(text=text): self.assertEqual(atticus.ask_route(text), route)
+        for prefs, models in (({}, {'easy':'haiku', 'work':'sonnet', 'show':'sonnet'}),
+                              ({'drawModel':'opus'}, {'easy':'haiku', 'work':'sonnet', 'show':'opus'}),
+                              ({'routing':'cheapest'}, dict.fromkeys(asks, 'haiku')),
+                              ({'routing':'capable', 'model':'opus'}, dict.fromkeys(asks, 'opus')),
+                              ({'client':'devin'}, dict.fromkeys(asks, 'haiku'))):
+            with self.subTest(prefs=prefs), patch.object(atticus, 'pref', side_effect=lambda k,d:prefs.get(k,d)):
+                self.assertEqual({route: atticus.ask_model(route) for route in asks}, models)
+
+    def test_balanced_teach_ask_runs_on_the_drawing_model_with_no_handoff_offer(self):
+        for chosen in ('sonnet', 'opus'):
+            with self.subTest(drawModel=chosen):
+                brain, start, _, log = self.routing_ask({'routing':'balanced', 'drawModel':chosen}, [('Click the sidebar first.',True,[])],
+                                                        task='Teach me how to use orca.')
+                self.assertEqual(brain.call_count, 1); start.assert_called_once_with(chosen)
+                self.assertFalse(brain.call_args.args[0].endswith(atticus.MODEL_OFFER)); self.assertFalse(brain.call_args.args[3])
+                self.assertEqual(log.call_args.kwargs['model'], chosen)
+        with patch.object(atticus, 'pref', side_effect=lambda k,d:{'drawModel':'sonnet'}.get(k,d)):
+            self.assertIn(atticus.DRAWING, atticus.system_prompt(atticus.NEVER, 'sonnet'))
+        brain, start, _, log = self.routing_ask({'routing':'balanced'}, [('Fine, thanks.',True,[])], task="Hey, how's it going?")
+        start.assert_not_called(); self.assertTrue(brain.call_args.args[0].endswith(atticus.MODEL_OFFER))
+        self.assertEqual(log.call_args.kwargs['model'], 'haiku')
+
+    def test_key_down_worker_is_replaced_when_the_ask_needs_another_model(self):
+        with patch.object(atticus, 'stop_claude') as stop:
+            brain, start, _, _ = self.routing_ask({'routing':'balanced'}, [('Step one.',True,[])], warm=True, task='Teach me how to use orca.')
+        self.assertEqual(start.call_args_list, [unittest.mock.call(), unittest.mock.call('sonnet')])   # key-down guess, then the routed model
+        stop.assert_called_with(start.return_value)
+        with patch.object(atticus, 'stop_claude') as stop:
+            _, start, _, _ = self.routing_ask({'routing':'balanced'}, [('Opened.',True,[])], warm=True)
+        self.assertEqual(start.call_args_list, [unittest.mock.call()]); stop.assert_not_called()   # a Haiku worker for an easy ask is kept
+        with patch.object(atticus, 'start_claude') as claude, patch.object(atticus, 'pref', side_effect=lambda k,d:d):
+            atticus.start_ai()
+        claude.assert_called_once_with('sonnet', walkthrough=False)   # most Balanced asks need the work model
+
     def test_fast_commands_and_other_clients_never_add_a_routing_call(self):
         for mode in ('cheapest','balanced','capable'):
             brain, start, ask, _ = self.routing_ask({'routing':mode}, [], quick='Done instantly.')
@@ -419,6 +482,102 @@ print(json.dumps({{"type": "result", "is_error": True, "result": "Authentication
         self.assertEqual(brain.call_count,2); start.assert_called_once_with('haiku'); ask.assert_called_once()
         self.assertIn('Verified fixture state', brain.call_args.args[0])
         self.assertEqual(brain.prior['observations'], [{'action': 'inspect', 'result': 'Verified fixture state', 'error': False}])
+
+    def test_answer_card_upgrade_runs_this_ask_on_opus_and_accounts_for_both_attempts(self):
+        with patch.dict(os.environ, {'ATTICUS_UI': '1'}):
+            brain, start, ask, log = self.routing_ask({'routing':'cheapest', 'tips':False},
+                [('Could not finish.',False,['inspect']), ('Finished.',True,['verify'])], retry='r')
+        self.assertEqual(brain.call_count, 2)
+        start.assert_called_once_with('opus')
+        self.assertTrue(ask.call_args.args[0]['upgrade'])
+        self.assertEqual(brain.call_args.kwargs['request'], 'Open Fixture')
+        self.assertIn('Verified fixture state', brain.call_args.args[0])
+        self.assertEqual(log.call_args.kwargs['model'], 'opus')
+        self.assertEqual(log.call_args.kwargs['attempt_usd'], [.001,.001])
+
+    def test_upgrade_waits_for_the_walkthrough_to_finish_and_follows_the_retry_guide(self):
+        events = []
+        def follow(task, reply, model):
+            events.append(model)
+            return reply, [], []
+        def offer(*args, **kwargs):
+            events.append('offer')
+            return True
+        with patch.dict(os.environ, {'ATTICUS_UI': '1'}), \
+             patch.object(atticus, 'follow_walkthrough', side_effect=follow), \
+             patch.object(atticus, 'upgrade_needed', side_effect=offer):
+            self.routing_ask({'routing':'cheapest'}, [('Step one.', True, [])], retry='r',
+                             guide={'total':2, 'plan':['First', 'Second']})
+        self.assertEqual(events, ['haiku', 'offer', 'opus'])
+
+    def test_a_reply_that_ends_the_walkthrough_wait_still_completes_and_saves_the_ask(self):
+        run = subprocess.run
+        def watch(cmd, *args, **kwargs):
+            if cmd[1:2] != ['--guide-watch']: return run(cmd, *args, **kwargs)
+            Path(cmd[-1]).write_text('cancelled')   # the box: the user replied while the guide waited for their step
+            return unittest.mock.Mock(returncode=0, stdout='stopped')
+        with patch.dict(os.environ, {'ATTICUS_UI': '1'}), patch.object(atticus.subprocess, 'run', side_effect=watch), \
+             patch.object(atticus, 'end_turn') as ended:
+            brain, start, _, log = self.routing_ask({}, [('Select the cells. Want the next step?', True, [])],
+                                                    guide={'total': 2, 'plan': ['Select', 'Insert'], 'target': {'pid': 1}})
+        start.assert_not_called()   # no check-in turn after the wait ended
+        self.assertNotIn(unittest.mock.call('cancelled', emit=False), ended.call_args_list)
+        self.assertEqual(log.call_args.args[1], 'Select the cells. Want the next step?')
+        self.assertIsNone(log.call_args.kwargs.get('provisional'))
+
+    def test_a_short_reply_to_a_question_goes_to_the_model_and_a_stray_one_stays_instant(self):
+        for last, expected in (('Inserted. Want the next step?', None), ('Inserted.', 'Okay.'), (None, 'Okay.')):
+            turns = [{'t': time.time(), 'q': 'fixture ask', 'a': last}] if last else []
+            with self.subTest(last=last), patch.object(atticus, 'recent', return_value=turns):
+                self.assertEqual(atticus.fast('Yes.'), expected)
+        with patch.object(atticus, 'recent', return_value=[{'t': time.time() - 900, 'q': 'fixture ask', 'a': 'Want more?'}]):
+            self.assertEqual(atticus.fast('no'), 'Okay.')   # an old question is no longer waiting
+
+    def test_auto_escalation_setup_failure_does_not_offer_another_model(self):
+        with patch.dict(os.environ, {'ATTICUS_UI': '1'}):
+            brain, start, ask, log = self.routing_ask({'routing':'balanced'},
+                [('[sonnet]',True,[]), ('Sign in first.',False,[])], why=['', 'signed_out'])
+        self.assertEqual(brain.call_count, 2)
+        ask.assert_not_called()
+
+    def test_paused_task_never_retries_or_offers_an_upgrade(self):
+        for mode in ('cheapest', 'balanced', 'capable'):
+            with self.subTest(mode=mode), patch.dict(os.environ, {'ATTICUS_UI': '1'}):
+                brain, start, ask, _ = self.routing_ask({'routing': mode},
+                    [('Paused. Say keep going to continue.', False, ['inspect'])], why=['paused'])
+                self.assertEqual(brain.call_count, 1)
+                start.assert_not_called(); ask.assert_not_called()
+
+    def test_upgrade_restores_focus_before_waiting_for_a_choice(self):
+        events = []
+        def answer(*args):
+            events.append('offer')
+            return 'n'
+        with patch.dict(os.environ, {'ATTICUS_UI':'1'}), \
+             patch.object(atticus, 'upgrade_needed', return_value=True), \
+             patch.object(atticus, 'say', side_effect=lambda tag, text: events.append('answer') if tag == '✓' else None):
+            brain, start, ask, log = self.routing_ask({'routing':'cheapest'}, [('Answer.', True, [])],
+                retry=answer, restored=lambda *a: events.append('restore'))
+        self.assertEqual(events, ['restore', 'answer', 'offer', 'answer'])
+
+    def test_upgrade_after_same_model_retry_keeps_one_relay_consumer(self):
+        answers = iter(['r', 'n'])
+        with patch.dict(os.environ, {'ATTICUS_UI':'1'}):
+            brain, start, ask, log = self.routing_ask({'routing':'cheapest'},
+                [('Rate limited.',False,[]), ('Answer.',True,['inspect'])],
+                retry=lambda *a: next(answers), why=['rate_limited',''], warm=True)
+        self.assertEqual(brain.call_count, 2)
+        self.assertEqual([c.kwargs.get('args', ())[0] for c in brain.threads.call_args_list
+                          if c.kwargs.get('target') is atticus.relay], [start.return_value, None])
+
+    def test_dismissing_upgrade_preserves_the_answer_and_top_model_never_offers(self):
+        with patch.dict(os.environ, {'ATTICUS_UI': '1'}):
+            brain, start, ask, log = self.routing_ask({'routing':'cheapest'}, [('Could not finish.',False,['inspect'])])
+            self.assertEqual(brain.call_count, 1); start.assert_not_called()
+            self.assertTrue(ask.call_args.args[0]['upgrade'])
+            self.assertEqual(log.call_args.args[1], 'Could not finish.')
+            brain, start, ask, log = self.routing_ask({'routing':'capable','model':'opus'}, [('Answer.',True,[])])
+            ask.assert_not_called(); start.assert_not_called()
 
     def test_escalation_and_retry_handoffs_are_terminal_with_unknown_usage(self):
         # offers start without a card, so a directive hand-off is a move too; a steer only updates an agent
@@ -444,7 +603,7 @@ print(json.dumps({{"type": "result", "is_error": True, "result": "Authentication
                      patch.object(atticus,'pref',side_effect=lambda k,d: {'escalateAuto':True}.get(k,d)), \
                      patch.object(atticus,'log_turn') as log,patch.object(atticus,'remember_workflow') as learn, \
                      patch.object(atticus.threading,'Thread'),patch.dict(os.environ,{'ATTICUS_UI':'1','ATTICUS_ASK':atticus.DIR}), \
-                     patch('sys.argv',['atticus.py','Fixture task']),patch('sys.stdout',io.StringIO()):
+                     patch('sys.argv',['atticus.py','Open Fixture']),patch('sys.stdout',io.StringIO()):
                     with patch.object(atticus,'memory_receipt',return_value=[{'c':'rules','label':'Rules','t':'Use metric units.','add':True}]):
                         atticus.main()
                     self.assertIn('✎ ',sys.stdout.getvalue())
@@ -531,12 +690,13 @@ print(json.dumps({{"type": "result", "is_error": True, "result": "Authentication
         self.assertEqual((props['task'], props['why']), ('Summarize my inbox', 'the user said it was wrong'))
         self.assertNotIn('lawsuit', json.dumps(props))
 
-    def test_front_window_is_one_system_events_call_and_displays_are_read_alongside(self):
+    def test_front_window_context_uses_native_metadata_without_automation(self):
         calls = []
-        def osa(script, *_): calls.append(script); return 'Q3 plan, draft, -1400, 30' if 'of front window' in script else ''
+        def osa(script, *_): calls.append(script); return ''
+        target = unittest.mock.Mock(return_value={'windowID':'41','window':'Q3 plan, draft','windowFrame':[-1400,30,800,600]})
         brain = unittest.mock.Mock(return_value=('Done.', 0, [])); brain.ok = True; brain.cmds = brain.ran = []; brain.observed = []
         displays = unittest.mock.Mock(return_value=[('Built-in', 0, 0, 1470, 956, True), ('Acer', -1920, 0, 1920, 1080, False)])
-        with patch.multiple(atticus, licensed=lambda: True, ping=lambda: None, fast=lambda _: None, osa=osa, screens=displays,
+        with patch.multiple(atticus, licensed=lambda: True, ping=lambda: None, fast=lambda _: None, osa=osa, screens=displays, window_target=target,
                             window_summary=lambda *a: {'text': 'Readable'}, tool_help=lambda *a, **k: '', selection_context=lambda: '',
                             relevant_rules=lambda _: '', recent=lambda: [], workflows=lambda *a: '', wait_commit=lambda: True, run=brain,
                             remember_turn=lambda *a: None, restore_focus=lambda *a: None, remember_workflow=lambda task, reply, *a: (reply, False),
@@ -546,7 +706,8 @@ print(json.dumps({{"type": "result", "is_error": True, "result": "Authentication
         prompt = brain.call_args.args[0]
         self.assertIn('Front app: Notes. Front window: Q3 plan, draft.', prompt)
         self.assertIn('"Acer" (external monitor, 1920x1080, left of main, x=-1920 y=0, the front window is here)', prompt)
-        self.assertEqual(len([c for c in calls if 'System Events' in c]), 1)
+        self.assertEqual([c for c in calls if 'System Events' in c], [])
+        target.assert_called_once_with('Notes')
         displays.assert_called_once()
 
     def test_all_rules_go_while_they_fit_then_word_matches_beyond_five(self):
@@ -585,11 +746,19 @@ print(json.dumps({{"type": "result", "is_error": True, "result": "Authentication
                          'can you write out a similar equation and work it out on the screen')
 
     def test_on_screen_results_require_fresh_context_and_draw(self):
-        self.assertIn("UI where/how asks, even if known: point, not tell;", atticus.DRAWING)   # Haiku answered "where do I click" from memory, unpointed; "how do I cook rice" is no screen ask
-        self.assertIn("draw/explain on screen: diagram the idea, not marks.", atticus.DRAWING)   # "draw and explain cell wall vs membrane" got two rects around words
+        self.assertIn("UI where/how asks, even if known: point, not tell;", atticus.DRAW_TOOL)   # Haiku answered "where do I click" from memory, unpointed; "how do I cook rice" is no screen ask
+        self.assertIn("draw/explain on screen: diagram the idea, not marks.", atticus.DRAW_TOOL)   # "draw and explain cell wall vs membrane" got two rects around words
         self.assertIn("about the screen, even if known,", atticus.POINTER)
-        self.assertIn("use " + atticus.DRAW + " once on Request screen", atticus.DRAWING)
-        self.assertIn("After --look && --draw --help (one call)", atticus.DRAWING)   # draw() refuses before this ask's --look
+        self.assertIn("use " + atticus.DRAW + " once on Request screen", atticus.DRAW_TOOL)
+        # Claude draws in its answer: the pictures already attached carry the coordinates, so no --look, --draw --help or JSON
+        self.assertIn("draw in your answer like a teacher at a whiteboard, no tool", atticus.DRAWING)
+        # "teach me how to use orca" got a markdown tour in a text card (Nov 13 22:03, Sonnet, 2 pictures attached); Plip draws it
+        self.assertIn("how to do or use something, what they're looking at", atticus.DRAWING)
+        self.assertIn("Err toward drawing", atticus.DRAWING)
+        self.assertIn("a tag starting almost every sentence; one idea per plain sentence, no lists", atticus.DRAWING)
+        self.assertIn("[DRAW:shape points style:label]", atticus.DRAWING)
+        self.assertIn("add :screenN unless on Request screen", atticus.DRAWING)
+        self.assertNotIn("--draw --help (one call)", atticus.DRAWING)
 
     def test_installed_tool_help_is_attached_cached_and_system_tools_are_not(self):
         bin_ = Path(atticus.DIR) / 'bin'; bin_.mkdir()
@@ -705,8 +874,7 @@ print(json.dumps(atticus.look(cleanup=sys.argv[3] != 'standalone')))
             osa.assert_not_called()
 
     def test_focus_restore_only_addresses_existing_process(self):
-        with patch.object(atticus, 'osa') as osa:
-            osa.side_effect = ['Notes', '']
+        with patch.object(atticus.subprocess, 'run', return_value=subprocess.CompletedProcess([],0,'Notes','')), patch.object(atticus, 'osa') as osa:
             atticus.restore_focus('Spotify', 'make a note', ['osascript -e tell application "Notes" to make new note'])
             script, app = osa.call_args.args
             self.assertEqual(app, 'Spotify')
@@ -1179,8 +1347,9 @@ print(json.dumps({{'type':'message_end','message':{{'role':'assistant','content'
 
     def test_commit_poll_is_quick_and_keeps_the_whole_wait(self):
         naps = []
+        me, sleep = threading.current_thread(), time.sleep
         with patch.dict(os.environ, {'ATTICUS_COMMIT': '/fake/commit'}), patch.object(atticus.os.path, 'exists', return_value=False), \
-             patch.object(atticus.time, 'sleep', side_effect=naps.append):
+             patch.object(atticus.time, 'sleep', side_effect=lambda s: naps.append(s) if threading.current_thread() is me else sleep(s)):
             self.assertFalse(atticus.wait_commit())
         self.assertLessEqual(max(naps), .02)
         self.assertGreaterEqual(round(sum(naps)), 90)
@@ -1188,16 +1357,24 @@ print(json.dumps({{'type':'message_end','message':{{'role':'assistant','content'
     def test_relay_notices_the_finished_worker_quickly(self):
         naps, worker = [], unittest.mock.Mock(ask=str(self.root))
         worker.poll.side_effect = [None, None, 0]
-        me = threading.current_thread()   # time.sleep is patched process-wide: threads left by earlier tests nap too
-        with patch.object(atticus.time, 'sleep', side_effect=lambda s: threading.current_thread() is me and naps.append(s)):
+        me, sleep = threading.current_thread(), time.sleep
+        with patch.object(atticus.time, 'sleep', side_effect=lambda s: naps.append(s) if threading.current_thread() is me else sleep(s)):
             atticus.relay(worker)
         self.assertEqual(len(naps), 2)
         self.assertLessEqual(max(naps), .02)
 
     def test_allow_answer_is_picked_up_quickly(self):
         naps = []
+        me, sleep = threading.current_thread(), time.sleep
+        wake = threading.Event()
+        other = threading.Thread(target=lambda: (wake.wait(), time.sleep(.01)))
+        other.start()
+        self.addCleanup(lambda: (wake.set(), other.join()))
         def nap(secs):
+            if threading.current_thread() is not me: return sleep(secs)
             naps.append(secs)
+            wake.set(); other.join(timeout=1)   # another thread sleeps while the process-wide patch is active
+            self.assertFalse(other.is_alive())
             Path(json.loads(Path(atticus.question_path(self.root)).read_text())['_a']).write_text('y')   # the user clicks Allow
         with patch.dict(os.environ, {'ATTICUS_ASK': str(self.root)}), patch.object(atticus.time, 'sleep', side_effect=nap):
             self.assertEqual(atticus.ask_user({'q': 'Send this?', 'cmd': 'fixture'}, 60), 'y')
@@ -1427,7 +1604,7 @@ print(json.dumps({{'type':'message_end','message':{{'role':'assistant','content'
         self.assertEqual(atticus.run.cmds,['different method'])
 
     def test_warmed_models_follow_routing_without_a_classifier(self):
-        for mode, expected in (('cheapest','haiku'),('balanced','haiku'),('capable','opus')):
+        for mode, expected in (('cheapest','haiku'),('balanced','opus'),('capable','opus')):   # Balanced warms the work model: most asks need it
             with self.subTest(mode=mode), patch.object(atticus,'pref',side_effect=lambda k,d:{'routing':mode,'model':'opus'}.get(k,d)), \
                  patch.object(atticus.shutil,'which',return_value='/fake/claude'), patch.object(atticus.subprocess,'Popen') as launch, \
                  patch.object(atticus.atexit,'register'), patch.object(atticus.signal,'signal'):
@@ -2073,7 +2250,7 @@ class WatchAndBudgetTests(unittest.TestCase):
         full = atticus.SYSTEM + atticus.ASK_ME + atticus.POINTER + atticus.LEARN_ME + atticus.TEACH + atticus.ASK_FIRST + atticus.WORKFLOW
         self.assertIn('Stable facts: answer only if sure.', full)
         self.assertIn('Use relevant window text', full)
-        self.assertLessEqual(len(atticus.MODEL_OFFER), 211)
+        self.assertLessEqual(len(atticus.MODEL_OFFER), 252)   # +[explain]; that Haiku turn's system prompt drops DRAWING
         self.assertLessEqual(len(full), 10000)
         self.assertLessEqual(len(full.replace(atticus.ME, os.path.expanduser('~/Applications/Atticus.app/Contents/Resources/atticus.py'))), 10000)
 
@@ -2097,7 +2274,7 @@ class BoxLookTests(unittest.TestCase):
     def test_box_moved_or_drawn_on_never_closes_by_itself(self):
         app = self.SOURCE.split('final class App: NSObject, WKScriptMessageHandler {', 1)[1]
         click_away = app.split('NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown])', 1)[1].split('close(clear: false)', 1)[0]
-        fade = app.split('func hide(after s: Double', 1)[1].split('NSAnimationContext', 1)[0]
+        fade = app.split('func hide(after s: Double', 1)[1].split('Motion.run', 1)[0]
         for name, guard in [('click away', click_away), ('auto fade', fade)]:
             for held in ('!stuck', '!drawing.active', '!drawing.hasInput'):
                 self.assertIn(held, guard, f'{name} ignores {held}')
@@ -2105,7 +2282,7 @@ class BoxLookTests(unittest.TestCase):
         self.assertIn('stuck = false', app.split('func gone() {', 1)[1].split('\n    }', 1)[0])   # cleared only once it is gone
         # the dictation pill is not a box to keep: clicking or dragging it must not hold it (or bring the box back) after its check
         self.assertIn('if !pillOn { stuck = true }', app.split('case .leftMouseDragged:', 1)[1].split('default:', 1)[0])
-        self.assertIn('else { if !pillOn { pinned = true }; grab =', app.split('case .leftMouseDown:', 1)[1].split('case .leftMouseDragged:', 1)[0])
+        self.assertIn('else { settle(); if !pillOn { pinned = true }; grab =', app.split('case .leftMouseDown:', 1)[1].split('case .leftMouseDragged:', 1)[0])
 
     def test_links_open_in_the_browser_only_for_web_and_mail(self):
         handler = self.SOURCE[self.SOURCE.index('if let s = b["link"] as? String'):]
@@ -2124,7 +2301,7 @@ try! #"{"boxW": 460, "boxH": 520}"#.write(toFile: dir + "/settings.json", atomic
 precondition(Prefs.num("boxW") == 500 && Prefs.num("boxH") == 520, "The untouched old width grows; a height the user chose stays")
 let said = spoken("**Rationalize** $\\frac{\\sqrt{7}}{\\sqrt{10}-\\sqrt{2}}$ by [the conjugate](https://example.com). It costs $5 or $10.")
 precondition(!said.contains("*") && !said.contains("\\") && !said.contains("{") && !said.contains("https"), said)
-precondition(said.contains("root 7 over root 10") && said.contains("the conjugate") && said.contains("$5 or $10"), said)
+precondition(said.contains("square root of 7 over square root of 10") && said.contains("the conjugate") && said.contains("$5 or $10"), said)
 print("box look ok")
 ''')
         self.assertIn('box look ok', out)
@@ -2208,9 +2385,11 @@ class WebAndHistoryTests(unittest.TestCase):
 
 class AppleEventTests(unittest.TestCase):
     def test_no_front_app_skips_window_query_and_stuck_scripts_time_out(self):
-        with patch.dict(os.environ, {'ATTICUS_FRONT': ''}), patch.object(atticus, 'osa', return_value='') as osa:
+        with patch.dict(os.environ, {'ATTICUS_FRONT': ''}), patch.object(atticus, 'osa', return_value='') as osa, \
+                patch.object(atticus.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, stdout='')) as run:
             self.assertEqual(atticus.front(), ('', ''))
-            self.assertEqual(osa.call_count, 1, 'an empty app name must not reach "tell process"')
+            self.assertEqual(run.call_args[0][0], [atticus.APP, '--user-app'], 'the native helper names the app, never Atticus itself')
+            self.assertEqual(osa.call_count, 0, 'an empty app name must not reach "tell process"')
         started = time.monotonic()
         self.assertEqual(atticus.osa('delay 5', timeout=1), '')
         self.assertLess(time.monotonic() - started, 3)

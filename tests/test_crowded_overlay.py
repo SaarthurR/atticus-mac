@@ -8,7 +8,7 @@ from tests.test_drawing_math_page import MATH_STUB
 class CrowdedOverlayTests(unittest.TestCase):
     def test_dense_placement(self):
         source = (Path(__file__).resolve().parents[1] / 'Atticus.swift').read_text()
-        helpers = source[source.index('    // Search obstacle edges'):source.index('    // The box\'s spot')]
+        helpers = source[source.index('    // Search obstacle edges'):source.index('    // The box\'s spot')] + source[source.index('    static func clearSpot('):source.index('    static func valid(')]
         harness = '''import Cocoa
 struct DrawingCalloutView { static let notch: CGFloat = 7 }
 struct ScreenDrawing {
@@ -37,7 +37,7 @@ print("crowded geometry passed")
         source = (Path(__file__).resolve().parents[1] / 'Atticus.swift').read_text()
         model = source[source.index('struct DrawingShape:'):source.index('struct DrawingStep:')]
         view = source[source.index('final class DrawingView:'):source.index('// One step')]
-        helpers = source[source.index('    static func pathPoints('):source.index("    // The box's spot")]
+        helpers = source[source.index('    static func placed('):source.index('    // Sized to the display')] + source[source.index('    static func pathPoints('):source.index("    // The box's spot")] + source[source.index('    static func clearSpot('):source.index('    static func valid(')]
         harness = r'''import Cocoa
 ''' + MATH_STUB + model + r'''
 struct ScreenDrawing {
@@ -63,7 +63,7 @@ let source = CGRect(x:0,y:0,width:400,height:250)
 view.render([DrawingShape(kind:"label",at:[70,50],text:"Earlier caption")],animate:false,previous:nil,occupied:future+[source])
 let label = view.hits.first!.area.boundingBoxOfPath
 precondition(!(future+[source]).contains { $0.intersects(label) }, "Earlier label covered new geometry or source")
-let leader = view.layer!.sublayers!.compactMap { $0 as? CAShapeLayer }.first { $0.lineWidth == 1.5 }!
+let leader = view.layer!.sublayers!.compactMap { $0 as? CAShapeLayer }.first { $0.lineWidth == 1 }!
 precondition(leader.path!.boundingBoxOfPath.contains(CGPoint(x:70.5,y:50.5)) || leader.path!.boundingBoxOfPath.insetBy(dx:-10,dy:-10).contains(CGPoint(x:70,y:50)), "Displaced label lost its anchor")
 print("render placement passed")
 '''
@@ -76,12 +76,13 @@ print("render placement passed")
 struct Request { var steps = [0,1]; let teaching = true }
 final class Guide {
 var request: Request? = Request(), index = 0, textPage = 0, textPageCount = 3, manual = false
-var cleared = false
+var cleared = false, driven = false
+var navigated: ((Bool) -> Void)?
 func clear() { cleared = true }
-func showStep(forward: Bool = true) {}
+func showStep(forward: Bool = true, mathOnly: Bool = false) {}
 ''' + methods + r''' }
 let guide = Guide()
-guide.next(); precondition(guide.textPage == 1 && guide.index == 0 && guide.manual)
+guide.next(); precondition(guide.textPage == 1 && guide.index == 0 && !guide.manual)
 guide.back(); precondition(guide.textPage == 0 && guide.index == 0)
 guide.advance(); guide.advance(); precondition(guide.textPage == 2 && guide.index == 0)
 guide.next(); precondition(guide.textPage == 0 && guide.index == 1 && !guide.cleared)

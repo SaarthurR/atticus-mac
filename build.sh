@@ -15,7 +15,7 @@ STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 # A compiler error must leave the installed app and its resources alone.
 swiftc -O -target "$(uname -m)-apple-macos26.0" Atticus.swift -o "$STAGE/Atticus"
-APP=~/Applications/Atticus.app   # in Applications so System Settings can list it for permissions
+APP="$STAGE/Atticus.app"   # stage resources and signing before replacing the installed app
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/ui"
 cp atticus.py "$APP/Contents/Resources/"
 cp ui/*.html ui/*.js "$APP/Contents/Resources/ui/"
@@ -54,6 +54,14 @@ if [ -z "$ID" ]; then
   ID=$(security find-identity -p codesigning | awk '/Atticus Local Signing/{print $2; exit}')
 fi
 codesign -s "${ID:--}" --force "$APP"
+DEST=~/Applications/Atticus.app
+mkdir -p "$(dirname "$DEST")"
+[ ! -e "$DEST" ] || mv "$DEST" "$STAGE/previous.app"
+if ! mv "$APP" "$DEST"; then
+  [ ! -e "$STAGE/previous.app" ] || mv "$STAGE/previous.app" "$DEST"
+  exit 1
+fi
+APP="$DEST"
 # register with macOS, or System Settings can't list it for permissions
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP"
 AGENT=~/Library/LaunchAgents/com.atticus.app.plist   # starts at login, restarts if it crashes (Quit stays quit)

@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class BoxStillTests(unittest.TestCase):
-    def test_step_resize_drag_and_pointer_changes_do_not_relocate_box(self):
+    def test_new_marks_clear_but_resize_drag_and_pointer_keep_the_anchor(self):
         source = (ROOT / 'Atticus.swift').read_text()
         placement = source[source.index('    var boxHome:'):source.index('    func glide(')]
         follow = source[source.index('    func followPointerScreen()'):source.index('    func startFollowingPointerScreen()')]
@@ -41,7 +41,7 @@ final class Drawing {
 final class Harness {
     let panel = Panel(), drawing = Drawing()
     var dragging = false, hovering = false, stuck = false, pillOn = false, moves = 0
-    var compH: CGFloat = 50
+    var compH: CGFloat = 50, easing = CGRect.zero, glideTo: CGRect?
     func glide(_ frame: CGRect) { moves += 1; panel.frame = frame }
     func js(_ name: String, _ data: Any) {}
     func hide(after: Double) {}
@@ -50,11 +50,12 @@ let box = Harness(); box.avoidDrawing()
 let initial = box.panel.frame, moves = box.moves
 box.drawing.occupied = [CGRect(x:initial.minX,y:1000-initial.maxY,width:initial.width,height:initial.height)]
 box.avoidDrawing()
-precondition(box.panel.frame == initial && box.moves == moves,"step navigation relocated the box")
+precondition(box.panel.frame != initial && box.moves > moves,"later marks did not relocate the box")
+let placedMoves = box.moves
 box.panel.frame.origin.y -= 80; box.panel.frame.size.height += 80
 let grown = box.panel.frame
 box.avoidDrawing()
-precondition(box.panel.frame == grown && box.moves == moves,"composer resize relocated the box")
+precondition(box.panel.frame == grown && box.moves == placedMoves,"composer resize relocated the box")
 var tall = grown; tall.origin.y = tall.maxY-1200; tall.size.height = 1200
 box.frame(tall)
 precondition(box.panel.frame.maxY == grown.maxY && box.panel.frame.minX == grown.minX,"growing the composer moved its top-left anchor")
@@ -68,7 +69,12 @@ precondition(box.panel.frame == dragged,"a step or pointer move overrode the use
 box.drawing.active = false; box.avoidDrawing()
 RunLoop.main.run(until:Date().addingTimeInterval(0.01))
 precondition(box.panel.frame == dragged,"closing restored the box over the user's drag")
-box.stuck = false; box.drawing.active = true
+box.drawing.active = true
+box.drawing.occupied = [CGRect(x:dragged.minX+20,y:1000-dragged.maxY+20,width:40,height:24)]
+box.avoidDrawing()
+precondition(box.panel.frame != dragged,"a step's mark stayed under the box the user placed")
+box.panel.frame = dragged
+box.stuck = false
 box.drawing.occupied = [CGRect(x:dragged.minX,y:1000-dragged.maxY,width:dragged.width,height:dragged.height)]
 box.avoidDrawing()
 precondition(box.panel.frame != dragged,"a new guide did not get a new placement")

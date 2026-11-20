@@ -914,9 +914,161 @@ const tex = (src, block) => {
   };
   const body = expr([]);
   if (i < t.length) fail();
-  return node('math', [body], block ? {display: 'block'} : {displaystyle: 'true'});   // inline fractions full size, as in a textbook
+  const formula = node('math', [body], block ? {display: 'block'} : {displaystyle: 'true'});
+  if (block) return formula;
+  const box = el('span'); box.setAttribute('style', 'display: inline-block; padding-block: .15em'); box.append(formula);   // Reserve tall MathML's height and leading, even when prose line-height is smaller.
+  return box;
 };
 const math = (src, block) => { try { return tex(src.trim(), block); } catch { return el('span', block ? 'tex block' : 'tex', src.trim()); } };   // unreadable TeX: show what the model wrote
+// Plip explain.py (MIT, LICENSE-Plip): adapted bounded declarative input; its diagram/3D renderer has no plotter.
+// Expressions are parsed as arithmetic, never executed as JavaScript.
+const graphFunction = source => {
+  if (typeof source !== 'string' || source.length > 160) throw Error('expression');
+  const tokens = source.replace(/^\s*y\s*=/, '').match(/\d*\.?\d+(?:e[+-]?\d+)?|[a-z]+|[^\s]/gi) || [];
+  let i = 0, depth = 0;
+  const functions = {sin: Math.sin, cos: Math.cos, tan: Math.tan, sqrt: Math.sqrt, abs: Math.abs, log: Math.log, exp: Math.exp};
+  const primary = () => {
+    if (++depth > 32) throw Error('depth');
+    const t = tokens[i++]; let f;
+    if (t === '(') { f = sum(); if (tokens[i++] !== ')') throw Error('parenthesis'); }
+    else if (t === 'x') f = x => x;
+    else if (t === 'pi' || t === 'e') f = () => t === 'pi' ? Math.PI : Math.E;
+    else if (Object.hasOwn(functions, t)) { if (tokens[i++] !== '(') throw Error('function'); const a = sum(); if (tokens[i++] !== ')') throw Error('function'); f = x => functions[t](a(x)); }
+    else if (/^(?:\d*\.)?\d+(?:e[+-]?\d+)?$/i.test(t || '')) { const n = Number(t); if (!Number.isFinite(n)) throw Error('number'); f = () => n; }
+    else throw Error('token');
+    depth--; return f;
+  };
+  const power = () => { const a = primary(); if (tokens[i] !== '^') return a; i++; const b = unary(); return x => a(x) ** b(x); };
+  const unary = () => { if (tokens[i] !== '+' && tokens[i] !== '-') return power(); const sign = tokens[i++]; const a = power(); return x => sign === '-' ? -a(x) : a(x); };
+  const product = () => { let a = unary(); while (tokens[i] === '*' || tokens[i] === '/' || /^[\w.(]/.test(tokens[i] || '')) { const op = /^[*/]$/.test(tokens[i]) ? tokens[i++] : '*', left = a, b = unary(); a = x => op === '*' ? left(x) * b(x) : left(x) / b(x); } return a; };   // 2x is 2*x
+  const sum = () => { let a = product(); while (tokens[i] === '+' || tokens[i] === '-') { const op = tokens[i++], left = a, b = product(); a = x => op === '+' ? left(x) + b(x) : left(x) - b(x); } return a; };
+  const f = sum(); if (i !== tokens.length) throw Error('expression'); return f;
+};
+const graph = (source, expanded = false) => {
+  try {
+    if (source.length > 16000) throw Error('size');
+    let spec = JSON.parse(source);
+    const number = n => typeof n === 'number' && Number.isFinite(n) && Math.abs(n) <= 1e9;
+    const short = spec && !spec.type && (spec.fn != null ? 'function' : ['bar', 'line', 'scatter'].find(k => Array.isArray(spec[k])));
+    if (short) spec = {...spec, type: short, curves: [spec.fn].flat().map(fn => ({fn})), series: [{data: spec[short]}],   // the prompt's short form
+      points: (spec.points || []).map(p => Array.isArray(p) ? {x: p[0], y: p[1], label: p[2]} : p)};
+    const label = s => s == null ? '' : typeof s === 'string' && s.length <= 60 ? s : (() => { throw Error('label'); })();
+    const range = r => { if (!Array.isArray(r) || r.length !== 2 || !r.every(number) || r[1] - r[0] < 1e-9) throw Error('range'); return r; };
+    const pair = p => Array.isArray(p) && p.length === 2 && p.every(number);
+    const type = spec.type, functionPlot = type === 'function';
+    if (!['function', 'line', 'bar', 'scatter'].includes(type)) throw Error('type');
+    const series = functionPlot ? spec.curves : spec.series;
+    if (!Array.isArray(series) || !series.length || series.length > 4) throw Error('series');
+    const points = spec.points || [];
+    if (!Array.isArray(points) || points.length > 16 || !points.every(p => number(p?.x) && number(p.y) && (label(p.label), true))) throw Error('points');
+    const pad = ([lo, hi], keepZero) => { const d = hi === lo ? Math.max(1, Math.abs(lo) * .1) : (hi - lo) * .1; return [keepZero && lo === 0 ? 0 : lo - d, hi + d]; };
+    let xr = spec.x == null ? null : range(spec.x), yr = spec.y == null ? null : range(spec.y);
+    if (functionPlot && !xr) xr = points.length ? [Math.min(...points.map(p => p.x)) - 5, Math.max(...points.map(p => p.x)) + 5] : [-10, 10];   // around the marked points
+    const rows = series.map(s => {
+      const name = label(s.label ?? (functionPlot && typeof s.fn === 'string' ? s.fn.slice(0, 60) : ''));
+      if (functionPlot) {
+        const f = graphFunction(s.fn), data = Array.from({length: 401}, (_, i) => { const x = xr[0] + (xr[1] - xr[0]) * i / 400; return [x, f(x)]; });
+        return {name, data};
+      }
+      if (!Array.isArray(s.data) || !s.data.length || s.data.length > 256 || !s.data.every(pair)) throw Error('data');
+      return {name, data: s.data};
+    });
+    if (functionPlot && !yr) {   // fitted to the curves, ignoring the outer 2% (asymptotes) of their samples
+      const ys = rows.flatMap(r => r.data.map(p => p[1])).filter(y => Number.isFinite(y) && Math.abs(y) <= 1e9).sort((a, b) => a - b);
+      if (!ys.length) throw Error('empty curve');
+      const q = t => ys[Math.round((ys.length - 1) * t)], all = [q(.02), q(.98), ...points.map(p => p.y)];
+      yr = pad([Math.min(...all), Math.max(...all)]);
+    }
+    if (functionPlot && rows.some(r => !r.data.some(p => Number.isFinite(p[1]) && p[1] >= yr[0] && p[1] <= yr[1]))) throw Error('empty curve');
+    if (!functionPlot) {
+      const data = rows.flatMap(r => r.data).concat(points.map(p => [p.x, p.y]));
+      const extent = (index, zero) => pad([Math.min(...data.map(p => p[index]), ...(zero ? [0] : [])), Math.max(...data.map(p => p[index]), ...(zero ? [0] : []))], zero);
+      xr ??= extent(0, false); yr ??= extent(1, type === 'bar');
+    }
+    const title = label(spec.title), box = el('div', expanded ? 'graph expanded' : 'graph'), heading = el('div', 'graph-title', title || 'Graph');
+    box.dataset.spec = source; box.tabIndex = 0; box.setAttribute('role', 'button'); box.setAttribute('aria-expanded', expanded);
+    box.setAttribute('aria-label', (title || 'Graph') + '. Click to expand; Escape to shrink.');
+    box.append(heading);
+    const svg = (tag, attrs = {}, text) => { const n = document.createElementNS('http://www.w3.org/2000/svg', tag); for (const k in attrs) n.setAttribute(k, attrs[k]); if (text != null) n.textContent = text; return n; };
+    const height = expanded ? 360 : 240, bottom = height - 35, plotHeight = height - 50;
+    const root = svg('svg', {viewBox: `0 0 440 ${height}`, role: 'img', 'aria-label': title || type + ' graph'});
+    const X = x => 54 + (x - xr[0]) / (xr[1] - xr[0]) * 368, Y = y => bottom - (y - yr[0]) / (yr[1] - yr[0]) * plotHeight;
+    const fmt = n => Number(n.toPrecision(4)).toString(), colors = ['#368de8', '#d98b25', '#b974d5', '#2eac87'];
+    const ticks = ([lo, hi]) => {   // round steps (1, 2, 2.5, 5 × 10ⁿ), about five per axis
+      const raw = (hi - lo) / 5, mag = 10 ** Math.floor(Math.log10(raw)), step = mag * ([1, 2, 2.5, 5, 10].find(s => s >= raw / mag - 1e-9) ?? 10);
+      const out = []; for (let v = Math.ceil(lo / step - 1e-9) * step; v <= hi + step * 1e-9 && out.length < 12; v += step) out.push(Math.abs(v) < step * 1e-9 ? 0 : v); return out;
+    };
+    for (const x of ticks(xr)) root.append(svg('path', {d: `M${X(x)} 15V${bottom}`, stroke: 'currentColor', opacity: '.12'}), svg('text', {x: X(x), y: height - 16, 'text-anchor': 'middle'}, fmt(x)));
+    for (const y of ticks(yr)) root.append(svg('path', {d: `M54 ${Y(y)}H422`, stroke: 'currentColor', opacity: '.12'}), svg('text', {x: 48, y: Y(y) + 4, 'text-anchor': 'end'}, fmt(y)));
+    const clamp = (v, r) => Math.max(r[0], Math.min(r[1], v));
+    root.append(svg('path', {d: `M${X(clamp(0, xr))} 15V${bottom} M54 ${Y(clamp(0, yr))}H422`, stroke: 'currentColor', opacity: '.5', fill: 'none'}));
+    const lines = [[X(clamp(0, xr)), 15, X(clamp(0, xr)), bottom], [54, Y(clamp(0, yr)), 422, Y(clamp(0, yr))]], boxes = [];   // ink a point's label keeps off
+    // Nested SVG clips curves/bars without document-global clip IDs (several answers may contain graphs).
+    const plot = svg('svg', {x: 54, y: 15, width: 368, height: plotHeight, viewBox: `54 15 368 ${plotHeight}`, overflow: 'hidden'}), hover = [];
+    rows.forEach((r, index) => {
+      const color = colors[index]; let path = '', previous = null, previousX = 0;
+      const uniqueX = [...new Set(r.data.map(p => p[0]))].sort((a, b) => a - b);
+      const gap = uniqueX.length > 1 ? Math.min(...uniqueX.slice(1).map((x, i) => X(x) - X(uniqueX[i]))) : 70;
+      const barWidth = Math.max(.5, Math.min(50, gap * .75) / rows.length);
+      for (const [x, y] of r.data) {
+        if (!Number.isFinite(y)) { previous = null; continue; }
+        const px = X(x), py = Y(y);
+        if (type !== 'bar' && x >= xr[0] && x <= xr[1] && y >= yr[0] && y <= yr[1]) hover.push({x, y, name: r.name, px, py});
+        if (type === 'bar') {
+          const left = px - barWidth * rows.length / 2 + index * barWidth, top = Math.min(py, Y(0)), bottom = Math.max(py, Y(0));
+          plot.append(svg('rect', {x: left, y: top, width: barWidth, height: bottom - top, fill: color, opacity: '.85'})); boxes.push([left, top, left + barWidth, bottom]);
+          hover.push({x, y, name: r.name, px: left + barWidth / 2, py, bar: [left, left + barWidth, top, bottom]});
+        }
+        else if (type === 'scatter') { plot.append(svg('circle', {cx: px, cy: py, r: 3, fill: color})); boxes.push([px - 3, py - 3, px + 3, py + 3]); }
+        else {
+          // shortcut: sampled curves break at large jumps; use adaptive sampling if finer asymptotes are needed.
+          const join = previous !== null && (!functionPlot || Math.abs(py - previous) < plotHeight / 2), cy = Math.max(-10000, Math.min(10000, py));
+          if (join) lines.push([previousX, Math.max(-10000, Math.min(10000, previous)), px, cy]);
+          path += `${join ? 'L' : 'M'}${px.toFixed(2)} ${cy.toFixed(2)} `; previous = py; previousX = px;
+        }
+      }
+      if (path) plot.append(svg('path', {d: path, stroke: color, 'stroke-width': 2, fill: 'none', 'stroke-linejoin': 'round'}));
+      heading.append(el('span', '', r.name || `Series ${index + 1}`)); heading.lastChild.style.color = color;
+    });
+    const marks = points.map(p => {
+      if (p.x < xr[0] || p.x > xr[1] || p.y < yr[0] || p.y > yr[1]) throw Error('point outside plot');
+      const px = X(p.x), py = Y(p.y), name = label(p.label);
+      plot.append(svg('circle', {cx: px, cy: py, r: 4, fill: 'currentColor'})); boxes.push([px - 4, py - 4, px + 4, py + 4]);
+      hover.push({x: p.x, y: p.y, name, px, py}); return {px, py, name};
+    });
+    root.append(plot);
+    // Plip draw.py (MIT): a label tries spots around its anchor, nearest first, and takes the first clear of ink and other labels.
+    const cross = ([l, t, r, b], [x1, y1, x2, y2]) => {   // segment meets rect (Liang-Barsky)
+      let lo = 0, hi = 1;
+      for (const [p, q] of [[x1 - x2, x1 - l], [x2 - x1, r - x1], [y1 - y2, y1 - t], [y2 - y1, b - y1]]) { if (!p) { if (q < 0) return false; } else if (p < 0) lo = Math.max(lo, q / p); else hi = Math.min(hi, q / p); }
+      return lo <= hi;
+    };
+    for (const {px, py, name} of marks.filter(m => m.name)) {
+      const w = name.length * 6.5 + 4, h = 16; let best, cost = Infinity;
+      spots: for (const reach of [6, 14, 26]) for (const [dx, dy] of [[0, -1], [0, 1], [.7, -.7], [-.7, -.7], [.7, .7], [-.7, .7], [1, 0], [-1, 0]]) {
+        const cx = px + dx * reach + Math.sign(dx) * w / 2, cy = py + dy * reach + Math.sign(dy) * h / 2, r = [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2];
+        const c = (r[0] < 54 || r[2] > 422 || r[1] < 15 || r[3] > bottom ? 100 : 0) + lines.filter(s => cross(r, s)).length + boxes.filter(b => b[0] < r[2] && r[0] < b[2] && b[1] < r[3] && r[1] < b[3]).length;
+        if (c < cost) { best = r; cost = c; }
+        if (!c) break spots;
+      }
+      root.append(svg('text', {x: (best[0] + best[2]) / 2, y: best[3] - 4, 'text-anchor': 'middle'}, name)); boxes.push(best);
+    }
+    const tip = el('div', 'graph-tip'); tip.hidden = true; box.append(root, tip);
+    box.graphHover = p => {
+      if (!p) { tip.hidden = true; return; }
+      const r = root.getBoundingClientRect(), scale = Math.min(r.width / 440, r.height / height);
+      const x = (p[0] - r.x - (r.width - scale * 440) / 2) / scale, y = (p[1] - r.y - (r.height - scale * height) / 2) / scale;
+      const hit = hover.find(p => p.bar && x >= p.bar[0] && x <= p.bar[1] && y >= p.bar[2] && y <= p.bar[3]);
+      const nearest = hit || hover.reduce((a, b) => !a || Math.hypot(b.px - x, b.py - y) <= Math.hypot(a.px - x, a.py - y) ? b : a, null);
+      tip.hidden = !nearest || x < 54 || x > 422 || y < 15 || y > bottom;
+      if (!tip.hidden) tip.textContent = `${nearest.name ? nearest.name + ': ' : ''}(${fmt(nearest.x)}, ${fmt(nearest.y)})`;
+    };
+    box.onmousemove = e => box.graphHover([e.clientX, e.clientY]); box.onmouseleave = () => box.graphHover(null);
+    box.onclick = () => { const next = graph(source, !expanded), focused = document.activeElement === box; box.replaceWith(next); if (focused) next.focus({preventScroll: true}); next.dispatchEvent(new Event('graphresize', {bubbles: true})); };
+    box.onkeydown = e => { if (e.key === 'Escape' && box.classList.contains('expanded')) { e.preventDefault(); e.stopPropagation(); box.click(); } else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); box.click(); } };
+    return box;
+  } catch { return el('pre', '', source); }
+};
 // Safe Markdown → DOM (no HTML from the model): headings, lists, rules, tables, bold, italics, code, links, $…$ and $$…$$ math
 const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
 const INLINE = /((?<!\\)\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|(?<!\\)\$(?=\S)(?:\\.|[^$\\\n])+?(?<=\S)\$(?!\d)|\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\((?:https?:|mailto:)[^\s)]+\)|https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"]|\*[^*\s][^*]*\*|(?<![\w\\])_[^_\s][^_]*_(?!\w))/g;
@@ -936,14 +1088,16 @@ const inline = (parent, text) => {
   }
   plain(text.slice(at)); return parent;
 };
-const markdown = text => {
+const markdown = (text, streaming = false, graphs = []) => {
   const out = document.createDocumentFragment(), lines = text.replace(/\r/g, '').split('\n'), item = /^\s*([-*•]|\d+[.)])\s+(.*)/;
   const row = /^\s*\|.*\|\s*$/, cells = l => l.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim()), isTable = i => row.test(lines[i]) && /^\s*\|?\s*:?-{2,}/.test(lines[i + 1] || '');
   for (let i = 0, m; i < lines.length;) {
     if (!lines[i].trim()) { i++; continue; }
     if (/^\s*```/.test(lines[i])) {   // a fenced block keeps its lines (code, a small text drawing)
-      const code = []; while (++i < lines.length && !/^\s*```/.test(lines[i])) code.push(lines[i]);
-      i++; out.append(el('pre', '', code.join('\n'))); continue;
+      const isGraph = /^\s*```graph\s*$/.test(lines[i]), code = []; while (++i < lines.length && !/^\s*```/.test(lines[i])) code.push(lines[i]);
+      const closed = i < lines.length; i++;
+      const source = code.join('\n'), existing = isGraph && closed ? graphs.findIndex(g => g.dataset.spec === source) : -1;
+      out.append(existing >= 0 ? graphs.splice(existing, 1)[0] : isGraph && closed ? graph(source) : isGraph && streaming ? el('div', 'graph pending', 'Graph on screen…') : el('pre', '', source)); continue;
     }
     if (isTable(i)) {
       const wrap = el('div', 'table'), table = wrap.appendChild(el('table')), head = table.appendChild(el('tr'));
@@ -955,7 +1109,7 @@ const markdown = text => {
       const fold = []; let depth = 0;
       while (i < lines.length) { depth += (lines[i].match(/<details\b/gi) || []).length - (lines[i].match(/<\/details>/gi) || []).length; fold.push(lines[i++]); if (depth <= 0) break; }
       const [, summary, inside] = fold.join('\n').replace(/^\s*<details\b[^>]*>/i, '').replace(/<\/details>\s*$/i, '').match(/^\s*(?:<summary\b[^>]*>([\s\S]*?)<\/summary>)?([\s\S]*)$/i);
-      const d = out.appendChild(el('details')); d.append(inline(el('summary'), summary?.trim() || 'Details'), markdown(inside)); continue;
+      const d = out.appendChild(el('details')); d.append(inline(el('summary'), summary?.trim() || 'Details'), markdown(inside, streaming, graphs)); continue;
     }
     if ((m = lines[i].match(/^\s*#{1,4}\s+(.*)/))) { out.append(inline(el('div', 'h'), m[1])); i++; continue; }
     if (/^\s*-{3,}\s*$/.test(lines[i])) { out.append(el('hr')); i++; continue; }

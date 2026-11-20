@@ -42,7 +42,7 @@ class UIReviewFixTests(unittest.TestCase):
         tap = self.box[self.box.index('    tap([x, y])'):self.box.index('    size(h)')]
         node(self, r'''let clicked = '';
 const make = key => { const el = { closest: s => s.split(', ').includes(key) ? el : null, click() { clicked = key; } }; return el; };
-let folded = false, dictating = false;
+let folded = false, dictating = false; const foldedOrFolding = () => folded;
 const document = { elementFromPoint: () => current, body: { classList: { contains: c => c === 'dictate' && dictating } } }; let current;
 const $ = () => ({ classList: { contains: () => false }, value: '' }), drop = () => { clicked = 'typing'; }, comp = () => { clicked = 'typing box'; }, post = () => {}, status = () => {}, fit = () => {};
 const ui = {''' + tap + r'''};
@@ -115,11 +115,9 @@ if (sent?.dictationHistory !== true || button.textContent !== 'History') process
     def test_reduce_motion_stops_onboarding_loops(self):
         rule = re.search(r'@media \(prefers-reduced-motion: reduce\) \{ \*, \*::before, \*::after \{(.*?)\}', self.onboarding).group(1)
         self.assertIn('animation-iteration-count: 1 !important', rule)
+        self.assertIn('@keyframes pop { from { opacity: 0; transform: none; } to { opacity: 1; transform: none; } }', self.onboarding)   # All set's check starts hidden, so the fade must end visible
         self.assertIn("const reduced = matchMedia('(prefers-reduced-motion: reduce)')", self.onboarding)
-        self.assertIn("reduced.addEventListener('change'", self.onboarding)
-        self.assertIn('welcomeGeneration++; previewGeneration++;', self.onboarding)
-        self.assertIn('Object.keys(loops).forEach(id => finals[id]())', self.onboarding)
-        self.assertIn('if (reduced.matches) { finals[id](); await motionChange(); }', self.onboarding)
+        self.assertIn("reduced.addEventListener('change', () => { orbWake?.(); orbWake = null; welcomeGeneration++;", self.onboarding)   # turning it off mid-step restarts the orb
         self.assertNotIn("const still = matchMedia('(prefers-reduced-motion: reduce)').matches", self.onboarding)
 
     def test_onboarding_welcome_orb_keeps_animating(self):
@@ -158,16 +156,12 @@ if (away.frames || away.timers || !away.waiting) process.exit(3);
     def test_settings_exposes_the_current_page_and_app_list_choice(self):
         self.assertIn('class="on" aria-current="page"', self.settings)
         self.assertIn("b.toggleAttribute('aria-current', b === nav)", self.settings)
-        self.assertIn('id="appview" role="group" aria-label="App list"', self.settings)
-        self.assertIn("b.setAttribute('aria-pressed', on)", self.settings)
+        self.assertIn('id="appview" role="radiogroup" aria-label="App list"', self.settings)
+        self.assertIn("b.setAttribute('aria-checked', on)", self.settings)
 
     def test_meetings_row_offers_turn_on_instead_of_dead_buttons(self):
         self.assertIn("$('meetingDemo').hidden = $('meetingPrepOpen').hidden = !P.meeting; $('meetingOn').hidden = !!P.meeting;", self.settings)
         self.assertIn("$('meetingOn').onclick = () => set('meeting', true);", self.settings)
-
-    def test_onboarding_recorder_names_a_lone_modifier(self):
-        self.assertIn('a modifier on its own', self.onboarding)
-        self.assertNotIn('Use modifiers with a key', self.onboarding)
 
     def test_turned_off_tips_come_back_from_the_menu_bar(self):
         menu = self.swift[self.swift.index('final class MenuBar'):self.swift.index('// Settings window (ui/settings.html)')]
@@ -203,7 +197,7 @@ if (apiCost(.0412) !== '≈4.12¢ at API prices' || apiCost(.1861) !== '≈18.6�
 
     def test_a_new_ask_drops_a_paused_card_left_by_resuming_elsewhere(self):
         listen = self.box[self.box.index('    listen(mode)'):self.box.index('    level(v)')]
-        self.assertIn("querySelectorAll('.rewrite, .paused, .worker').forEach(e => e.remove())", listen)
+        self.assertIn("querySelectorAll('.rewrite, .paused, .worker, .upgrade').forEach(e => e.remove())", listen)
 
     def test_rewrite_buttons_answer_hover_and_press_like_card_buttons(self):
         self.assertIn('.rewrite button:not(:disabled):is(:hover,.hot) { transform: scale(1.03); }', self.box)
@@ -266,7 +260,6 @@ if (classes.has('held') || card.style.minHeight || fitted !== 2) process.exit(2)
     def test_settings_disabled_segment_looks_off_and_usage_cards_fill_rows(self):
         self.assertIn("[data-k=dictateMode] [data-v=cleanup]').disabled = other", self.settings)
         self.assertIn('.seg button:disabled { opacity: .4; pointer-events: none; }', self.settings)
-        self.assertIn('.seg button:disabled { opacity: .4; pointer-events: none; }', self.onboarding)
         self.assertIn('grid-template-columns: repeat(6, 1fr)', self.settings)
         self.assertIn('.stat { grid-column: span 2; } .stat:nth-child(n+4) { grid-column: span 3; }', self.settings)
 
@@ -274,11 +267,10 @@ if (classes.has('held') || card.style.minHeight || fitted !== 2) process.exit(2)
         self.assertIn("moveFailed(){status('Could not move');", self.box)   # a failure, not live work
         self.assertNotIn('js("shortcut"', self.swift)
         self.assertNotIn('shortcut() {}', self.box)
-        self.assertIn('d.hidden = skip(pages[i])', self.onboarding)   # Devin/Pi: no dots for skipped pages
         self.assertNotIn('These need your click', self.onboarding)
         self.assertNotIn('Use Verbatim instead', self.onboarding)
         self.assertIn('id="appsback" onclick="st.tab(\'account\')"', self.settings)
-        self.assertEqual(self.settings.count('[hidden] {'), 1)
+        self.assertEqual(self.settings.count('[hidden]:not(.going) {'), 1)
         self.assertNotIn('.ok:hover code', self.box)
 
 

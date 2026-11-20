@@ -34,7 +34,7 @@ print("ok")
         self.assertIn('"comeBack": true', defaults)
         page = (ROOT / 'ui/settings.html').read_text()
         tips = page.index('data-k="support"')
-        self.assertIn('<b>Ideas when I’m away</b><span>Now and then, a short idea if you haven’t used Atticus.</span></div><label class="sw"><input type="checkbox" data-k="comeBack">',
+        self.assertIn('<b>Ideas when I’m away</b></div><label class="sw"><input type="checkbox" data-k="comeBack">',
                       page[tips:tips + 300])
         self.assertEqual(atticus.switches()['comeBack'], 'Ideas when I’m away')   # by voice too
 

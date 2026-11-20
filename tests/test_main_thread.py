@@ -67,9 +67,13 @@ final class Process {
  func run() throws { isRunning = true; Self.launched.append(self) }
  func terminate() { precondition(!Thread.isMainThread); terminated = true; isRunning = false; terminationHandler?(self) }
 }
+enum Apps { static var allowed: Set<String> = [] }
 enum MiniScreen {
 ''' + activate + '''
 }
+MiniScreen.activate(41)
+precondition(Process.launched.isEmpty, "refocusing asked for System Events Automation")
+Apps.allowed = ["com.apple.systemevents"]
 let began = Date()
 MiniScreen.activate(42)
 precondition(Date().timeIntervalSince(began) < 0.3, "activation blocked UI")
@@ -81,9 +85,26 @@ precondition(Process.launched[0].terminated, "stalled activation was not termina
 precondition(!completed.terminated && completed.terminationHandler == nil, "completed activation retained its timeout")
 ''')
 
+    def test_speech_timing_records_each_stage_once_across_audio_and_ui_queues(self):
+        source = (ROOT / 'Atticus.swift').read_text()
+        trace = source[source.index('final class SpeechTrace:'):source.index('// Opens only the chosen mic.')]
+        heard = source[source.index('    func heard(_ now: String)'):source.index('    func pauseWait()')]
+        self.assertNotIn('speechTrace', source[source.index('    func js(_ call: String'):source.index('    var pointerNext')])   # typed and demo words are not speech
+        self.assertLess(heard.index('js("words", text)'), heard.index('trace.mark("ui_submitted")'))
+        self.swift('import Foundation\n' + trace + r'''
+let trace = SpeechTrace("fixture")
+let lock = NSLock()
+var first = 0
+DispatchQueue.concurrentPerform(iterations: 100) { _ in
+    if trace.mark("first_buffer") { lock.lock(); first += 1; lock.unlock() }
+}
+precondition(first == 1)
+precondition(trace.mark("first_partial") && !trace.mark("first_partial"))
+''')
+
     def test_mic_serializes_sessions_and_ignores_cancelled_starts(self):
         source = (ROOT / 'Atticus.swift').read_text()
-        mic = source[source.index('final class Mic:'):source.index('    func captureOutput(', source.index('final class Mic:'))] + '}\n'
+        mic = source[source.index('final class SpeechTrace:'):source.index('    func captureOutput(', source.index('final class Mic:'))] + '}\n'
         self.swift('''import Foundation
 protocol AVCaptureAudioDataOutputSampleBufferDelegate {}
 final class AVAudioPCMBuffer {}

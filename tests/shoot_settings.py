@@ -12,8 +12,8 @@ PREFS = {'hotkeyLabel': '⌃⌥Space', 'login': True, 'paused': False, 'volume':
          'routing': 'balanced', 'microphone': 'automatic', 'agentModel': 'sonnet', 'agentUserTools': True, 'screen': 'auto',
          'speak': False, 'hideWhenSharing': True, 'menuIcon': True, 'autoUpdate': True, 'safe': True, 'meeting': False,
          'meetingSave': True, 'learnMe': True, 'stats': True, 'tips': True, 'draw': True, 'dictateMode': 'verbatim',
-         'dictateHotkeyLabel': '', 'dictateHistory': True, 'input': 'voice', 'talkMode': 'hold', 'speechModel': 'speech',
-         'improve': False}
+         'dictateHotkeyLabel': '', 'dictateHistory': True, 'typeRight': True, 'talkMode': 'hold', 'speechModel': 'speech',
+         'improve': False, 'drawModel': 'sonnet', 'modelSuggestions': True, 'voiceRate': 196}
 STATE = {'today': {'asks': 3, 'usd': .004, 'secs': 3}, 'week': {'asks': 21, 'usd': .03, 'secs': 3.4}, 'all': {'asks': 140, 'usd': .2, 'secs': 3.8},
          'rules': ['When I say focus mode, close Slack and open Notes'], 'skills': [{'say': 'standup', 'reply': 'Opened Zoom and the standup notes'}],
          'me': {'facts': [{'id': 'f1', 'category': 'basics', 'kind': 'name', 'value': 'Sam', 'source': 'you', 'date': 'Oct 19'}]}, 'plan': {'ok': True, 'text': 'Signed in. Claude Max.'},
@@ -34,9 +34,17 @@ SCENES = [
     ('settings-dictation-end', "document.querySelector('main').scrollTop=1e5"),
     ('settings-dictation-keyboard', "(b=>{b.focus();b.scrollIntoView({block:'center'})})(document.querySelector('#dictationhistory .x.copy'))"),   # focus shows a row's actions, like hover
     ('settings-general', "load({});st.tab('general');up()"),
+    ('settings-general-voice', "document.querySelector('[data-do=testVoice]').scrollIntoView({block:'center'})"),
+    ('settings-general-voicespeed', "(r=>{r.focus();r.scrollIntoView({block:'center'})})(document.querySelector('[data-k=voiceRate]'))"),
     ('settings-general-end', "document.querySelector('main').scrollTop=1e5"),
+    # rows that hide and show close and open (expand): each shot is after the motion, so nothing is left half-way
+    ('settings-general-typeright-off', "up();document.querySelector('[data-k=typeRight]').click()"),
+    ('settings-general-typeright-on', "document.querySelector('[data-k=typeRight]').click()"),
+    ('settings-general-whisper', "document.querySelector('[data-k=speechModel] button[data-v=whisper]').click();document.querySelector('[data-k=speechModel]').scrollIntoView({block:'center'})"),
+    ('settings-general-switch', "load({});document.querySelector('#general .sw').scrollIntoView({block:'center'})"),
     ('settings-intelligence', "st.tab('brain');up()"),
     ('settings-intelligence-end', "document.querySelector('main').scrollTop=1e5"),
+    ('settings-intelligence-cheapest', "load({routing:'cheapest'});st.tab('brain');up()"),
     ('settings-intelligence-server', "load({apiBase:'http://localhost:11434',apiModel:'qwen3'});st.tab('brain');up();st.models({base:'http://localhost:11434',key:'',list:['qwen3','llama3.2']})"),
     ('settings-memory', "load({});st.tab('memory');up();document.querySelector('.profile-category').open=true"),
     ('settings-memory-end', "document.querySelector('main').scrollTop=1e5"),
@@ -49,12 +57,12 @@ SCENES = [
     ('settings-feedback', "st.tab('feedback');up()"),
 ]
 SCENES = [(n, js.replace('MEETINGS_JSON', json.dumps(MEETINGS)).replace('APPS_JSON', json.dumps(APPS))) for n, js in SCENES]
-SETUP_PAGES = ['try', 'mac', 'text', 'dictate', 'point', 'work', 'meeting']   # setup's feature pages, in order
+SETUP_PAGES = ['welcome', 'ai', 'model', 'perms', 'try', 'dictate', 'show', 'improve', 'tip', 'done']   # setup's steps after the permissions, in order
 
 # By window ID: a stray system prompt in the VM cannot cover the shot.
 SNAP = r'''func snap(_ name:String,_ w:NSWindow){w.sharingType = .readOnly;let p=Process();p.executableURL=URL(fileURLWithPath:"/usr/sbin/screencapture");p.arguments=["-x","-o","-l\(w.windowNumber)",out+"/"+name+".png"];try! p.run();p.waitUntilExit();print("shot \(name)")}
 '''
-SHOTS = 'let agentsUI=AgentPanels()\n' + SETUP[:SETUP.index('let (ow,ov)=page(')] + SNAP + r'''
+SHOTS = SETUP[:SETUP.index('let (ow,ov)=page(')] + SNAP + r'''
 let tall=min(1500,screen.visibleFrame.height-120)
 let (sw,sv)=page("settings.html",NSSize(width:780,height:tall),"st")   // as SettingsWindow.open, taller to show whole sections
 let scenes=try! JSONSerialization.jsonObject(with:Data(#"SCENES"#.utf8)) as! [[String]]
@@ -67,21 +75,33 @@ func settingsScene(_ i:Int,_ look:Int){
  guard i<scenes.count else{sw.orderOut(nil);onboardingScene(look);return}
  sv.evaluateJavaScript(scenes[i][1]){_,e in if let e{print("scene failed \(scenes[i][0]): \(e)");exit(1)}
   after(0.9){snap(scenes[i][0]+"-"+looks[look].0,sw);settingsScene(i+1,look)}}}
-// Setup's Change provider sheet with the custom server fields open, then each feature page.
+// Setup's permissions, the AI step with the custom server fields open, then each later step.
 let (ow,ov)=page("onboarding.html",NSSize(width:640,height:640),"ob");ow.orderOut(nil)
+func obReady(_ tries:Int,_ go:@escaping()->Void){ov.evaluateJavaScript("typeof ob"){v,_ in   // with no Settings scenes first, setup may still be loading
+ if v as? String == "object"{go()}else if tries>60{print("setup page never loaded");exit(1)}else{after(0.5){obReady(tries+1,go)}}}}
 func onboardingScene(_ look:Int){
  let name=looks[look].0;ow.orderFrontRegardless()
- ov.evaluateJavaScript("ob.prefs({draw:true,meeting:false,routing:'balanced',dictateMode:'verbatim',dictateHotkeyLabel:''});ob.plan({ok:true,client:'claude',text:'Signed in. Claude Max.'});ob.set({mic:true,speech:true,ax:true,screen:false,auto:true});document.querySelector('[data-go=\"perms\"]').click()"){_,_ in
+ obReady(0){ov.evaluateJavaScript("ob.prefs({draw:true,meeting:false,routing:'balanced',dictateMode:'verbatim',dictateHotkeyLabel:''});ob.plan({ok:true,client:'claude',text:'Signed in. Claude Max.'});ob.set({mic:true,speech:true,ax:true,screen:false,auto:true});document.querySelector('[data-to=perms]').click();if(document.querySelector('.page.on').id!=='perms')throw Error('wrong permission shot')"){_,_ in
   after(1.4){snap("setup-perms-"+name,ow)
-   ov.evaluateJavaScript("document.getElementById('client-alt').click();document.querySelector('.opt[data-p=\"server\"]').click();ob.models(['qwen3','llama3.2'])"){_,_ in
+   ov.evaluateJavaScript("document.querySelector('[data-to=\"ai\"]').click();document.querySelector('.opt[data-p=\"server\"]').click();ob.models(['qwen3','llama3.2'])"){_,_ in
     after(0.9){snap("setup-provider-"+name,ow)
-     ov.evaluateJavaScript("document.getElementById('prov-cancel').click()"){_,_ in after(0.6){featurePage(0,look)}}}}}}}
+     ov.evaluateJavaScript("document.querySelector('[data-to=\"perms\"]').click()"){_,_ in after(0.6){featurePage(0,look)}}}}}}}}
 func featurePage(_ i:Int,_ look:Int){
  guard i<pages.count else{
   guard look+1<looks.count else{print("settings shots ok");exit(0)}
   ow.orderOut(nil);settingsScene(0,look+1);return}
- ov.evaluateJavaScript("document.querySelector('[data-go=\"\(pages[i])\"]').click()"){_,e in if let e{print("page failed \(pages[i]): \(e)");exit(1)}
-  after(2.6){snap("setup-"+pages[i]+"-"+looks[look].0,ow);featurePage(i+1,look)}}}
+ ov.evaluateJavaScript("document.querySelector('[data-to=\"\(pages[i])\"]').click()"){_,e in if let e{print("page failed \(pages[i]): \(e)");exit(1)}
+  after(2.6){snap("setup-"+pages[i]+"-"+looks[look].0,ow);if pages[i]=="show"{frames(0,look){featurePage(i+1,look)}}else if pages[i]=="model"{opus(look){featurePage(i+1,look)}}else{featurePage(i+1,look)}}}}
+// The work model step with the other card picked, then back to the default.
+func opus(_ look:Int,_ done:@escaping()->Void){
+ ov.evaluateJavaScript("document.querySelector('.mc[data-m=opus]').click()"){_,_ in
+  after(0.6){snap("setup-model-opus-"+looks[look].0,ow);ov.evaluateJavaScript("document.querySelector('.mc[data-m=sonnet]').click()"){_,_ in done()}}}}
+// Show me how's loop held at five moments: keys down and the mouse setting off, the loop half round, nearly closed, the resting dot, the answer.
+let frameAt=[1100,1800,2500,3150,4700]
+func frames(_ f:Int,_ look:Int,_ done:@escaping()->Void){
+ guard f<frameAt.count else{ov.evaluateJavaScript("ob.showAt(null)"){_,_ in done()};return}
+ ov.evaluateJavaScript("ob.showAt(\(frameAt[f]))"){_,_ in
+  after(0.6){snap("setup-show-frame\(f+1)-"+looks[look].0,ow);frames(f+1,look,done)}}}
 func ready(_ tries:Int){sv.evaluateJavaScript("typeof st"){v,_ in   // a busy VM can take a while to load the page
  guard v as? String == "object" else{if tries>60{print("settings page never loaded");exit(1)};after(0.5){ready(tries+1)};return}
  sv.evaluateJavaScript(setup+"load({});"){_,e in if let e{print("load failed: \(e)");exit(1)};settingsScene(0,0)}}}

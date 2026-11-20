@@ -30,22 +30,20 @@ class NightTests(unittest.TestCase):
             self.assertEqual(atticus.ran_programs() & {'fixtureone', 'fixturetwo'}, {'fixtureone'})   # a quoted word was never run
             with patch.object(atticus.shutil, 'which', side_effect=lambda w: '/' + w if w in ('fixtureone', 'fixturetwo') else None), \
                  patch.object(atticus.os.path, 'getmtime', return_value=1), \
-                 patch.object(atticus.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, 'usage: tool')) as run:
+                 patch.object(atticus, 'cli_help', return_value='usage: tool') as run:
                 got = atticus.tool_help('fixtureone and fixturetwo')
-        run.assert_called_once_with(['/fixtureone', '--help'], capture_output=True, text=True, timeout=2, stdin=subprocess.DEVNULL)
+        run.assert_called_once_with('/fixtureone', [])
         self.assertIn('`fixtureone --help`', got)
-        self.assertIn('not used before (run `<name> --help` if one is meant): fixturetwo', got)
+        self.assertIn(f'not used before (if one is meant, read its help: {atticus.CLI_HELP} <name> [subcommand]): fixturetwo', got)
 
     def test_help_discovers_advertised_goal_subtree_and_readback_cached(self):
         root = ('Usage: fixturetool <command>\n' + 'padding\n' * 600 +
                 '\nActions:\n  launch    Send hello using fixturetool\n  channel send    Deliver input\n  channel read    Read output\n')
         branch = 'Commands:\n  send    Send text\n  read    Read output\n'
-        def help_(args, **kw):
-            self.assertEqual(args[-1], '--help')
-            path = args[1:-1]
-            return subprocess.CompletedProcess(args, 0, root if not path else branch if path == ['channel'] else 'usage: ' + ' '.join(path) + ' --target <id> --text <value> --screen', '')
+        def help_(_, path):
+            return root if not path else branch if path == ['channel'] else 'usage: ' + ' '.join(path) + ' --target <id> --text <value> --screen'
         with patch.object(atticus.shutil, 'which', side_effect=lambda w: '/fixturetool' if w == 'fixturetool' else '/usr/bin/env'), \
-             patch.object(atticus.os.path, 'getmtime', return_value=1), patch.object(atticus.subprocess, 'run', side_effect=help_) as run:
+             patch.object(atticus.os.path, 'getmtime', return_value=1), patch.object(atticus, 'cli_help', side_effect=help_) as run:
             got = atticus.tool_help('send hello using fixturetool')
             self.assertIn('fixturetool channel send --help', got)
             self.assertIn('fixturetool channel read --help', got)
@@ -60,20 +58,18 @@ class NightTests(unittest.TestCase):
         root = 'Commands:\n  backup    Save chat history at a given time\n  status    Current state\n'
         with patch.object(atticus.shutil, 'which', side_effect=lambda w: '/fixturetool' if w == 'fixturetool' else None), \
              patch.object(atticus.os.path, 'getmtime', return_value=1), \
-             patch.object(atticus.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, root)) as run:
+             patch.object(atticus, 'cli_help', return_value=root) as run:
             got = atticus.tool_help('ask fixturetool what time it is')
             self.assertIn('fixturetool --help', got)
             self.assertNotIn('fixturetool backup --help', got)
-            run.assert_called_once_with(['/fixturetool', '--help'], capture_output=True, text=True, timeout=2, stdin=subprocess.DEVNULL)
+            run.assert_called_once_with('/fixturetool', [])
 
     def test_help_caps_root_text_and_total_across_tools(self):
         root = 'Commands:\n  channel send    Deliver input\n' + 'root padding\n' * 500
-        def help_(args, **kw):
-            path = args[1:-1]
-            text = root if not path else 'Commands:\n  send    Deliver input\n  read    Read output\n' if path == ['channel'] else 'subcommand padding\n' * 500
-            return subprocess.CompletedProcess(args, 0, text)
+        def help_(_, path):
+            return root if not path else 'Commands:\n  send    Deliver input\n  read    Read output\n' if path == ['channel'] else 'subcommand padding\n' * 500
         with patch.object(atticus.shutil, 'which', side_effect=lambda w: '/' + w if w in ('fixtureone', 'fixturetwo') else None), \
-             patch.object(atticus.os.path, 'getmtime', return_value=1), patch.object(atticus.subprocess, 'run', side_effect=help_):
+             patch.object(atticus.os.path, 'getmtime', return_value=1), patch.object(atticus, 'cli_help', side_effect=help_):
             roots = atticus.tool_help('fixtureone and fixturetwo')
             self.assertIn('fixtureone --help', roots)
             self.assertIn('fixturetwo --help', roots)
@@ -86,12 +82,11 @@ class NightTests(unittest.TestCase):
         root = 'Terminals:\n  terminal read    Read output\n  terminal send    Send input\n'
         branch = 'Commands:\n  read    Read output\n  send    Send input\n'
         send = 'Options:\n  --enter    Append Enter\n  --json    Machine-readable receipt\n  --wait-submit    Observe without resending\n'
-        def help_(args, **kw):
-            path = args[1:-1]
-            return subprocess.CompletedProcess(args, 0, root if not path else branch if path == ['terminal'] else send, '')
+        def help_(_, path):
+            return root if not path else branch if path == ['terminal'] else send
         with patch.object(atticus.shutil, 'which', side_effect=lambda word: '/orca' if word == 'orca' else None), \
              patch.object(atticus.os.path, 'getmtime', return_value=1), \
-             patch.object(atticus.subprocess, 'run', side_effect=help_):
+             patch.object(atticus, 'cli_help', side_effect=help_):
             got = atticus.tool_help('send that prompt to the agent in the orca terminal')
         self.assertIn('orca terminal send --help', got)
         self.assertIn('--wait-submit', got)
@@ -141,7 +136,7 @@ class NightTests(unittest.TestCase):
     def test_remaining_words_keep_fast_path_and_complete_context_for_fallback(self):
         request = {'front': 'Fixture', 'task': 'Fixture left, Other right', 'remaining': ', Other right', 'done': ['Fixture: left.']}
         brain = Mock(return_value=('Handled remainder.', 0, [])); brain.ok = True; brain.cmds = brain.ran = []; brain.observed = []
-        with patch.multiple(atticus, start_ai=lambda: None, licensed=lambda: True, ping=lambda: None,
+        with patch.multiple(atticus, start_ai=lambda *a: None, licensed=lambda: True, ping=lambda: None,
                             front=lambda: ('Fixture', ''), osa=lambda *a: '', screens=lambda: [], describe=lambda *a: '',
                             selection_context=lambda: '', me_line=lambda: '', relevant_rules=lambda _: '', workflows=lambda *a: '',
                             recent=lambda: [], screen_for=lambda *a: None, wait_commit=lambda: True, run=brain,

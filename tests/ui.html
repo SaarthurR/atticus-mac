@@ -29,6 +29,7 @@ try {
   frame.srcdoc = html.replace('/*ORBS*/', () => orbs).replace('/*I18N*/', () => i18n).replace('<head>', '<head>' + bridge);
   await Promise.race([ready, new Promise((_, reject) => setTimeout(() => reject(Error('UI did not initialize')), 5000))]);
   const w = frame.contentWindow, d = w.document, ui = w.ui;
+  ui.autoMinimize(false);   // expanded-box interactions; the default-on lifecycle has its own native regression
   ui.language('it'); ui.listen(); ui.words('General'); ui.think(); ui.line('✓ General');
   await new Promise(r=>setTimeout(r,30));
   assert(d.getElementById('ask').placeholder==='Chiedi ad Atticus…' && d.querySelector('#thread .a').textContent.trim()==='General','Italian fixed labels leave a matching model answer unchanged');
@@ -46,6 +47,18 @@ try {
   assert(d.getElementById('comp').classList.contains('open'), 'A typed draft survives mouse exit and blur');
   ui.models({list: ['cheapest', 'balanced', 'capable'], pick: 'balanced'});
   assert(d.getElementById('model').textContent === 'Balanced' && d.querySelector('#models [data-v=capable]').textContent === 'Most capable', 'The overlay names the same intelligence choices as Settings');
+  const why = d.getElementById('modewhy');
+  assert(why.hidden, 'No trade-off line until the choices open');
+  d.getElementById('model').click();
+  assert(!why.hidden && why.textContent==='Haiku for quick asks; work model otherwise.', 'Opening the choices describes the current mode');
+  d.querySelector('#models [data-v=cheapest]').focus();
+  assert(why.textContent==='Haiku for everything. Lightest on your plan.', 'The trade-off follows the choice in focus');
+  d.getElementById('comp').getAnimations({subtree: true}).filter(a => a.effect.getComputedTiming().endTime < Infinity).forEach(a => a.finish());   // the box began growing open in this same task, its row still clipped shut: a real pointer reaches a choice once it's open
+  const capable = d.querySelector('#models [data-v=capable]').getBoundingClientRect(); ui.pointer([capable.x + capable.width / 2, capable.y + capable.height / 2]);
+  assert(why.textContent==='Work model for everything. Highest plan use.', 'The trade-off follows the choice under the pointer'); ui.pointer([]);
+  ui.language('it'); assert(why.textContent==='Modello di lavoro per tutto. Consumo massimo.', 'The trade-off line is translated'); ui.language('en');
+  d.getElementById('models').dispatchEvent(new w.KeyboardEvent('keydown', {key: 'Escape', bubbles: true}));
+  assert(why.hidden, 'Folding the choices back hides the trade-off');
   ui.models({list: ['haiku', 'sonnet', 'opus'], pick: 'haiku'});
   assert(!d.getElementById('model').hidden && d.getElementById('model').textContent === 'Haiku', 'The box shows the current model');
   d.getElementById('model').click();
@@ -349,6 +362,12 @@ try {
     assert(messages.filter(m => m.point).length === points && status() === 'Finish or stop the current answer first', 'Pointing during an answer says why it waits');
     ui.stopped('Stopped');
   }
+  ui.updated('1.6.1');
+  const updated=d.getElementById('updated'), news=updated.querySelector('button');
+  assert(!updated.hidden&&updated.textContent.includes('Updated to 1.6.1'),'The update receipt is one calm line inside the box');
+  assert(news.getBoundingClientRect().right<=d.getElementById('card').getBoundingClientRect().right,'What’s new fits inside the box');
+  news.click();await new Promise(r=>setTimeout(r,20));assert(messages.some(m=>m.updateNews),'What’s new is an explicit action');
+  ui.updated('');assert(updated.hidden,'The next opening clears the consumed receipt');
   ui.reset(); ui.listen(true); ui.words('Put Notes on the left.'); ui.think();
   ui.line('▸ Moving Notes → left'); ui.line('✓ Notes is on the left.'); ui.compose(true);
   results.textContent = checks.join('\n') + `\n\n${checks.length} checks passed.`; results.className = 'pass';

@@ -110,10 +110,10 @@ class NativeHandsTests(unittest.TestCase):
         data = json.loads((self.root / 'hands.json').read_text())
         export = next(n for n in data['nodes'] if n['label'] == 'Export')
         result = self.call('click', str(export['id'])); timing['click id'] = self.elapsed; net['click id'] = self.net_elapsed
-        self.assertIn('a sheet opened', result)
+        self.assertIn('Sheet "AXSheet"', result)
         self.assertIn('Export Your Document', result)
         command('close-sheet'); self.call('see', pid)
-        self.assertIn('a sheet opened', self.call('click', 'Export')); timing['click label'] = self.elapsed; net['click label'] = self.net_elapsed
+        self.assertIn('Sheet "AXSheet"', self.call('click', 'Export')); timing['click label'] = self.elapsed; net['click label'] = self.net_elapsed
         command('close-sheet'); self.call('see', pid)
         self.call('click', 'File > Export To > PDF…'); timing['menu path'] = self.elapsed; net['menu path'] = self.net_elapsed
         self.assertEqual((self.root / 'fixture-result').read_text(), 'pdf')
@@ -152,10 +152,10 @@ class NativeHandsTests(unittest.TestCase):
         receipt, stale = self.session_action('click',str(export['id']),before_allow=lambda:command('stale'),ok=False)
         self.assertEqual(receipt['labels'],['Export'])
         self.assertIn('screen changed',stale.lower())
-        self.assertIn('a sheet opened', self.call('click', 'Export'))
+        self.assertIn('Sheet "AXSheet"', self.call('click', 'Export'))
         command('close-sheet'); command('duplicate'); self.call('see', pid)
         self.assertIn('More than one', self.call('click', 'Export', ok=False))
-        self.assertIn('a sheet opened', self.call('click', 'Export', 'near', 'Name'))
+        self.assertIn('Sheet "AXSheet"', self.call('click', 'Export', 'near', 'Name'))
         command('close-sheet'); self.call('see', pid)
         self.assertIn('Use atticus.py', self.call('click', 'Send', ok=False))
         self.assertIn('Use atticus.py', self.call('press', 'cmd+q', ok=False))
@@ -255,7 +255,7 @@ traces=[]; Hands.under=nil
 try Hands.mouse(CGPoint(x:10,y:20),a,front:true); MiniScreen.workInFront=true; try Hands.wheel("down",CGPoint(x:5,y:6),a)
 MiniScreen.workInFront=false; Hands.window=0; try Hands.mouse(CGPoint(x:10,y:20),a,to:CGPoint(x:50,y:60))
 precondition(Hands.front == ["mouse","wheel","mouse"] && traces.isEmpty, "front work or an unknown window posted background events")
-precondition(Hands.focused == [77,-77,77,-77,77,-77,77,-77,88,-88] && Hands.restored == 5, "each background gesture keys the window under the point for that gesture only and puts the app's window order back")
+precondition(Hands.focused == [77,-77,77,-77,77,-77,77,-77,77,-77,88,-88] && Hands.restored == 6, "each background gesture keys the window under the point for that gesture only and puts the app's window order back")
 print("hands Quartz spies ok")
 '''
         path = self.root / 'event-spies.swift'; path.write_text(swift)
@@ -318,9 +318,9 @@ print("hands Quartz spies ok")
         header = section[:section.index('    static func attribute(')]
         header = header.replace('AXUIElement','TestElement')
         header = header.replace('ProcessInfo.processInfo.environment', '["ATTICUS_DIR":CommandLine.arguments[1], "ATTICUS_AX_ONLY":"1"]')
-        names = ['documentIdentity','identify','read','children','array','name','capture','save','load','at','point','picturePoint','visibleFrame','resolve','menuItem','menu','screenLease',
+        names = ['documentIdentity','identify','read','children','array','name','capture','save','load','at','point','followWindow','picturePoint','visibleFrame','resolve','menuItem','menu','screenLease',
                  'pixelsChanged','contentMoved','pageKeysAllowed','scrollArea','scroll','findText','scrollTo','stringValue','selectedRange','ownedEdits','saveOwnedEdits','editKey','editField','insertionTarget','insertAfter','typeText','fieldFocused',
-                 'settle','validate','clickOptions','targets','freshIDs','checked','selftest','windowElement','root','windowNumber','userWindowLists','keepTaskWindow','targetWindow','windowAt','windowsAt','lease','unlock','submitReceipt','keysReachTask',
+                 'settle','validate','spots','clickOptions','targets','freshIDs','checked','selftest','windowElement','root','windowNumber','userWindowLists','keepTaskWindow','targetWindow','windowAt','windowsAt','lease','unlock','submitReceipt','keysReachTask',
                  'isShortcut','menuShortcut','webFocused']
         matches = list(re.finditer(r'^    static func (\w+)\(', section, re.M))
         methods = ''.join(section[m.start():matches[i+1].start() if i+1<len(matches) else section.rfind('\n}')]

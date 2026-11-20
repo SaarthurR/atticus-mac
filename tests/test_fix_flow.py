@@ -321,9 +321,9 @@ class FlowTests(unittest.TestCase):
         self.assertIn('card shows under your reply', replies[0])
         atticus.save_request(str(ask), 'Open the standing desk agent chat')
         replies.clear()
-        showing = threading.Thread(target=lambda: replies.append(atticus.agent_show(row['id']))); showing.start()
-        worker = Mock(ask=str(ask)); worker.poll.side_effect = lambda: None if showing.is_alive() else 0
         with patch.dict(os.environ, {'ATTICUS_ASK': str(ask), 'ATTICUS_UI': '1'}):
+            showing = threading.Thread(target=lambda: replies.append(atticus.agent_show(row['id']))); showing.start()
+            worker = Mock(ask=str(ask)); worker.poll.side_effect = lambda: None if showing.is_alive() else 0
             with patch('sys.stdout', new_callable=io.StringIO) as out:
                 atticus.relay(worker)
             showing.join()

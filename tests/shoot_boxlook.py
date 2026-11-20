@@ -97,6 +97,10 @@ SCENES = [('sections-dark', 'dark', ask('can you tell me the pythagorean theorem
           ('sections-light', 'light', ask('can you tell me the pythagorean theorem and explain', SECTIONS, ['Searching the web: pythagorean theorem', 'Drawing on your screen']), CHECK_SECTIONS),('math-light', 'light', ask('and 36', MATH), CHECK_MATH), ('math-dark', 'dark', ask('and 36', MATH), CHECK_MATH),
           ('list-light', 'light', ask('Where should we eat tonight?', LIST), CHECK_LIST), ('list-dark', 'dark', ask('Where should we eat tonight?', LIST), CHECK_LIST),
           ('math-more-dark', 'dark', ask('Show me some formulas', MORE), CHECK_MORE)]
+PICK = "ui.listen(false);ui.models({list:['cheapest','balanced','capable'],pick:'balanced'});ui.hover(true);document.getElementById('model').click();"
+CHECK_PICK = "(()=>{const e=document.getElementById('modewhy');return !e.hidden&&e.textContent.length>40?'ok why '+e.textContent:'bad '+e.outerHTML})()"
+SCENES += [('picker-light', 'light', PICK, CHECK_PICK), ('picker-dark', 'dark', PICK, CHECK_PICK),
+           ('picker-cheapest-dark', 'dark', PICK + "document.querySelector('#models [data-v=cheapest]').focus();", CHECK_PICK)]
 
 
 def fixture():

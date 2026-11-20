@@ -31,6 +31,8 @@ enum Hands {
  static func app(_ name:String)throws->FixtureApp { FixtureApp() }
  static func menu(_ path:String,_ app:FixtureApp,act:Bool)throws->String { if act { presses+=1 };return "Start meeting" }
  static func riskyLabel(_ label:String)->Bool { false }
+ static func systemUI()->[String:String] { precondition(presses==0); return [:] }
+ static func openedSystemUI(_ before:[String:String])->String? { precondition(presses==1); return nil }
  static func quote(_ text:String)->String { text }
  static func call(_ input:[String])throws->Int32 {
 ''' + branch + '''

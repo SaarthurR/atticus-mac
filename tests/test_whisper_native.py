@@ -77,7 +77,8 @@ print(String(decoding: try! JSONSerialization.data(withJSONObject: s, options: .
 """)
         import json
         s = json.loads(out)
-        self.assertEqual(set(s), {"server", "model", "running", "error", "models"})
+        self.assertEqual(set(s), {"server", "installing", "model", "running", "error", "models"})
+        self.assertFalse(s["installing"])
         self.assertEqual((s["model"], s["running"], s["error"]), ("large", False, None))
         self.assertEqual(s["server"], shutil.which("whisper-server") is not None or os.path.exists("/opt/homebrew/bin/whisper-server"))
         self.assertEqual([(m["id"], m["have"], m["progress"]) for m in s["models"]], [("turbo", False, None), ("large", True, None), ("small", False, None)])

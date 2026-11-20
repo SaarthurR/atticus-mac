@@ -89,6 +89,69 @@ class StreamTests(unittest.TestCase):
         self.assertEqual(shown, sorted(shown, key=len), 'the shown text only grows')
         self.assertTrue(all(len(s) >= 120 for s in shown))
 
+    def test_voice_off_keeps_original_answer_fixtures(self):
+        from tests.test_spoken import FIXTURES
+        Path(atticus.PREFS).write_text(json.dumps({'speak': False}))
+        for text, _ in FIXTURES:
+            with self.subTest(text=text):
+                reply, lines, _ = self.run_stream(message(text), text)
+                self.assertEqual(reply, text)
+                self.assertFalse(any(line.startswith('♬ ') for line in lines))
+
+    def test_speech_stream_is_short_filtered_and_independent_of_visual_stream(self):
+        Path(atticus.PREFS).write_text(json.dumps({'speak': True, 'showAnswers': 'once'}))
+        _, lines, shown = self.run_stream(message('A short answer. Next sentence.'), 'A short answer. Next sentence.')
+        speech = [line[2:] for line in lines if line.startswith('♬ ')]
+        self.assertFalse(shown)
+        self.assertTrue(speech)
+        self.assertEqual(speech[-1], 'A short answer. Next sentence.')
+        self.assertTrue(any(s.endswith(' ') for s in speech), 'sentence boundary whitespace survives the bridge')
+        for text in ('[draft] Secret.', '[agent {"title":"Hidden"}]', '```json\n[agent {}]'):
+            _, lines, _ = self.run_stream(message(text), text)
+            self.assertFalse(any(line.startswith('♬ ') for line in lines))
+        _, lines, _ = self.run_stream(message('Checking now.', ('t1', 'echo fixture')) + [result('t1')] + message('Done.'), 'Done.')
+        self.assertIn('♬! ', lines)
+        self.assertTrue(any(line == '♬ Done.' for line in lines))
+
+    def test_teach_me_an_app_draws_each_part_as_its_sentence_is_spoken(self):
+        # Nov 13: "teach me how to use orca" got a markdown tour in a text card; Plip drew on the screen as it talked
+        Path(self.root.name, 'draw-screens.json').write_text(json.dumps({'screens': {'1': {'frame': [0, 0, 1440, 900], 'pixels': [1280, 800], 'name': 'Built-in'}},
+                                                                        'target': {'pid': 1, 'windowID': '7', 'windowFrame': [0, 0, 1440, 900]}}))
+        said = ['Orca runs coding agents side by side, one per branch.', 'The sidebar on the left lists each project and its worktrees.',
+                'Each tab across the top is a terminal or an agent.', 'This button starts a new agent on the open worktree.']
+        tour = (f'{said[0]} [DRAW:box 0,40 220,790 blue:projects] {said[1]} [DRAW:arrow 600,200 330,30 yellow:new tab] {said[2]} '
+                f'[DRAW:circle 1180,30 18 green] {said[3]} Want to start one on the drawing branch?')
+        env = {'ATTICUS_ASK': self.root.name, 'ATTICUS_SCREEN': 'Built-in'}
+        for speak in (True, False):
+            Path(atticus.PREFS).write_text(json.dumps({'speak': speak}))
+            with self.subTest(speak=speak):
+                reply, lines, shown = self.run_stream(message(tour), tour, env)
+                marks = [i for i, line in enumerate(lines) if line.startswith('✎ ')]
+                drawings = [json.loads(lines[i][2:]) for i in marks]
+                self.assertEqual([len(d['steps']) for d in drawings], [1, 2, 3, 3])   # one step per tagged sentence as each arrives; the last caption then grows
+                self.assertEqual([s['say'] for s in drawings[-1]['steps']], said[1:3] + [said[3] + ' Want to start one on the drawing branch?'])
+                marks = marks[:3]
+                self.assertEqual((len({d['guide'] for d in drawings}), drawings[0]['teaching'], drawings[0]['target']['windowID']), (1, True, '7'))
+                self.assertEqual(drawings[0]['steps'][0]['shapes'][0]['kind'], 'rect')
+                self.assertNotIn('[DRAW', reply + ''.join(line for line in lines if not line.startswith('✎ ')))
+                self.assertIn('Want to start one on the drawing branch?', reply)
+                speech = [(i, line[2:]) for i, line in enumerate(lines) if line.startswith('♬ ')]
+                if not speak:
+                    self.assertFalse(speech); self.assertTrue(shown); continue
+                for k, i in enumerate(marks):   # each mark comes right after the words before it are spoken, before its own sentence
+                    self.assertTrue(any(said[k] in text for j, text in speech if j < i), k)
+                    self.assertFalse(any(said[k + 1] in text for j, text in speech if j < i), k)
+
+    def test_drawing_controls_never_leak_from_final_replies_or_tool_notes(self):
+        Path(atticus.PREFS).write_text(json.dumps({'speak': True}))
+        for suffix in ('[DRAW', '[DRAW:text 1,1:unfinished', '[DRAW:text 1,1:arr[i]]'):
+            text = 'The array is arr[i]. ' + suffix
+            with self.subTest(suffix=suffix):
+                reply, lines, _ = self.run_stream(message(text, ('t1', 'echo fixture')) + [result('t1')] + message(text), text)
+                visible = reply + ''.join(line for line in lines if not line.startswith('✎ '))
+                self.assertNotIn('[DRAW', visible)
+                self.assertIn('arr[i].', reply)
+
     def test_multi_line_agent_handoff_never_prints_text_and_hands_off(self):
         marker = '[agent ' + json.dumps({'title': 'Research desks', 'brief': 'Compare standing desks under $600 across sources', 'context': ANSWER}, indent=2) + ']'
         ask = tempfile.mkdtemp(dir=self.root.name)
@@ -204,6 +267,7 @@ let now=0;const performance={now:()=>now};
 const a=new N('DIV');a.className='a';a.getBoundingClientRect=()=>({top:116-thread.scrollTop});
 const thread={scrollTop:0,clientHeight:420,get scrollHeight(){return 120+a.words().length*40},getBoundingClientRect:()=>({top:0}),querySelectorAll:s=>s==='.a.streaming'&&a.classList.contains('streaming')?[a]:[]};
 const $=()=>thread,part=c=>c==='a'?a:null,status=()=>{},settle=()=>{},setState=()=>{},miniFinish=()=>{},clockStop=()=>{},clockBegin=()=>{},turn=()=>null;
+const drawingActive=false,drawingThisTurn=false,autoMinimize=false,unfoldToEnd=()=>{};
 let folded=false,atBottom=true,clock=null,working=true;const fit=(follow=true)=>{if(follow&&atBottom)thread.scrollTop=thread.scrollHeight};
 ''' + unstream + reveal + 'const ui={' + line + r'''};
 const words=()=>a.words().map(w=>w.textContent).join(' '),check=(ok,name)=>{if(!ok){console.error(name,'|',words(),'|',a.className,thread.scrollTop);process.exit(1)}};
@@ -229,7 +293,7 @@ ui.line('… Late words');check(words()==='Final answer','a finished answer stay
 a.dataset={};a.replaceChildren();ui.line('✓ Fresh reply');check(a.words().length===2&&a.words().every(w=>w.className==='w'&&w.style.animationDelay),'an answer that did not stream still fades in');
 ''')
         self.assertIn('.a .w { display: inline-block; animation: word', page)   # the streamed words reuse the answer's fade (Reduce Motion turns it off)
-        for call in ('    finished() { clockStop(); miniFinish(false); unstream(); unfoldToEnd(); },', "unpin(); unstream();", ".forEach(e => e.remove()); unstream();"):
+        for call in ('clockStop(); miniFinish(false); unstream();', "unpin(); unstream();", ".forEach(e => e.remove()); unstream();"):
             self.assertIn(call, page)   # a hand-off, an ask card or a choices card never leaves the provisional text
 
     @unittest.skipUnless(shutil.which('node'), 'Node runs the box handler')
@@ -300,7 +364,7 @@ lines.forEach((l,k)=>{now=k*25;ui.line(l);
 const all=boxes(a).map(b=>b.nodeName+'.'+b.className).join();
 check(['UL.','OL.','DIV.h','PRE.','CODE.','TD.'].every(b=>all.includes(b))&&units(a).some(u=>u.namespaceURI),'every kind of block was there: '+all);
 ''')
-        self.assertIn('.turn > .a :is(li, pre, code, th, td) { animation: word .5s var(--ease) both; }', (ROOT / 'ui' / 'ui.html').read_text())   # the word fade; Reduce Motion turns it off
+        self.assertIn('.turn > .a :is(li, pre, code, th, td) { animation: word var(--t-slow) var(--ease) both; }', (ROOT / 'ui' / 'ui.html').read_text())   # the word fade; Reduce Motion keeps only its opacity
 
 
 if __name__ == '__main__':

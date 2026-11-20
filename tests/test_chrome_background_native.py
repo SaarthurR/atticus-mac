@@ -23,7 +23,39 @@ CHROME = Path('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
 @unittest.skipUnless(os.environ.get('ATTICUS_VM') == '1' and sys.platform == 'darwin' and CHROME.exists(),
                      'Isolated Chrome profile requires ATTICUS_VM=1 and macOS Chrome')
 class ChromeBackgroundTests(unittest.TestCase):
+    def test_automation_preflight_only_skips_denial_or_consent(self):
+        for code in (0, -1743, -1744, -600, -10000):
+            with self.subTest(code=code), patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, str(code), '')), \
+                 patch.object(time, 'monotonic', side_effect=[0, 6]):
+                if code in (-1743, -1744):
+                    with self.assertRaises(unittest.SkipTest): self.require_automation('fixture')
+                elif code:
+                    with self.assertRaises(AssertionError): self.require_automation('fixture')
+                else:
+                    self.require_automation('fixture')
+        with patch.object(subprocess, 'run', side_effect=subprocess.TimeoutExpired('osascript', 3)):
+            with self.assertRaises(subprocess.TimeoutExpired): self.require_automation('fixture')
+        with patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], 1, '', 'unrelated error')):
+            with self.assertRaises(AssertionError): self.require_automation('fixture')
+
+    def require_automation(self, bundle):
+        script = '''ObjC.import('Foundation');ObjC.import('Carbon');
+ObjC.bindFunction('AEDeterminePermissionToAutomateTarget',['int',['void *','unsigned int','unsigned int','bool']]);
+const target=$.NSAppleEventDescriptor.descriptorWithBundleIdentifier(''' + json.dumps(bundle) + ''');
+$.AEDeterminePermissionToAutomateTarget(target.aeDesc,0x2a2a2a2a,0x2a2a2a2a,false);'''
+        deadline = time.monotonic() + 5
+        while True:
+            probe = subprocess.run(['osascript', '-l', 'JavaScript', '-e', script], capture_output=True, text=True, timeout=3)
+            self.assertEqual(probe.returncode, 0, probe.stderr)
+            code = int(probe.stdout.strip())
+            if code != -600 or time.monotonic() >= deadline: break   # the scratch app must finish launching before this API can check it
+            time.sleep(.05)
+        if code in (-1743, -1744): self.skipTest(f'VM Automation permission for {bundle} is denied or requires user consent ({code}); no prompt requested')
+        self.assertEqual(code, 0, f'Automation probe for {bundle} failed: {code}')
+
     def test_native_fullscreen_placement_repeats_without_toggling(self):
+        subprocess.run(['open', '-g', '-b', 'com.apple.systemevents'], check=True, capture_output=True)
+        self.require_automation('com.apple.systemevents')
         with tempfile.TemporaryDirectory(prefix='atticus-place-') as tmp:
             root=Path(tmp); marker='Atticus placement '+root.name
             page=root/'page.html';page.write_text('<title>'+marker+'</title><p>Scratch placement</p>')
@@ -34,10 +66,9 @@ class ChromeBackgroundTests(unittest.TestCase):
                     deadline=time.monotonic()+15
                     probe=None
                     while time.monotonic()<deadline:
-                        try: probe=subprocess.run(['osascript','-e',selector],capture_output=True,text=True,timeout=3)
-                        except subprocess.TimeoutExpired: self.skipTest('VM does not allow Apple events to scratch Chrome through System Events')
+                        probe=subprocess.run(['osascript','-e',selector],capture_output=True,text=True,timeout=3)
                         if probe.stdout.strip() in ('true','false'): break
-                        if 'not allowed' in probe.stderr or 'not authorized' in probe.stderr: self.skipTest(probe.stderr.strip())
+                        if 'not allowed' in probe.stderr.lower() or 'not authorized' in probe.stderr.lower() or '(-1743)' in probe.stderr: self.skipTest(probe.stderr.strip())
                         time.sleep(.2)
                     else: self.fail('Scratch Chrome window not accessible: '+(probe.stderr if probe else '')+(root/'chrome.log').read_text()[-1000:])
                     with patch.object(atticus,'preview_app'),patch.object(atticus,'free_focus'):
@@ -72,15 +103,15 @@ class ChromeBackgroundTests(unittest.TestCase):
                 return result.stdout.strip()
             try:
                 # Only request IDs for our unique fixture title, even if AppleScript chose another Chrome instance.
+                self.require_automation('com.google.Chrome')
                 selector = f'tell application "Google Chrome"\nset ws to every window whose name contains "{marker}"\nif (count ws) is 0 then return ""\nset w to item 1 of ws\nreturn (id of w as text) & (ASCII character 9) & (id of active tab of w as text)\nend tell'
                 ids = ''
                 for _ in range(40):
                     time.sleep(.3)
-                    try: probe = subprocess.run(['osascript','-e',selector],env=env,capture_output=True,text=True,timeout=3)
-                    except subprocess.TimeoutExpired: self.skipTest('VM does not allow Apple events to its scratch Chrome')
+                    probe = subprocess.run(['osascript','-e',selector],env=env,capture_output=True,text=True,timeout=3)
                     ids = probe.stdout.strip() if not probe.returncode else ''
                     if ids: break
-                if not ids: self.skipTest('Scratch Chrome did not expose its uniquely titled fixture')
+                self.assertTrue(ids, 'Scratch Chrome did not expose its uniquely titled fixture: ' + probe.stderr)
                 window, tab = map(int,ids.split('\t'))
                 tell = f'tell application "Google Chrome" to execute (first tab of window id {window} whose id is {tab}) javascript '
                 webjs = Path(atticus.WEB_JS).read_text()
@@ -346,7 +377,8 @@ signal(SIGTERM) { _ in exit(0) }; app.run()
             # localhost vs 127.0.0.1 is a cross-origin iframe: the canvas is in a different-origin document, as Google Minesweeper is.
             (root / 'top.html').write_text(f'''<title>ATTICUS FS {root.name}</title><body style="margin:0;background:#888"><iframe src="http://localhost:{port}/game.html" width=440 height=420 style="border:0;display:block"></iframe><script>{say}
 const info=()=>say('/info',{{w:'full',x:screenX,y:screenY,bar:outerHeight-innerHeight,ow:outerWidth,sw:screen.width,focus:document.hasFocus()}});info();setInterval(info,300);</script>''')
-            (root / 'game.html').write_text(f'''<body style="margin:0"><canvas id=c width=440 height=300 style="display:block;background:#fff"></canvas><script>{say}const c=document.getElementById('c'),g=c.getContext('2d');
+            # Keep AX focus stable: this fixture must exercise the pixel receipt, not first-click web-area focus.
+            (root / 'game.html').write_text(f'''<body style="margin:0"><canvas id=c tabindex=0 width=440 height=300 style="display:block;background:#fff"></canvas><script>{say}const c=document.getElementById('c'),g=c.getContext('2d');c.focus();
 for(const t of ['pointerdown','mousedown','click'])c.addEventListener(t,e=>{{say('/hit',[e.type,e.offsetX,e.offsetY,e.isTrusted]);if(t=='pointerdown'){{g.fillStyle='#000';g.fillRect(e.offsetX-20,e.offsetY-15,40,30)}}}});</script>''')
             binary = root / 'Atticus'
             compiled = subprocess.run(['swiftc', str(root_dir / 'Atticus.swift'), '-o', str(binary)], capture_output=True, text=True)

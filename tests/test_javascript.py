@@ -31,7 +31,7 @@ const q = {textContent: '', classList: {
  toggle(k, on) { on ? classes.add(k) : classes.delete(k); },
  remove(...keys) { keys.forEach(k => classes.delete(k)); }
 }};
-let present = true, fits = 0, listening, working, boost;
+let present = true, fits = 0, listening, working, boost, autoMinimize = false;
 const part = () => present ? q : null, fit = () => fits++;
 const clockBegin = () => {}, setState = () => {}, status = () => {};
 const document = {body: {classList: {remove() {}}}}, $ = () => ({style: {}});
@@ -54,7 +54,7 @@ ui.tail(false); present = false; ui.tail(false); assert(fits > 0);
         self.assertIn('js("tail", false)', hush)
         self.assertIn('.q.empty:not(.hear):not(.tail)', source)
         self.assertIn('animation: pulse 1.6s ease-in-out infinite', source)
-        self.assertIn('*, *::before, *::after { animation: none !important;', source)
+        self.assertIn('@keyframes pulse {}', source)   # Reduce Motion: the pulse stops
 
     def test_failed_meeting_stream_restores_retry(self):
         source = (Path(__file__).resolve().parents[1] / 'ui' / 'meeting.html').read_text()
@@ -95,16 +95,16 @@ const ui={''' + dictate + '''};ui.dictate(true);if(bars.some(b=>b.style.height)|
         self.assertIn("for (let i = 0; i < 9; i++) $('dictwave').append", source)
         self.assertIn('if dictating { scheduleDictateAhead(); return }', native)
 
-    def test_onboarding_finish_names_missing_voice_requirements(self):
+    def test_onboarding_finish_names_only_setup_requirements(self):
         source = (Path(__file__).resolve().parents[1] / 'ui' / 'onboarding.html').read_text()
-        helper = source[source.index('  const paintDone='):source.index('\n  window.ob', source.index('  const paintDone='))]
+        helper = source[source.index('  const paintDone ='):source.index('\n  const capsOf', source.index('  const paintDone ='))]
         script = '''
-const nodes=new Map(),$=id=>{if(!nodes.has(id))nodes.set(id,{textContent:''});return nodes.get(id)};
+const nodes=new Map(),$=id=>{if(!nodes.has(id))nodes.set(id,{textContent:''});return nodes.get(id)};let toggleMode=false,doneNext='';
 ''' + helper + '''
 paintDone({claude:false,mic:true,speech:false,ax:false});
-if($('done-title').textContent!=='Setup isn’t finished yet'||!$('done-sub').textContent.includes('AI provider, Speech Recognition, Accessibility')||$('finish').textContent!=='Finish Setup Later')process.exit(1);
-paintDone({claude:true,mic:true,speech:true,ax:false});
-if($('done-title').textContent!=='Voice is ready'||$('finish').textContent!=='Start Using Atticus')process.exit(2);
+if($('done-title').textContent!=='Setup isn’t finished yet'||!$('done-sub').textContent.includes('AI provider, Accessibility, Speech Recognition, Screen & System Audio Recording')||doneNext!=='Finish Setup Later')process.exit(1);
+paintDone({claude:true,mic:false,speech:false,ax:false});
+if($('done-title').textContent!=='AI is ready'||doneNext!=='Start Using Atticus')process.exit(2);
 '''
         result = subprocess.run(['node', '--input-type=module'], input=script, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -157,7 +157,7 @@ expect(md('snake_case_name and _em_'),'<p>snake_case_name and <em>em</em></p>','
         self.assertIn('if b["workerRetry"] != nil, !busy', native)
         failed = page[page.index('    workerFailed(){'):page.index('    agentDone(row)')]
         self.assertNotIn('retry', re.search(r"className='([^']*)'", failed).group(1), 'typed asks are not answers to this card')
-        self.assertIn("'.rewrite, .paused, .worker'", page)
+        self.assertIn("'.rewrite, .paused, .worker, .upgrade'", page)
 
     def test_paused_shortcut_offers_rate_limited_resume(self):
         root = Path(__file__).resolve().parents[1]

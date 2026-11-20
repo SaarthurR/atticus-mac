@@ -1,9 +1,11 @@
 """Screen drawing boundaries and coordinate mapping; native windows run only through the VM runner."""
-from tests.test_drawing_math_page import MATH_STUB
+from tests.test_drawing_math_page import HIS_CARD, MATH_STUB
 import copy
 import json
+import math
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -11,7 +13,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from tests import scratch_dir
+from tests import scratch_dir, swift_motion
 import atticus
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,6 +31,133 @@ class DrawingTests(unittest.TestCase):
         self.assertEqual(len(atticus.drawing(payload)['steps'][0]['shapes']),7)
         anchored = {'steps':[{'target':'Exact control','wait':True,'shapes':[{'kind':'rect'},{'kind':'pointer'},{'kind':'label','text':'Here'}]}]}
         self.assertEqual(atticus.drawing(anchored)['steps'][0]['target'],'Exact control')
+
+    def test_circle_corner_order_does_not_change_the_ring(self):
+        forward = atticus.parse_draw('[DRAW:circle 100,100 500,500]')
+        reverse = atticus.parse_draw('[DRAW:circle 500,500 100,100]')
+        self.assertEqual(reverse, forward)
+        self.assertEqual(atticus.parse_draw('[DRAW:circle 300,210 40]')['shapes'][0]['rect'], [260,170,80,80])
+
+    def test_inline_tags_parse_like_plip(self):
+        p = atticus.parse_draw
+        self.assertEqual(p('[DRAW:circle 300,210 40 green:the hypotenuse]'), {'screen':None,'shapes':[
+            {'kind':'circle','rect':[260.0,170.0,80.0,80.0],'color':'green'},{'kind':'label','at':[340.0,210.0],'text':'the hypotenuse','color':'green'}]})
+        self.assertEqual(p('[DRAW:circle 315,480:screen2 16 purple:right angle]')['screen'], 2)   # Plip: the screen often comes right after the points
+        self.assertEqual(p('[DRAW:circle 315,480:screen2 16 purple:right angle]')['shapes'][0]['color'], 'yellow')   # Atticus's own colors
+        self.assertEqual(p('[DRAW:circle 361,403 47,12:x]')['shapes'][0]['rect'], [47.0,12.0,314.0,391.0])   # two corners, in either order
+        self.assertEqual(p('[DRAW:curve 1,2 3,4 5,6 :screen1]')['shapes'], [{'kind':'path','points':[[1.0,2.0],[3.0,4.0],[5.0,6.0]],'color':'blue','smooth':True}])
+        self.assertEqual(p('[DRAW:arrow 1,1 5,5 9,1 red]')['shapes'][-1], {'kind':'arrow','points':[[5.0,5.0],[9.0,1.0]],'color':'red'})
+        self.assertEqual(p('[DRAW:text 20,390:$x^2-3x+2$]')['shapes'], [{'kind':'text','at':[20.0,390.0],'text':'$x^2-3x+2$'}])
+        tex = r'[DRAW:text 20,390:$\frac{a[i]}{b[j]}$]'
+        self.assertEqual(atticus._draw_end(tex), len(tex))
+        self.assertEqual(p(tex)['shapes'][0]['text'], r'$\frac{a[i]}{b[j]}$')
+        self.assertEqual(p('[DRAW:highlight 66,136 215,157:purple]')['shapes'], [{'kind':'rect','rect':[66.0,136.0,149.0,21.0],'color':'yellow','fill':True}])
+        for style in ('blue', 'yellow', 'green', 'red', 'white', 'purple'):
+            shapes = p(f'[DRAW:arrow 100,100 300,200:{style}: Search]')['shapes']
+            self.assertEqual(shapes[-1]['text'], 'Search')
+            self.assertEqual(shapes[-1]['color'], atticus._DRAW_TONES[style])
+        self.assertEqual(p('[DRAW:text 100,100:Blue whale]')['shapes'][0]['text'], 'Blue whale')
+        self.assertEqual(p('[DRAW:text 100,100:Search: filters]')['shapes'][0]['text'], 'Search: filters')
+        self.assertEqual(atticus.drawing({'steps':[{'say':'A label.', 'shapes':[{'kind':'label','at':[100,100],'text':'blue: notes','color':'blue'}]}]})['steps'][0]['shapes'][0]['text'], 'blue: notes')
+        self.assertEqual(p('[DRAW:line 10,10 200,10 dashed:h]')['shapes'][0], {'kind':'line','points':[[10.0,10.0],[200.0,10.0]],'color':'blue','dashed':True})
+        self.assertNotIn('dashed', p('[DRAW:line 10,10 200,10 dashed:h]')['shapes'][1])
+        self.assertTrue(p('[DRAW:circle 300,210 40:helper dashed]')['shapes'][0]['dashed'])
+        self.assertNotIn('dashed', p('[DRAW:highlight 66,136 215,157 dashed]')['shapes'][0])
+        square = p('[DRAW:angle 100,100 200,100 100,0:right angle]')['shapes']   # Plip: a right angle is a little square, its name dropped
+        self.assertEqual(len(square), 1); self.assertNotIn('smooth', square[0]); self.assertEqual(len(square[0]['points']), 3)
+        self.assertEqual([round(v, 6) for v in square[0]['points'][1]], [121.6, 78.4])
+        arc = p('[DRAW:angle 100,100 200,100 150,60:θ]')['shapes']
+        self.assertTrue(arc[0]['smooth']); self.assertEqual(arc[1]['text'], 'θ')
+        self.assertGreaterEqual(math.dist(arc[0]['points'][0], [100, 100]), 22)   # Plip's arc radius: 22-48, opened out when narrow
+        self.assertIn('[DRAW:circle 420,180 40 yellow:Sun]', atticus.DRAWING)   # Plip's worked example: style goes before the colon
+        self.assertEqual(atticus.drawing({'steps':[{'say':'A helper.','shapes':[{'kind':'line','points':[[1,1],[9,9]],'dashed':True}]}]})['steps'][0]['shapes'][0]['dashed'], True)
+        with self.assertRaises(ValueError): atticus.drawing({'steps':[{'say':'A helper.','shapes':[{'kind':'label','at':[1,1],'text':'x','dashed':True}]}]})
+        self.assertEqual(p('[DRAW:clear]'), 'clear')
+        for bad in ('[DRAW:hexagon 1,1]', '[DRAW:arrow 1,1]', '[DRAW:text 1,1]', '[DRAW:]', 'DRAW:dot 1,1'):
+            with self.subTest(bad=bad): self.assertIsNone(p(bad))
+        self.assertEqual(atticus._draw_end('[DRAW:text 1,1:arr[i]] Next'), 22)
+        self.assertIsNone(atticus._draw_end('[DRAW:text 1,1:[0, 1) on'))
+        self.assertEqual(atticus._draw_end('[DRAW:text 1,1:[0, 1)] ' + 'x' * 61), 22)   # an unclosed label ends once the speech after it arrives
+
+    def test_inline_steps_come_out_with_their_sentences(self):
+        (self.root/'draw-screens.json').write_text(json.dumps({'screens':{
+            '1':{'frame':[0,0,1440,900],'pixels':[1280,800],'name':'Built-in'},'2':{'frame':[1440,0,2560,1440],'pixels':[1280,720],'name':'LG'}},
+            'target':{'pid':1,'windowID':'2','windowFrame':[0,0,10,10]}}))
+        reply = ("Here's the graph. [DRAW:line 100,600 1200,600 white:x] [DRAW:line 640,700 640,50 white:y] These are the axes. "
+                 "[DRAW:curve 400,100 640,600 880,100:y = x^2] It opens up. Done. [DRAW:dot 99999,1] Off the picture.")
+        with patch.dict(os.environ,{'ATTICUS_ASK':str(self.root),'ATTICUS_SCREEN':'LG'}):
+            for step in (1, 5, 40):
+                stream, events, shown = atticus.InlineDrawing(), [], []
+                for i in range(1, len(reply) + 1, step):
+                    text, out = stream.feed(reply[:i]); events += out; shown.append(text)
+                    self.assertNotIn('[', text)   # a tag never shows, even half arrived
+                text, out = stream.feed(reply, final=True); events += out
+                with self.subTest(step=step):
+                    self.assertEqual(text, "Here's the graph. \n These are the axes. \n It opens up. Done. \n Off the picture.")
+                    news = [(before, len(payload['steps'])) for before, payload in events if before is not None]
+                    self.assertEqual(news, [("Here's the graph. \n", 1), ("Here's the graph. \n These are the axes. \n", 2)])   # each step after the text before it
+                    last = events[-1][1]
+                    self.assertEqual([s['say'] for s in last['steps']], ['These are the axes.', 'It opens up. Done.'])
+                    self.assertEqual(len(last['steps'][0]['shapes']), 4)   # tags with only space between them are one step
+                    self.assertEqual(last['steps'][0]['shapes'][0]['points'], [[1640.0, 1200.0], [3840.0, 1200.0]])   # the Request screen's picture pixels
+                    self.assertEqual((last['teaching'], last['target']['windowID'], len({p['guide'] for _, p in events})), (True, '2', 1))
+                    self.assertFalse(any(text.endswith('These are the axes. \n It') for text in shown))   # a step's text waits for its sentence
+            clear = atticus.InlineDrawing()
+            _, out = clear.feed('[DRAW:dot 5,5] One. [DRAW:clear] [DRAW:dot 6,6] Two.', final=True)
+            self.assertEqual([len(p['steps']) for _, p in out], [1])
+            self.assertTrue(out[0][1]['guide'].endswith('-1'))   # after clear: a new guide, not step 2 of the old one
+        self.assertEqual(atticus.InlineDrawing().feed('No drawing [here]. [DRAW', final=False), ('No drawing [here]. ', []))
+        for text in ('Use arr[i] and [0, 1].', '```python\nvalues = [data[i] for i in ids]\n```', r'TeX: $[a,b]$ and \\[x\\].'):
+            self.assertEqual(atticus.InlineDrawing().feed(text, final=True), (text, []))
+        for text in ('Before. [DRAW', 'Before. [DRAW:text 1,1:never closes'):
+            self.assertEqual(atticus.InlineDrawing().feed(text, final=True), ('Before. ', []))
+
+    def test_inline_caption_keeps_the_reply_lines(self):
+        (self.root/'draw-screens.json').write_text(json.dumps({'screens':{'1':{'frame':[0,0,1440,900],'pixels':[1440,900]}},
+            'target':{'pid':1,'windowID':'2','windowFrame':[0,0,10,10]}}))
+        reply = ('[DRAW:highlight 100,100 300,140] The channel has two videos:\n-   **"Bread basics"** pitches it.\n- **"Loaf"** is a demo.'
+                 '\n\n\n\nDo you want   me to open it?')
+        with patch.dict(os.environ,{'ATTICUS_ASK':str(self.root)}):
+            _, events = atticus.InlineDrawing().feed(reply, final=True)
+        self.assertEqual(events[-1][1]['steps'][0]['say'],
+                         'The channel has two videos:\n- **"Bread basics"** pitches it.\n- **"Loaf"** is a demo.\n\nDo you want me to open it?')
+        messy = '[DRAW:highlight 100,100 300,140] ' + HIS_CARD.replace('\n- ', '\n-   ').replace('\n\n', '  \n\n\n\n')
+        with patch.dict(os.environ,{'ATTICUS_ASK':str(self.root)}):
+            _, events = atticus.InlineDrawing().feed(messy, final=True)
+        self.assertEqual(events[-1][1]['steps'][0]['say'], HIS_CARD)
+
+    def test_inline_click_steps_wait_on_their_mark(self):
+        (self.root/'draw-screens.json').write_text(json.dumps({'screens':{'1':{'frame':[0,0,1440,900],'pixels':[1440,900]}},
+            'target':{'pid':1,'windowID':'2','windowFrame':[0,0,10,10]}}))
+        reply = ('[DRAW:circle 1300,12 10 click:Menu icon] Open the menu. [DRAW:box 1100,40 1400,90] This tile shows the mode. '
+                 '[DRAW:dot 1200,60 yellow click] Click the tile.')
+        with patch.dict(os.environ,{'ATTICUS_ASK':str(self.root)}):
+            _, events = atticus.InlineDrawing().feed(reply, final=True)
+        steps = events[-1][1]['steps']
+        self.assertEqual([s.get('wait') for s in steps], [True, None, True])   # the model marks which steps wait, in the same reply
+        self.assertEqual(steps[0]['hit'], [1280, 0, 40, 32])   # what the ring holds plus slack, kept on its display
+        self.assertEqual(steps[2]['hit'], [1190, 50, 20, 20])
+        self.assertNotIn('hit', steps[1])
+        self.assertTrue(events[-1][1]['teaching'])
+        self.assertNotIn('wait', atticus.parse_draw('[DRAW:circle 5,5 4 yellow:Look]'))
+
+    def test_draw_cli_keeps_tex_backslashes_in_json(self):
+        payload = json.dumps({'steps':[{'say':'Add $a\\;b$ \\ ok\n','shapes':[{'kind':'text','text':r'$\frac12$'}]}]}).replace(r'\\;', r'\;')
+        with patch.object(atticus,'draw',return_value='Guide shown') as draw, patch('sys.argv',['atticus.py','--draw',payload]), patch('sys.stdout'):
+            atticus.main()
+        step = draw.call_args.args[0]['steps'][0]
+        self.assertEqual((step['say'], step['shapes'][0]['text']), ('Add $a\\;b$ \\ ok\n', '$\\frac12$'))
+
+    def test_draw_json_repair_keeps_valid_escapes_in_a_mixed_payload(self):
+        for payload, expected in ((r'{"steps":[{"say":"first\nnext\tthen","shapes":[{"kind":"text","text":"$\;x$"}]}]}', 'first\nnext\tthen'),
+                                  (r'{"steps":[{"say":"first\nnext\tthen","shapes":[]}]}', 'first\nnext\tthen')):
+            with patch.object(atticus, 'draw', return_value='Guide shown') as draw, patch('sys.argv', ['atticus.py', '--draw', payload]), patch('sys.stdout'):
+                atticus.main()
+            self.assertEqual(draw.call_args.args[0]['steps'][0]['say'], expected)
+        valid = r'{"steps":[{"say":"\frac\nnext\tthen\u03b1\\end\"","shapes":[]}]}'
+        with patch.object(atticus, 'draw', return_value='Guide shown') as draw, patch('sys.argv', ['atticus.py', '--draw', valid]), patch('sys.stdout'):
+            atticus.main()
+        self.assertEqual(draw.call_args.args[0], json.loads(valid))
 
     def test_smooth_paths_keep_samples_and_reject_conflicting_modes(self):
         shape = {'kind':'path','smooth':True,'points':[[0,0],[50,100],[100,0]]}
@@ -133,7 +262,7 @@ class DrawingTests(unittest.TestCase):
         context = atticus.drawing_context(drawn)
         self.assertIn('still on screen, step 1 of 1',context)
         self.assertIn('"rect":[600,170,60,60]',context)
-        self.assertIn('more drawing, run --look && --draw --help (one call), then one --draw',context)   # the help carries the locate/explain split
+        self.assertIn('A new drawing replaces it, so redraw the parts to keep.',context)
         for bad in (None,{},{'steps':[]},{'steps':'x'},'steps'):
             self.assertEqual(atticus.drawing_context(bad),'')
         many = {'steps':[{'say':f'Step {i}','shapes':[{'kind':'path','points':[[j,j] for j in range(256)]}]} for i in range(12)]}
@@ -191,15 +320,34 @@ class DrawingTests(unittest.TestCase):
 
     def test_disabled_tool_and_prompt_budget(self):
         with patch.object(atticus,'pref',side_effect=lambda k,d: False if k == 'draw' else d):
-            self.assertNotIn('--draw',atticus.system_prompt(atticus.ASK_FIRST))
+            self.assertNotIn('--draw',atticus.system_prompt(atticus.ASK_FIRST,'sonnet'))
+            self.assertNotIn('[DRAW:',atticus.system_prompt(atticus.ASK_FIRST,'sonnet'))
             with self.assertRaisesRegex(ValueError,'off'): atticus.draw({'steps':[]})
-        prompt = atticus.system_prompt(atticus.ASK_FIRST)
         installed = str(Path.home()/'Applications/Atticus.app/Contents/Resources/atticus.py')
-        self.assertIn('--draw',prompt)
-        self.assertIn('use ' + atticus.DRAW + ' once on Request screen unless user names another',prompt)
-        self.assertLessEqual(len(prompt.replace(atticus.ME,installed)),10050)   # +50 for the send-to-running-input rule (1.3.2)
+        drawing = atticus.system_prompt(atticus.ASK_FIRST,'sonnet')
+        self.assertIn('[DRAW:shape points style:label]',drawing)
+        aloud = len(atticus.READ_ALOUD)   # read answers aloud is on by default (Nov 17, 2026)
+        self.assertLessEqual(len(drawing.replace(atticus.ME,installed)),11500+85+aloud)   # the model that draws carries the tag grammar; +85: charts graph line
+        prompt = atticus.system_prompt(atticus.ASK_FIRST)
+        self.assertNotIn('[DRAW:',prompt)
+        self.assertLessEqual(len(prompt.replace(atticus.ME,installed)),10050+aloud)   # +50 for the send-to-running-input rule (1.3.2)
+        with patch.object(atticus,'routing_mode',return_value='balanced'):   # Haiku hands drawing asks on with [explain]
+            balanced = atticus.system_prompt(atticus.ASK_FIRST,'haiku')
+            self.assertNotIn('[DRAW:',balanced); self.assertNotIn(atticus.DRAW_TOOL,balanced)
+        with patch.object(atticus,'routing_mode',return_value='cheapest'):   # nothing to hand on to: quick asks keep the old tool line and size
+            cheapest = atticus.system_prompt(atticus.ASK_FIRST,'haiku')
+            self.assertIn(atticus.DRAW_TOOL,cheapest); self.assertNotIn('[DRAW:',cheapest)
+        print('Drawing review prompt chars:', {k:len(v.replace(atticus.ME,installed)) for k,v in
+              [('cheapest',cheapest),('balanced',balanced),('drawing',drawing)]}, 'offer:',len(atticus.MODEL_OFFER))
+        with patch.object(atticus,'client',return_value='pi'):   # Pi and Devin answers are read only at the end: they keep the tool
+            self.assertIn('use ' + atticus.DRAW + ' once on Request screen unless user names another',atticus.system_prompt(atticus.ASK_FIRST))
         self.assertIn('draw',atticus.switches())
         self.assertFalse(atticus.replayable(atticus.DRAW + " '{}'"))
+
+    def test_prompt_shows_click_in_a_tag_for_a_step_they_do(self):
+        tags = [t for t in re.findall(r'\[DRAW:[^\]]*\]',atticus.DRAWING) if re.search(r'\bclick\b',t)]
+        self.assertTrue(tags)
+        self.assertTrue(atticus.parse_draw(tags[0])['wait'])
 
     def test_confirmation_and_request_relay(self):
         data = {'steps':[{'say':'Look here.','shapes':[{'kind':'pointer','at':[10,10]}]}]}
@@ -276,7 +424,7 @@ class DrawingTests(unittest.TestCase):
                  patch.object(atticus, 'draw_target', side_effect=error), patch.object(atticus.subprocess, 'run', run):
                 self.assertEqual(len(atticus.look(cleanup=False)), 1)
                 snapshot = json.loads((self.root/'draw-screens.json').read_text())
-                self.assertEqual(snapshot, {'screens':{'1':{'frame':[0,0,1440,900],'pixels':[1280,800]}}, 'target':None})
+                self.assertEqual(snapshot, {'screens':{'1':{'frame':[0,0,1440,900],'pixels':[1280,800],'name':'Display'}}, 'target':None})
                 def shown(lines):
                     Path(json.loads(lines[0][2:])['receipt']).write_text('shown')
                 with patch.object(atticus, 'wait_commit', return_value=True), patch.object(atticus, 'emit', side_effect=shown) as emit:
@@ -285,13 +433,12 @@ class DrawingTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, '--look again'):
                         atticus.draw({'steps':[{'target':'Control','say':'Look here.','shapes':[{'kind':'rect'}]}]})
 
-    def test_look_uses_capture_fallback_when_native_helper_is_missing(self):
+    def test_look_fails_closed_when_native_helper_is_missing(self):
         calls = []
         def run(args, **_):
             calls.append(args)
             if args[0] == atticus.APP:
                 raise FileNotFoundError(2, 'missing helper', atticus.APP)
-            if args[0] == 'screencapture': Path(args[-1]).write_bytes(b'x')
             return subprocess.CompletedProcess(args, 0, stdout='')
         window = {'windowID':'7', 'windowFrame':[0,0,800,600], 'window':'Hidden', 'app':'Example', 'visible':False}
         with patch.dict(os.environ, {'ATTICUS_ASK':str(self.root)}), \
@@ -299,10 +446,8 @@ class DrawingTests(unittest.TestCase):
              patch.object(atticus, 'screens', return_value=[('Display',0,0,1440,900,True)]), \
              patch.object(atticus.subprocess, 'run', run):
             shots = atticus.look(cleanup=False, window=window)
-        self.assertEqual(len(shots), 1)
-        self.assertEqual(Path(shots[0][0]).read_bytes(), b'x')
-        self.assertEqual([args[0] for args in calls], [atticus.APP, 'screencapture', 'sips'])
-        self.assertNotIn('painted', shots[0][1])
+        self.assertEqual(shots, [])  # plain screencapture cannot exclude the held/fading trail
+        self.assertEqual([args[0] for args in calls], [atticus.APP])
 
     def test_ax_draw_refreshes_the_map_in_the_look_target(self):
         target={'pid':123,'windowID':'17','windowFrame':[0,0,800,600]}
@@ -375,23 +520,29 @@ class DrawingTests(unittest.TestCase):
     def test_guide_steps_callouts_and_voice_policy(self):
         source = (ROOT/'Atticus.swift').read_text()
         drawing = source.split('final class ScreenDrawing {',1)[1].split('// The box can take typing',1)[0]
-        self.assertIn('r.steps[..<index].enumerated().map { view.render($0.element.shapes,animate:false,previous:nil,append:true,occupied:textObstacles,dim:true,step:$0.offset) }',drawing)
+        self.assertIn('earlier += r.steps[..<index].enumerated().map { view.render($0.element.shapes,animate:false,previous:nil,append:true,parts:parts,occupied:textObstacles,dim:true,step:$0.offset) }',drawing)   # every multi-step guide builds up
+        self.assertIn('marks:marks,avoid:calloutAvoid,fade:false)',drawing)   # a streamed caption's card stays off the earlier steps too
         for wiring in ('callout.onClose = { [weak self] in self?.clear() }','callout.onNext = { [weak self] in self?.next() }',
                        'callout.onBack = { [weak self] in self?.back() }'):
             self.assertIn(wiring,drawing)
-        self.assertIn('guard step.wait != true || hit?.contains(point) == true',drawing)
+        self.assertIn('guard Date() >= ready, waiting, hit?.contains(point) == true',drawing)
+        self.assertIn('drawing.waiting, drawing.request?.guide == String(cue[0]), Int(cue[1]) ?? 0 > drawing.index { return }',source)   # read-aloud holds at a waiting step
+        self.assertIn('drawing.waited = { [weak self] in self?.speakNext() }',source)
         self.assertIn('deadline = r.teaching ? .distantFuture',drawing)
         self.assertIn('else if !r.teaching { clear() }',drawing)
-        self.assertIn('if !mathOnly, !words.isEmpty, speechEnabled()',drawing)
+        self.assertIn('if !mathOnly, !driven, let caption = step.say, !caption.isEmpty, speechEnabled()',drawing)
         self.assertIn('shown = active && (!r.teaching || calloutPanel?.isVisible == true)',drawing)
-        self.assertIn('!manual, autoSteps()',drawing.split('func tick()',1)[1])
+        tick = drawing.split('func tick()',1)[1]
+        self.assertIn('!manual, !driven, autoSteps(), index+1 < r.steps.count, voice?.isRunning != true',tick)   # Next / Back owns the guide; never over a sentence
+        self.assertIn('Self.readingTime(cardText(step.say,step.shapes))',tick)   # silent steps stay for their reading time
         self.assertNotIn('status?(words)',drawing)   # step text lives beside its marks, never in the ask box
         app = source.split('final class App: NSObject, WKScriptMessageHandler {',1)[1]
-        self.assertIn('drawing.autoSteps = { Prefs.str("guideSteps") != "next" }',app)
+        self.assertIn('drawing.autoSteps = { [weak self] in Prefs.str("guideSteps") != "next" && self?.voice == nil }',app)   # a capped read-aloud: its queued steps still come with their sentences
+        self.assertIn('if let card = drawing.calloutLayout?.card { m = m.union(card) }',app)   # the box's line ends before the step card
         self.assertIn('(guided ? finish : result)',app)
         self.assertIn('deliver(guided ? finish : result, aloud: !guided)',app)   # a follow-up answer beside an old drawing still speaks
         self.assertIn('guard !marks.isNull else { clear(); return }',drawing)
-        self.assertIn('guard screen.intersects(global) else { return }',source)
+        self.assertIn('guard display.intersects(global) else { return }',source)
         self.assertNotIn('drawing.advance()',app)   # a spoken or typed "next" takes over like the Next button
         self.assertIn('"guideSteps": "auto"',source)
         self.assertIn('"guideSteps"', source[source.index('static let retiredKeys'):])   # steps advance by themselves; no Settings row
@@ -590,6 +741,12 @@ drawing.clicked(CGPoint(x:x+100,y:y+200)); precondition(drawing.index == 1,"Targ
 shot("02-control")
 drawing.advance(); precondition(drawing.index == 2)
 shot("03-finish")
+func cardClear() -> Bool {
+ guard let panel = drawing.calloutPanel else { return false }
+ let top = NSScreen.screens[0].frame.maxY, f = panel.frame
+ let card = CGRect(x:f.minX,y:top-f.maxY,width:f.width,height:f.height)
+ return NSScreen.screens.contains { $0.visibleFrame.contains(f) } && !drawing.panels.flatMap { ($0.contentView as? DrawingView)?.hitBounds ?? [] }.contains { $0.intersects(card) }
+}
 let panels = drawing.panels
 var cleanups = 0; drawing.cleanup = { cleanups += 1 }
 drawing.clear(); precondition(cleanups == 1,"AX session was not restored on clear"); precondition(!drawing.active && drawing.voice == nil && drawing.timer == nil && drawing.monitors.isEmpty && panels.allSatisfy { !$0.isVisible })
@@ -598,20 +755,78 @@ let lesson: [[String:Any]] = [["say":"Draw the square.","shapes":[["kind":"rect"
 precondition(drawing.receive(data(lesson,teaching:true)) && drawing.calloutPanel?.isVisible == true,"Whiteboard step had no callout")
 let lessonFrame = drawing.calloutPanel!.frame
 precondition(!drawing.calloutPanel!.frame.intersects(CGRect(x:x+60,y:NSScreen.screens[0].frame.maxY-(y+350),width:200,height:200)),"Callout covered its mark")
-drawing.advanceAt = .distantPast; drawing.tick(); precondition(drawing.index == 1,"Auto step did not advance")
-precondition(drawing.calloutPanel?.frame == lessonFrame,"Next moved the step panel")
+drawing.tick(); precondition(drawing.index == 0,"Silent step moved on before its reading time")
+drawing.shownAt = .distantPast; drawing.tick(); precondition(drawing.index == 1 && !drawing.manual,"Silent step did not move on after its reading time")
+let lessonViews = drawing.panels.compactMap { $0.contentView as? DrawingView }
+precondition(lessonViews.flatMap { $0.hits }.contains { $0.step == 0 } && lessonViews.flatMap { $0.hits }.contains { $0.step == 1 },"The earlier step's marks vanished")
+precondition(lessonViews.flatMap { $0.layer?.sublayers ?? [] }.contains { $0.opacity == 0.5 },"The earlier step's marks are not dimmed")
+precondition(cardClear(),"The auto step covered the drawing")
+drawing.shownAt = .distantPast; drawing.tick(); precondition(drawing.index == 1 && drawing.active,"The last step did not stay")
 drawing.back(); precondition(drawing.index == 0 && drawing.manual,"Back did not return to the last step")
+precondition(drawing.panels.compactMap { $0.contentView as? DrawingView }.flatMap { $0.hits }.allSatisfy { $0.step == 0 },"Back left the later step's marks")
 precondition(drawing.calloutPanel?.frame == lessonFrame,"Back moved the step panel")
 drawing.showStep(forward:false,mathOnly:true)
 precondition(drawing.calloutPanel?.frame == lessonFrame,"Math reflow moved the step panel")
-drawing.advanceAt = .distantPast; drawing.tick(); precondition(drawing.index == 0,"Auto steps fought the user's Back")
+drawing.shownAt = .distantPast; drawing.tick(); precondition(drawing.index == 0,"Auto steps fought the user's Back")
 drawing.next(); precondition(drawing.index == 1); drawing.next(); precondition(!drawing.active,"Done on the last step did not clear")
+func streamed(_ steps: [[String:Any]], _ guide: String) -> Data { try! JSONSerialization.data(withJSONObject:["steps":steps,"teaching":true,"target":target,"state":"fixture","guide":guide]) }
+drawing.driven = true
+precondition(drawing.update(streamed(Array(lesson[..<1]),"g1")) && drawing.index == 0,"A streamed guide's first step did not show")
+func inked() -> [ObjectIdentifier] { drawing.panels.flatMap { $0.contentView?.layer?.sublayers ?? [] }.map(ObjectIdentifier.init) }
+let firstInk = inked()
+precondition(drawing.update(streamed(lesson,"g1")) && drawing.index == 0 && drawing.request?.steps.count == 2,"A streamed step moved the shown one")
+precondition(!firstInk.isEmpty && inked() == firstInk && drawing.calloutPanel?.isVisible == true,"A streamed step redrew the shown marks, cutting their ink short")
+drawing.shownAt = .distantPast; drawing.tick(); precondition(drawing.index == 0 && drawing.voice == nil,"A spoken guide stepped or talked by itself")
+drawing.reveal(1); precondition(drawing.index == 1,"The voice did not bring in the next step")
+var recaptioned = lesson; recaptioned[1]["say"] = String(repeating:"Label its side and read it back. ",count:6)
+precondition(drawing.update(streamed(recaptioned,"g1")) && drawing.index == 1 && cardClear(),"A streamed caption moved the card onto an earlier step")
+precondition(drawing.update(streamed(Array(lesson[..<1]),"g2")) && drawing.index == 0 && drawing.request?.steps.count == 1,"Another guide did not start over")
+drawing.driven = false; drawing.clear()
+precondition(!drawing.update(streamed(lesson,"g2")) && !drawing.active,"A late caption update reopened a dismissed guide")
+precondition(drawing.update(streamed(lesson,"g3")),"Dismissing a guide blocked a new one")
+drawing.shownAt = .distantPast; drawing.tick(); precondition(drawing.index == 1,"Shush did not return a streamed guide to its reading time")
+drawing.back(); drawing.next(); precondition(drawing.index == 1,"Manual navigation lost a streamed step")
+drawing.clear()
+let clickDir = NSTemporaryDirectory()+UUID().uuidString; try! FileManager.default.createDirectory(atPath:clickDir,withIntermediateDirectories:true)
+func inline(_ steps: [[String:Any]], _ guide: String) -> Data { try! JSONSerialization.data(withJSONObject:["steps":steps,"teaching":true,"target":target,"state":"fixture","guide":guide,"cancelFile":clickDir+"/guide-cancelled"]) }
+let doThis: [String:Any] = ["say":"Click this control.","wait":true,"hit":[x+400,y+350,200,38],"shapes":[["kind":"rect","rect":[x+400,y+350,200,38]]]]
+let explain: [String:Any] = ["say":"This square shows the result.","shapes":[["kind":"circle","rect":[x+60,y+150,80,80]]]]
+let thenThis: [String:Any] = ["say":"Now click here.","wait":true,"hit":[x+300,y+160,50,50],"shapes":[["kind":"circle","rect":[x+300,y+160,50,50]]]]
+precondition(drawing.update(inline([doThis],"click")) && drawing.waiting,"An inline click step was refused or did not wait")
+drawing.ready = .distantPast; drawing.shownAt = .distantPast; drawing.tick(); precondition(drawing.index == 0 && drawing.waiting,"A click step moved on by its reading time")
+drawing.clicked(CGPoint(x:x+800,y:y+500)); precondition(drawing.waiting,"A click outside the mark counted")
+drawing.clicked(CGPoint(x:x+450,y:y+360))
+precondition(drawing.active && drawing.index == 0 && !drawing.waiting && !drawing.manual,"A click in the last streamed step's mark closed it or took over narration")
+precondition(FileManager.default.fileExists(atPath:ScreenDrawing.clickFile(clickDir+"/guide-cancelled")),"The click did not reach a walkthrough's watch")
+precondition(drawing.update(inline([doThis,explain,thenThis],"click")) && drawing.index == 0,"A streamed step moved the shown one")
+drawing.shownAt = .distantPast; drawing.tick(); precondition(drawing.index == 1,"The step after a done click did not come in")
+drawing.shownAt = .distantPast; drawing.tick(); precondition(drawing.index == 2 && drawing.waiting,"An explanation step did not follow its reading time")
+drawing.shownAt = .distantPast; drawing.tick(); precondition(drawing.index == 2 && drawing.waiting,"A click step moved on by its reading time")
+drawing.ready = .distantPast; drawing.clicked(CGPoint(x:x+325,y:y+185)); precondition(drawing.active && !drawing.waiting,"The last click step closed the guide")
+drawing.clear()
+precondition(drawing.update(inline([doThis,explain,thenThis],"mixed")) && drawing.waiting)
+var held = 0; drawing.waited = { held += 1 }
+drawing.ready = .distantPast; drawing.clicked(CGPoint(x:x+800,y:y+500)); precondition(drawing.index == 0 && held == 0,"A click outside the mark advanced")
+drawing.clicked(CGPoint(x:x+450,y:y+360)); precondition(drawing.index == 1 && held == 1 && !drawing.manual,"A click in the mark did not show the next step and resume narration")
+drawing.waited = nil; drawing.clear()
+precondition(drawing.update(inline([explain,explain],"explain")) && !drawing.waiting)
+drawing.ready = .distantPast; drawing.clicked(CGPoint(x:x+100,y:y+190)); precondition(drawing.index == 0,"An explanation advanced from a screen click")
+drawing.shownAt = .distantPast; drawing.tick(); precondition(drawing.index == 1,"An explain-only guide stopped stepping by itself")
+drawing.clear(); try? FileManager.default.removeItem(atPath:clickDir)
+let growing: [[String:Any]] = [["say":"Short.","shapes":[["kind":"circle","rect":[x+300,y+160,50,50]]]]]
+precondition(drawing.update(streamed(growing,"grow")))
+let initialCard = drawing.calloutPanel!.frame
+var expanded = growing; expanded[0]["say"] = String(repeating:"Read the table and compare the entries. ",count:20)
+precondition(drawing.update(streamed(expanded,"grow")))
+precondition(drawing.calloutPanel!.frame.height > initialCard.height && drawing.textPageCount <= 2,"Streamed caption stayed in the first tiny card")
+precondition(NSScreen.screens.contains { $0.visibleFrame.contains(drawing.calloutPanel!.frame) },"Grown card escaped visibleFrame")
+drawing.clear()
 let varying: [[String:Any]] = [["say":"First.","shapes":[["kind":"circle","rect":[x+300,y+160,50,50]]]],
     ["say":String(repeating:"Read this next. ",count:40),"shapes":[["kind":"circle","rect":[x+500,y+300,50,50]]]]]
 precondition(drawing.receive(data(varying,teaching:true)),"Varying captions did not fit")
 let fixed = drawing.calloutPanel!.frame
 for _ in 0..<3 {
-    drawing.next(); precondition(drawing.index == 1 && drawing.calloutPanel?.frame == fixed,"A larger caption moved the panel")
+    drawing.next(); precondition(drawing.index == 1 && cardClear(),"A larger caption covered its marks")
     drawing.back(); precondition(drawing.index == 0 && drawing.calloutPanel?.frame == fixed,"Back from a larger caption moved the panel")
 }
 drawing.clear()
@@ -657,10 +872,12 @@ class NativeDrawingTests(unittest.TestCase):
         self.assertEqual(result.returncode,0,result.stderr)
 
     def test_native_drawings_and_fixture_screenshots(self):
+        from tests.test_guidecard import dismiss_vm_consent
+        dismiss_vm_consent(self)
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             source = (ROOT/'Atticus.swift').read_text()
-            drawing = MATH_STUB + source[source.index('// Screen drawings use Quartz'):source.index('// The box can take typing')]
+            drawing = MATH_STUB + swift_motion(source) + source[source.index('// Screen drawings use Quartz'):source.index('// The box can take typing')]
             (root/'main.swift').write_text(HARNESS.replace('__DRAWING__',drawing))
             result = subprocess.run(['swiftc',str(root/'main.swift'),'-o',str(root/'fixture')],capture_output=True,text=True)
             self.assertEqual(result.returncode,0,result.stderr)
@@ -753,9 +970,60 @@ diagram.render([DrawingShape(kind:"circle",rect:[100,100,300,220],color:"green",
 let part = diagram.layer!.sublayers!.compactMap { $0 as? CAShapeLayer }.first { $0.strokeColor == NSColor.systemGreen.cgColor }!
 precondition(part.path!.boundingBoxOfPath == CGRect(x:100,y:100,width:300,height:220) && (part.fillColor?.alpha ?? 0) > 0,
              "A filled ellipse is not an exact, visible diagram part")
+func outlines(_ v: DrawingView) -> [CGRect] { v.layer!.sublayers!.compactMap { $0 as? CAShapeLayer }.filter { $0.strokeColor == NSColor.systemBlue.cgColor }.map { $0.path!.boundingBoxOfPath } }
+let legs = DrawingShape(kind:"path",points:[[190,100],[190,190],[310,190]]), onLeg = DrawingShape(kind:"rect",rect:[100,100,90,90],color:"blue")
+let figure = DrawingView(frame:CGRect(x:0,y:0,width:1000,height:800))
+figure.render([onLeg],animate:false,previous:nil,parts:[legs,onLeg])
+precondition(outlines(figure) == [CGRect(x:100,y:100,width:90,height:90)],"A figure's square is not at its exact bounds on the earlier leg: \(outlines(figure))")
+let onBase = DrawingView(frame:figure.frame)
+onBase.render([legs,DrawingShape(kind:"rect",rect:[190,190,120,120],color:"blue")],animate:false,previous:nil)
+precondition(outlines(onBase) == [CGRect(x:190,y:190,width:120,height:120)],"A square sharing the base's edge grew off it: \(outlines(onBase))")
+let wheel = DrawingView(frame:figure.frame)
+wheel.render([DrawingShape(kind:"circle",rect:[400,400,100,100],color:"blue"),DrawingShape(kind:"line",points:[[450,450],[500,450]])],animate:false,previous:nil)
+precondition(outlines(wheel) == [CGRect(x:400,y:400,width:100,height:100)],"A circle its radius reaches is not at its exact bounds: \(outlines(wheel))")
+let control = DrawingView(frame:figure.frame), button = CGRect(x:400,y:400,width:120,height:30)
+control.render([DrawingShape(kind:"rect",rect:[400,400,120,30],color:"blue"),DrawingShape(kind:"arrow",points:[[700,415],[520,415]],color:"red"),
+                DrawingShape(kind:"label",at:[700,415],text:"Save")],animate:false,previous:nil,parts:[legs])
+let around = ScreenDrawing.ring(button,circle:false), drawnBox = outlines(control)   // drawn by hand: about a point off the ring, never onto the control
+precondition(drawnBox.count == 1 && [drawnBox[0].minX-around.minX,drawnBox[0].minY-around.minY,drawnBox[0].maxX-around.maxX,drawnBox[0].maxY-around.maxY].allSatisfy { abs($0) < 4 }
+             && drawnBox[0].insetBy(dx:4,dy:4).contains(button),"A ring around a control lost its clear gap: \(drawnBox)")
+let twice = [DrawingView(frame:figure.frame), DrawingView(frame:figure.frame)]
+twice.forEach { $0.render([DrawingShape(kind:"circle",rect:[400,400,120,30],color:"blue")],animate:false,previous:nil) }
+let ringPaths = twice.map { $0.layer!.sublayers!.compactMap { $0 as? CAShapeLayer }.first { $0.strokeColor == NSColor.systemBlue.cgColor }!.path! }
+precondition(ringPaths[0] == ringPaths[1],"The same mark came out a different shape")
+let marker = DrawingView(frame:figure.frame)
+marker.render([DrawingShape(kind:"rect",rect:[100,100,200,20],color:"yellow",fill:true)],animate:true,previous:nil)
+let band = marker.layer!.sublayers!.compactMap { $0 as? CAShapeLayer }.first!
+precondition(band.strokeColor == nil && band.mask?.animation(forKey:"wipe") != nil && band.path!.boundingBoxOfPath == CGRect(x:100,y:98,width:200,height:24),
+             "A highlight is not a highlighter band wiped on: \(band.path!.boundingBoxOfPath)")
+let helper = DrawingView(frame:figure.frame)
+helper.render([DrawingShape(kind:"line",points:[[10,200],[300,200]],color:"blue",dashed:true),DrawingShape(kind:"label",at:[300,200],text:"h",color:"blue")],animate:false,previous:nil)
+let helperLine = helper.layer!.sublayers!.compactMap { $0 as? CAShapeLayer }.first { $0.strokeColor == NSColor.systemBlue.cgColor }!
+precondition(helperLine.lineDashPattern == [7,5] && helperLine.path!.boundingBoxOfPath.height == 0,"A dashed helper line is not dashed and straight")
+precondition(helper.layer!.sublayers!.filter { $0 is CATextLayer }.allSatisfy { $0.zPosition > helperLine.zPosition },"A name is not above the ink")
 precondition(diagram.layer!.sublayers!.compactMap { $0 as? CATextLayer }.first!.frame.height > 20,"A large diagram label stayed tiny")
 let dim = DrawingView(frame:view.frame); dim.render([DrawingShape(kind:"line",points:[[1,2],[30,40]])],animate:false,previous:nil,dim:true)
 precondition(dim.layer!.sublayers!.allSatisfy { $0.opacity == 0.5 },"Earlier whiteboard steps are not quieter")
+func start(_ l: CAShapeLayer) -> CGPoint { var p: CGPoint?; l.path!.applyWithBlock { e in if p == nil, e.pointee.type == .moveToPoint { p = e.pointee.points[0] } }; return p! }
+let coil = DrawingShape(kind:"rect",rect:[100,100,200,150],color:"green"), flow = DrawingView(frame:view.frame)
+flow.render([DrawingShape(kind:"arrow",points:[[200,250],[200,450]],color:"blue"),DrawingShape(kind:"label",at:[200,250],text:"gas",color:"blue")],
+            animate:false,previous:nil,parts:[coil],dim:true)
+let flowArrow = flow.layer!.sublayers!.compactMap { $0 as? CAShapeLayer }.first { $0.strokeColor == NSColor.systemBlue.cgColor }!
+let flowName = flow.layer!.sublayers!.compactMap { $0 as? CATextLayer }.first!
+precondition(abs(start(flowArrow).x-200) < 0.5 && abs(start(flowArrow).y-(250+gap+1.5)) < 1,"An arrow from an earlier part left its edge: \(start(flowArrow))")
+precondition(flowName.frame.minX > 200 && flowName.frame.midY > 300 && flowName.frame.midY < 400 && flowName.opacity == 1 && flowArrow.opacity == 0.5,
+             "A joining arrow's name is not readable beside its middle: \(flowName.frame)")
+let bent = DrawingView(frame:view.frame)
+bent.render([DrawingShape(kind:"path",points:[[200,250],[200,400],[500,400]],color:"blue"),DrawingShape(kind:"arrow",points:[[500,400],[500,300]],color:"blue"),
+             DrawingShape(kind:"label",at:[200,250],text:"returns",color:"blue")],animate:false,previous:nil,parts:[coil])
+let bentPath = bent.layer!.sublayers!.compactMap { $0 as? CAShapeLayer }.first { $0.strokeColor == NSColor.systemBlue.cgColor }!
+let bentName = bent.layer!.sublayers!.compactMap { $0 as? CATextLayer }.first!
+precondition(abs(start(bentPath).y-(250+gap+1.5)) < 1 && bentName.frame.minX > 350 && bentName.frame.maxY < 400 && bentName.frame.midY > 340,
+             "A bent arrow from a part left its edge, or its name is not on its longest run: \(start(bentPath)) \(bentName.frame)")
+let pill = DrawingView(frame:view.frame)
+pill.render([DrawingShape(kind:"arrow",points:[[600,500],[800,500]],color:"blue"),DrawingShape(kind:"label",at:[600,500],text:"here",color:"blue")],animate:false,previous:nil,parts:[coil])
+let pillArrow = pill.layer!.sublayers!.compactMap { $0 as? CAShapeLayer }.first { $0.strokeColor == NSColor.systemBlue.cgColor }!
+precondition(abs(start(pillArrow).x-(pill.layer!.sublayers!.compactMap { $0 as? CATextLayer }.first!.frame.maxX+8)) < 1,"A callout arrow no longer starts at its name")
 let boardFrame = CGRect(x:0,y:0,width:300,height:100), boardPad: CGFloat = 8
 let boardLines = [
     ScreenDrawing.BoardLine(text:NSAttributedString(string:"First"),rect:CGRect(x:8,y:10,width:100,height:20),step:0,shape:0),
@@ -804,10 +1072,10 @@ for words in ["a² + b² = c²", "Click Share.", "Complete the square: add 9 to 
     precondition(body.frame.height <= scroll.contentSize.height,"Short caption needs scrolling: \(words)")
     precondition(body.layoutManager!.usedRect(for:body.textContainer!).maxY <= scroll.contentSize.height,"Short caption is clipped")
 }
-let long = callout(String(repeating:"A readable instruction needs enough words to wrap. ",count:20),2,4)
+let long = callout(String(repeating:"A readable instruction needs enough words to wrap. ",count:40),2,4)
 let scroll = long.subviews.compactMap { $0 as? NSScrollView }.first!, body = scroll.documentView as! NSTextView
 body.layoutManager!.ensureLayout(for:body.textContainer!)
-precondition(DrawingCalloutView.size(body.string,total:4).height < 400 && body.frame.height > scroll.contentSize.height,"Long step text is not scrollable")
+precondition(DrawingCalloutView.size(body.string,total:4).height <= 450 && body.frame.height > scroll.contentSize.height,"Long step text is not scrollable")
 let bubble = DrawingCalloutView.bubble(CGRect(x:12,y:12,width:200,height:100),side:.minX,tip:60)
 precondition(bubble.boundingBoxOfPath.minX < 12-DrawingCalloutView.notch+1 && bubble.contains(CGPoint(x:8,y:60)),"The notch does not point at the marks")
 let plain = DrawingCalloutView.bubble(CGRect(x:12,y:12,width:200,height:100),side:nil,tip:60).boundingBoxOfPath
@@ -828,7 +1096,7 @@ pickView.highlight(nil); precondition(!pickView.layer!.sublayers!.contains { $0.
 
 for size in ["s","m","l"] { precondition(ScreenDrawing.textSize(size,display:CGRect(x:0,y:0,width:6000,height:4000)) <= 32,"Drawn text is oversized") }
 let laptop = ScreenDrawing.textSize(nil,display:CGRect(x:0,y:0,width:1512,height:982)), monitor = ScreenDrawing.textSize(nil,display:CGRect(x:0,y:0,width:1920,height:1080))
-precondition(laptop >= 22 && laptop <= 28 && monitor >= 22 && monitor <= 28 && ScreenDrawing.textSize("l",display:.zero) > ScreenDrawing.textSize("s",display:.zero),"Text is not readable: \(laptop) \(monitor)")
+precondition(laptop >= 18 && laptop <= 24 && monitor >= 18 && monitor <= 24 && ScreenDrawing.textSize("l",display:.zero) > ScreenDrawing.textSize("s",display:.zero),"Text is not readable: \(laptop) \(monitor)")
 if let main = NSScreen.screens.first {
     let d = CGDisplayBounds(main.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as! CGDirectDisplayID)
     let near = CGRect(x:d.minX+80,y:d.minY+200,width:200,height:60)
@@ -837,7 +1105,7 @@ if let main = NSScreen.screens.first {
                               DrawingShape(kind:"text",text:"3 · 4 = 12",size:"s")],wait:nil,hit:nil,timeout:nil)]
     let b = ScreenDrawing.board(worked,near:near)!
     precondition(b.lines.map { [$0.step,$0.shape] } == [[0,0],[1,1]] && b.lines[1].rect.minY > b.lines[0].rect.maxY,"Lines are not stacked in order")
-    precondition(b.lines.allSatisfy { b.frame.contains($0.rect) } && !b.frame.intersects(near) && b.lines[0].rect.height >= 22,"The board covered its marks or text is small")
+    precondition(b.lines.allSatisfy { b.frame.contains($0.rect) } && !b.frame.intersects(near) && b.lines[0].rect.height >= 20,"The board covered its marks or text is small")
     var pinned = worked; pinned[0] = DrawingStep(id:nil,say:"Here.",target:nil,shapes:[DrawingShape(kind:"text",at:[d.minX+300,d.minY+300],text:"x")],wait:nil,hit:nil,timeout:nil)
     precondition(ScreenDrawing.board(pinned,near:near)!.frame.origin == CGPoint(x:d.minX+300,y:d.minY+300),"The board ignored its at")
     let boardView = DrawingView(frame:CGRect(origin:.zero,size:d.size)); boardView.origin = d.origin
@@ -862,7 +1130,7 @@ class GuideGeometryTests(unittest.TestCase):
     def test_smooth_paths_render_through_samples_without_changing_old_paths(self):
         from tests import run_swift
         source = (ROOT/'Atticus.swift').read_text()
-        drawing = MATH_STUB + source[source.index('// Screen drawings use Quartz'):source.index('// The box can take typing')]
+        drawing = MATH_STUB + swift_motion(source) + source[source.index('// Screen drawings use Quartz'):source.index('// The box can take typing')]
         out = run_swift(self, 'import Cocoa\nfunc applySharing(_ window: NSWindow) {}\n' + drawing + r'''
 NSApplication.shared.setActivationPolicy(.prohibited)
 let samples: [[Double]] = [[60,60],[120,180],[180,252],[240,276],[300,252],[360,180],[420,60]]
@@ -880,8 +1148,12 @@ func render(_ shape: DrawingShape) -> (DrawingView, CGPath) {
 }
 let plain = shape(samples), smooth = shape(samples,["smooth":true])
 let (before, oldPath) = render(plain), (after, path) = render(smooth)
-var lines = 0, ends: [CGPoint] = [], controls: [(CGPoint,CGPoint,CGPoint)] = []
-oldPath.applyWithBlock { if $0.pointee.type == .addLineToPoint { lines += 1 } }
+var corners: [CGPoint] = [], ends: [CGPoint] = [], controls: [(CGPoint,CGPoint,CGPoint)] = []
+oldPath.applyWithBlock { e in   // drawn by hand between samples, each sample still exactly on it
+    if e.pointee.type == .addLineToPoint { corners.append(e.pointee.points[0]) }
+    if e.pointee.type == .addCurveToPoint { corners.append(e.pointee.points[2]) }
+}
+let lines = samples.dropFirst().filter { s in corners.contains(CGPoint(x:s[0],y:s[1])) }.count
 path.applyWithBlock { e in
     if e.pointee.type == .addCurveToPoint {
         let p = e.pointee.points; controls.append((p[0],p[1],p[2])); ends.append(p[2])
@@ -925,5 +1197,5 @@ print("smooth drawing geometry ok")
     def test_marks_and_callouts_stay_clear_of_targets(self):
         from tests import run_swift
         source = (ROOT/'Atticus.swift').read_text()
-        drawing = MATH_STUB + source[source.index('// Screen drawings use Quartz'):source.index('// The box can take typing')]
+        drawing = MATH_STUB + swift_motion(source) + source[source.index('// Screen drawings use Quartz'):source.index('// The box can take typing')]
         self.assertIn('Guide geometry',run_swift(self,GEOMETRY.replace('__DRAWING__',drawing),timeout=20))

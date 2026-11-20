@@ -15,9 +15,14 @@ class AudioNativeTests(unittest.TestCase):
         self.assertNotIn("CFPreferencesSetAppValue", source)
         self.assertNotIn("siriVoice", source)
         deliver = source[source.index("    func deliver("):source.index("    func linger(")]
-        self.assertIn("readAloudArguments(spoken(a))", deliver)
+        self.assertIn("streamSpeech(a, final: true)", deliver)
+        stream = source[source.index("    func streamSpeech("):source.index("    func voiceQualityTip(")]
+        self.assertIn("readAloudText(text)", stream)
+        self.assertIn("readAloudArguments(words)", stream)
         drawing = source[source.index("final class ScreenDrawing"):source.index("// The box can take typing")]
-        self.assertIn("p.arguments = sayArguments(words)", drawing)
+        self.assertIn("p.arguments = sayArguments(caption)", drawing)
+        self.assertIn("let caption = step.say", drawing)
+        self.assertIn("readAloudArguments(readAloudText(words))", source)
 
     def test_best_installed_english_voice_prefers_quality_then_region(self):
         source = (ROOT / "Atticus.swift").read_text()
@@ -77,7 +82,8 @@ print("say voice list parser ok")
         policy = source[source.index("struct ReadAloudVoice"):source.index("let installedSayVoices")]
         arguments = source[source.index("func readAloudArguments"):source.index("// The talk shortcut")]
         self.assertIn('language: NLLanguageRecognizer.dominantLanguage(for: words)', source[source.index("func usableReadAloudVoice"):source.index("func readAloudArguments")])
-        run_swift(self, "import Foundation\nimport AVFoundation\nfunc usableReadAloudVoice(_ words: String) -> String? { nil }\n" + policy + arguments + """
+        run_swift(self, "import Foundation\nimport AVFoundation\nfunc usableReadAloudVoice(_ words: String) -> String? { nil }\n"
+                  'enum Prefs { static func num(_ k: String) -> Double { k == "voiceRate" ? 230 : 0 } }\n' + policy + arguments + """
 let voices = [
     ReadAloudVoice(name: "Unavailable", language: "en-US", quality: .premium, identifier: "missing-say"),
     ReadAloudVoice(name: "Tessa", language: "en-ZA", quality: .enhanced, identifier: "tessa"),
@@ -89,8 +95,9 @@ func pick(_ saved: [Any], selected: String = "", os: Int = 27, installed: [ReadA
 }
 func say(_ voice: String?) -> ([String], Bool) {
     var tipped = false
-    return (readAloudArguments("hi", pick: { _ in voice }) { tipped = true }, tipped)
+    return (readAloudArguments("hi", pick: { _ in voice }, rate: 0) { tipped = true }, tipped)
 }
+precondition(readAloudArguments("hi", pick: { _ in "Samantha" }) {} == ["-v", "Samantha", "-r", "230", "--", "hi"], "the saved voice speed is not the say rate")
 let bilingual: [Any] = ["es", ["voiceId": "monica"], "en-US", ["voiceId": "tessa"]]
 precondition(pick(bilingual) == "Tessa (Enhanced)", "an English answer used the saved Spanish voice")
 precondition(pick(bilingual, language: "es") == "Monica (Enhanced)", "a Spanish answer skipped the saved Spanish voice")

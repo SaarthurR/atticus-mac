@@ -2,11 +2,26 @@
 <html><head><meta charset="utf-8">
 <!-- Atticus overlay. Atticus.app loads this, puts orbs.js in place of the marker below, and calls window.ui.* -->
 <style>
-  :root { color-scheme: dark; --fg2: #c7c7cc; --accent: #006bd6; --ease: cubic-bezier(.2,.8,.2,1); --spring: cubic-bezier(.34,1.56,.64,1); }
+  .graph { position: relative; box-sizing: border-box; height: 270px; margin: 12px 0; padding: 8px; border: 1px solid currentColor;
+    border-radius: 12px; background: rgba(127,127,127,.07); cursor: pointer; overflow: hidden; -webkit-user-select: none; }
+  .graph.expanded { height: 390px; }
+  .graph:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .graph.pending { display: grid; place-items: center; opacity: .6; }
+  .graph-title { height: 34px; overflow: hidden; font: 500 12px -apple-system, sans-serif; }
+  .graph-title span { display: inline-block; margin-left: 10px; font-size: 11px; }
+  .graph > svg { display: block; width: 100%; height: calc(100% - 34px); }
+  .graph svg text { fill: currentColor; font: 11px -apple-system, sans-serif; }
+  .graph-tip { position: absolute; left: 10px; bottom: 8px; max-width: calc(100% - 20px); overflow: hidden; white-space: nowrap;
+    background: Canvas; color: CanvasText; padding: 3px 6px; border-radius: 4px; font: 11px -apple-system, sans-serif; pointer-events: none; }
+  :root { color-scheme: dark; --fg2: #c7c7cc; --accent: #006bd6;
+    /* motion: the same tokens in every page and in Atticus.swift's Motion. Plip's ease [.32,.72,0,1] and its Island spring
+       (stiffness 420, damping 34, mass 0.9) sampled over --t-slow (MIT, LICENSE-Plip) */
+    --t-fast: 120ms; --t-base: 200ms; --t-slow: 280ms; --ease: cubic-bezier(.32,.72,0,1);
+    --spring: linear(0, .057, .184, .334, .48, .61, .717, .801, .865, .912, .946, .969, .984, .993, .999, 1.002, 1); }
   html, body { margin: 0; background: transparent; overflow: hidden; -webkit-user-select: none; cursor: default;
     font: 13px -apple-system, system-ui, sans-serif; color: #f5f5f7; -webkit-font-smoothing: antialiased; }
   html { background: transparent; }   /* native glass tint sits below the live window layer */
-  #card { padding: 14px 20px 18px; animation: pop .42s var(--spring) both; box-sizing: border-box;
+  #card { padding: 14px 20px 18px; animation: pop var(--t-slow) var(--spring) both; box-sizing: border-box;
     display: flex; flex-direction: column; max-height: var(--screen-height, 10000px); }
   #card.again { animation: none; }
   #card.held { box-sizing: border-box; display: flex; flex-direction: column; }   /* dragged to a height: keep it */
@@ -18,49 +33,57 @@
   #fold svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   #fold:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   body.folded #card { padding: 6px 20px; min-height: 0 !important; }
-  body.fold-morph #card { transition: padding .25s var(--ease); }
+  body.fold-morph #card { transition: padding var(--t-base) var(--ease); }
   body.fold-morph.fold-away #card { padding: 6px 20px; min-height: 0 !important; }
-  body.fold-morph #card > :not(#head) { opacity: 0; pointer-events: none; transition: opacity .25s var(--ease); }
+  #card > :not(#head) { transition: opacity var(--t-base) var(--ease); }
+  body.fold-morph.fold-away #card > :not(#head) { opacity: 0; pointer-events: none; }
   body.folded:not(.fold-morph) :is(#thread, #comp, #pointbar, #mode, #agents-pill, .e, #grip) { display: none !important; }
   body.folded #fold { opacity: 0; pointer-events: none; }
   body.folded:is(:hover,.hot) #fold, body.folded #fold:focus-visible { opacity: 1; pointer-events: auto; }
   body.folded #status span:empty::before { content: 'Done'; }
 
   #head { display: flex; align-items: center; gap: 7px; height: 44px; flex: none; }
-  canvas { width: 44px; height: 44px; flex: none; margin-left: -4px; transition: transform .35s var(--ease); }
+  canvas { width: 44px; height: 44px; flex: none; margin-left: -4px; transition: transform var(--t-slow) var(--ease); }
   #status { flex: 1 0 64px; min-width: 64px; font-size: 12.5px; line-height: 22px; color: var(--fg2); white-space: nowrap; overflow: hidden;
     text-overflow: ellipsis; }
-  .elapsed { display: flex; align-items: baseline; gap: 6px; margin-top: 16px; color: var(--fg2); font-size: 10.5px; line-height: 16px; animation: in .25s var(--ease) both; }
+  .elapsed { display: flex; align-items: baseline; gap: 6px; margin-top: 16px; color: var(--fg2); font-size: 10.5px; line-height: 16px; animation: in var(--t-base) var(--ease) both; }
   .elapsed .hf { margin-left: 8px; }
   .elapsed .hf i { font-style: normal; animation: hfdot 1.4s infinite both; } .elapsed .hf i:nth-child(2) { animation-delay: .2s; } .elapsed .hf i:nth-child(3) { animation-delay: .4s; }
   @keyframes hfdot { 0% { opacity: 0; } 25%, 60% { opacity: 1; } 85%, 100% { opacity: 0; } }   /* hands-free: dots fade in one by one, then out */
-  .elapsed .redo { margin-left: auto; padding: 0; border: 0; background: none; font: 500 11px -apple-system, system-ui, sans-serif; color: var(--fg2); cursor: pointer; transition: color .2s; }
+  .elapsed .redo { margin-left: auto; padding: 0; border: 0; background: none; font: 500 11px -apple-system, system-ui, sans-serif; color: var(--fg2); cursor: pointer; transition: color var(--t-base); }
   .elapsed .redo:is(:hover,.hot) { color: #f5f5f7; }
+  .upgrade { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; margin-top: 10px; color: var(--fg2); font-size: 11px; }
+  .upgrade, .rewrite, .rewrite-note, .sel, #updated, .a:is(.cancel, .stopped) { animation: in var(--t-base) var(--ease) both; }   /* nothing in the box pops in */
+  .upgrade button { padding: 2px 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; text-underline-offset: 3px; transition: color var(--t-base); }
+  .upgrade button:first-of-type { color: #f5f5f7; font-weight: 500; }
+  .upgrade button:is(:hover,.hot) { color: #f5f5f7; text-decoration: underline; }
+  .upgrade button:focus-visible { outline: 2px solid #64d2ff; outline-offset: 3px; }
   .elapsed b { color: var(--fg2); font-weight: 400; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  #status span { display: inline-block; max-width: 100%; vertical-align: top; overflow: hidden; text-overflow: ellipsis; animation: in .35s var(--ease) both; }
+  #status span { display: inline-block; max-width: 100%; vertical-align: top; overflow: hidden; text-overflow: ellipsis; animation: in var(--t-slow) var(--ease) both; }
   #status.live span { background: linear-gradient(90deg, var(--fg2) 0%, #fff 45%, var(--fg2) 90%); background-size: 200% 100%;
-    -webkit-background-clip: text; color: transparent; animation: in .35s var(--ease) both, shimmer 1.5s linear infinite; }
+    -webkit-background-clip: text; color: transparent; animation: in var(--t-slow) var(--ease) both, shimmer 1.5s linear infinite; }
 
   /* Automatic following must be immediate: repeated live updates keep restarting a smooth scroll below the current turn. */
   #thread { container-type: inline-size; max-height: 420px; min-height: 0; overflow-y: auto; padding-top: 2px;
     -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 100%); }
   #thread::-webkit-scrollbar { width: 0; }
   #thread:empty { display: none; }
-  .turn { padding-top: 12px; animation: in .4s var(--ease) both; transition: opacity .4s var(--ease); }
+  #thread [data-entered] { animation-duration: 0s !important; animation-delay: 0s !important; }
+  .turn { padding-top: 12px; animation: in var(--t-slow) var(--ease) both; transition: opacity var(--t-slow) var(--ease); }
   .turn + .turn { margin-top: 18px; padding-top: 18px; border-top: .5px solid rgba(255,255,255,.08); }
   .turn.old .a { color: var(--fg2); }
 
   .q { margin-left: auto; width: fit-content; max-width: 80%; padding: 9px 14px; border-radius: 16px 16px 5px 16px;
     background: rgba(255,255,255,.09); box-shadow: inset 0 0 0 .5px rgba(255,255,255,.12);
     font-size: 13.5px; line-height: 1.45; color: #e5e5ea; overflow-wrap: anywhere; cursor: pointer;
-    transition: font-size .3s var(--ease), color .3s; }
+    transition: font-size var(--t-slow) var(--ease), color var(--t-slow); }
   .q.live { font-size: 15px; color: #fff; }
   .q:is(.live, .tail)::after { content: ""; display: inline-block; width: 1.5px; height: 1em; margin-left: 2px; vertical-align: -2px;
     background: #fff; animation: blink 1s steps(1) infinite; }
   .q.tail::after { background: currentColor; opacity: .6; animation: pulse 1.6s ease-in-out infinite; }
   .shot { display: block; margin: 0 0 4px auto; padding: 0; border: 0; border-radius: 10px; overflow: hidden; background: none; cursor: zoom-in;
     box-shadow: inset 0 0 0 .5px rgba(255,255,255,.12); }   /* the marked crop, sent with this ask */
-  .shot img { display: block; max-width: 120px; max-height: 72px; transition: max-width .3s var(--ease), max-height .3s var(--ease); }
+  .shot img { display: block; max-width: 120px; max-height: 72px; transition: max-width var(--t-slow) var(--ease), max-height var(--t-slow) var(--ease); }
   .shot.big { max-width: 86%; cursor: zoom-out; } .shot.big img { max-width: 100%; max-height: 220px; }
   .q.empty:not(.hear):not(.tail) { display: none; }
   .q.empty.hear { color: var(--fg2); } .q.empty.hear::before { content: "Listening…"; }   /* voice: the bubble waits for words */
@@ -72,38 +95,38 @@
   body.dictate:is(.finishing, .done) #card { padding: 0 4px; }
   body.dictate.said #card { padding: 4px 16px 4px 4px; }
   body.dictate #head { height: auto; } body.dictate #head > :not(#orb), body.dictate :is(#thread, #comp, #pointbar, .e, #grip) { display: none; }
-  body.dictate #orb { width: 28px; height: 28px; margin: 0; animation: morph .3s var(--ease) both; }
+  body.dictate #orb { width: 28px; height: 28px; margin: 0; animation: morph var(--t-slow) var(--ease) both; }
   #dictwave { display: none; }
   body.dictate.hearing #dictwave { display: flex; align-items: center; gap: 2px; width: 43px; height: 28px; flex: none; }
   #dictwave i { display: block; width: 3px; height: 3px; border-radius: 3px; background: var(--accent); transition: height .1s var(--ease); }
   #check { display: none; }
-  body.dictate.done #check { display: block; position: relative; flex: none; width: 28px; height: 28px; animation: morph .35s var(--spring) both; }
+  body.dictate.done #check { display: block; position: relative; flex: none; width: 28px; height: 28px; animation: morph var(--t-slow) var(--spring) both; }
   body.dictate.done #check::before { content: ""; position: absolute; left: 8px; top: 8px; width: 12px; height: 6px; border-left: 2px solid #30d158; border-bottom: 2px solid #30d158; border-radius: 1px; transform: rotate(-45deg); }
   #lock { display: none; flex: none; width: 10px; height: 13px; color: var(--fg2); fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
   #lock rect { fill: currentColor; stroke: none; }
-  body.dictate.locked #lock { display: block; animation: in .25s var(--ease) both; }
+  body.dictate.locked #lock { display: block; animation: in var(--t-base) var(--ease) both; }
   /* locked (double tap): the whole pill wears an orange ring; the panel's 18px corners clip it to the pill */
-  body.dictate::after { content: ""; position: fixed; inset: 0; border-radius: 18px; pointer-events: none; opacity: 0; transition: opacity .3s var(--ease);
+  body.dictate::after { content: ""; position: fixed; inset: 0; border-radius: 18px; pointer-events: none; opacity: 0; transition: opacity var(--t-slow) var(--ease);
     box-shadow: inset 0 0 0 1.5px rgba(255,159,10,.9), inset 0 0 12px rgba(255,159,10,.35); }
   body.dictate.locked::after { opacity: 1; }
   .dn { display: none; }
   body.dictate .dn { display: block; position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }   /* not shown, still read out ("Cleaning up…", "Inserted") */
   body.dictate.said .dn { display: flex; position: static; align-items: center; gap: 6px; width: auto; height: auto; max-width: 290px; overflow: visible; clip-path: none; white-space: normal;
-    font-size: 12px; line-height: 16px; color: #f5f5f7; animation: fade .25s var(--ease) both; }
+    font-size: 12px; line-height: 16px; color: #f5f5f7; animation: fade var(--t-base) var(--ease) both; }
   .dn button { border:0; border-radius:6px; padding:3px 8px; font:inherit; color:var(--fg2); background:none; text-decoration:underline; cursor:pointer; flex:none; }
   .dn button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
   .dn .idea { padding:0; color:inherit; text-decoration:none; text-align:left; } .dn .ideax { display:grid; place-items:center; width:20px; height:20px; padding:0; }
   .dn .ideax svg { width:8px; height:8px; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; }
-  .dn.tick { animation: in .25s var(--ease) both; }
+  .dn.tick { animation: in var(--t-base) var(--ease) both; }
   .dn.tick::before { content: ""; flex: none; width: 8px; height: 4px; border-left: 1.5px solid #30d158; border-bottom: 1.5px solid #30d158; transform: translateY(-1px) rotate(-45deg); }
 
   .steps { margin-top: 14px; display: flex; flex-direction: column; gap: 6px; }
   .steps:empty { display: none; }
   .steps[data-more]::before { content: "+" attr(data-more) " earlier"; font-size: 11px; color: var(--fg2); padding-left: 12px; }
   .step { font-size: 12px; line-height: 16px; color: var(--fg2); display: flex; gap: 7px; align-items: center; white-space: nowrap;
-    overflow: hidden; animation: in .35s var(--ease) both; }
+    overflow: hidden; animation: in var(--t-slow) var(--ease) both; }
   .step::before { content: ""; flex: none; width: 5px; height: 5px; border-radius: 50%; background: #636366;
-    transition: background .3s; }
+    transition: background var(--t-slow); }
   .step span { overflow: hidden; text-overflow: ellipsis; }
   .step.live { color: #f5f5f7; }
   .step.live::before { background: #fff; animation: pulse 1s ease-in-out infinite; }
@@ -116,15 +139,15 @@
   .turn.preview .step { flex: none; animation: none; }
 
   .mini { display: grid; grid-template-rows: 0fr; margin-top: 0; opacity: 0; transform: translateY(6px) scale(.96);
-    transform-origin: top left; transition: grid-template-rows .42s var(--ease), margin .42s var(--ease), opacity .24s, transform .42s var(--spring); }
+    transform-origin: top left; transition: grid-template-rows var(--t-slow) var(--ease), margin var(--t-slow) var(--ease), opacity var(--t-base), transform var(--t-slow) var(--spring); }
   .mini.on { grid-template-rows: 1fr; margin-top: 10px; opacity: 1; transform: none; }
   .mini-inner { min-height: 0; overflow: hidden; padding: 0 4px; margin-left: -4px; }
   .mini-view { position: relative; display: block; padding: 0; width: 100%; height: calc((100cqw - 4px) * .625); border: 0;   /* 16:10 of its width (4px: .mini-inner's inset). Not aspect-ratio: WebKit then keeps the mini's row at its old height when the box widens, so the picture covers the steps */
     border-radius: 12px; background: transparent; overflow: hidden; cursor: pointer; color: #f5f5f7;
-    box-shadow: inset 0 0 0 .5px rgba(255,255,255,.14), 0 8px 24px rgba(0,0,0,.28); transition: box-shadow .24s; }
+    box-shadow: inset 0 0 0 .5px rgba(255,255,255,.14), 0 8px 24px rgba(0,0,0,.28); transition: box-shadow var(--t-base); }
   .mini-view:is(:hover,.hot) { box-shadow: inset 0 0 0 1px rgba(255,255,255,.3), 0 10px 28px rgba(0,0,0,.36); }   /* no scale: the native picture under it can't follow */
   .mini-fallback { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
-    background: radial-gradient(120% 90% at 50% 0%, rgba(255,255,255,.07), transparent 70%), rgba(18,18,20,.96); transition: opacity .3s; }
+    background: radial-gradient(120% 90% at 50% 0%, rgba(255,255,255,.07), transparent 70%), rgba(18,18,20,.96); transition: opacity var(--t-slow); }
   .mini-fallback::after { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, rgba(255,255,255,.05) 50%, transparent 70%);
     animation: sweep 1.8s linear infinite; will-change: transform; }   /* first frame on its way; transform, not background-position, so the GPU moves it without repaints */
   @keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
@@ -139,7 +162,7 @@
   .mini-tag i { width: 6px; height: 6px; flex: none; border-radius: 50%; background: #0a84ff; box-shadow: 0 0 6px #0a84ff; animation: pulse 1.2s ease-in-out infinite; }
   .mini.done .mini-tag i { width: 8px; height: 4px; border-radius: 0; background: none; box-shadow: none; animation: none;
     border-left: 1.5px solid #30d158; border-bottom: 1.5px solid #30d158; transform: rotate(-45deg) translate(1px,-1px); }
-  .mini-hint { right: 8px; opacity: 0; transform: translateY(-3px); transition: opacity .2s, transform .24s var(--ease); }
+  .mini-hint { right: 8px; opacity: 0; transform: translateY(-3px); transition: opacity var(--t-base), transform var(--t-base) var(--ease); }
   .mini-view:is(:hover,.hot) .mini-hint, .mini-view:focus-visible .mini-hint { opacity: 1; transform: none; }
   .mini-point { position: absolute; width: 24px; height: 24px; margin: -12px; border: 1px solid rgba(10,132,255,.8);
     border-radius: 50%; background: rgba(10,132,255,.18); box-shadow: 0 0 14px rgba(10,132,255,.3); pointer-events: none; animation: mini-ripple .8s var(--ease) both; }
@@ -164,27 +187,27 @@
   .a hr { border: 0; border-top: .5px solid rgba(255,255,255,.14); }
   .a code { padding: 1px 5px; border-radius: 5px; font: 13px ui-monospace, Menlo, monospace; background: rgba(255,255,255,.1); }
   .a a, .agent-card a { color: #64d2ff; text-decoration: none; cursor: pointer; } .a a:is(:hover,.hot), .agent-card a:is(:hover,.hot) { text-decoration: underline; }
-  .a math { font-family: "STIX Two Math", math; font-size: 1.12em; } .a :is(math, .tex), .turn > .a :is(li, pre, code, th, td) { animation: word .5s var(--ease) both; }
+  .a math { font-family: "STIX Two Math", math; font-size: 1.12em; } .a :is(math, .tex), .turn > .a :is(li, pre, code, th, td) { animation: word var(--t-slow) var(--ease) both; }
   .a math[display=block] { margin: 12px 0; padding: 2px 0; overflow-x: auto; overflow-y: hidden; }
   .a math::-webkit-scrollbar { height: 0; }
   .tex { font: 13px ui-monospace, Menlo, monospace; color: #e5e5ea; } .tex.block { display: block; margin: 6px 0; text-align: center; }
   .a.agent-ack { display:flex; align-items:flex-start; gap:7px; }
   .agent-ack canvas { width:24px; height:24px; margin:0; }
   .agent-ack span { min-width:0; flex:1; }
-  .a .w { display: inline-block; animation: word .5s var(--ease) both; }
+  .a .w { display: inline-block; animation: word var(--t-slow) var(--ease) both; }
   .a.cancel { color: var(--fg2); font-size: 12.5px; }
   .a.stopped { display: flex; align-items: center; gap: 8px; color: var(--fg2); font-size: 12.5px; line-height: 16px; letter-spacing: .1px; }
   .a:is(.stopped, .agent-ack) > :not(.w) + :not(.w) { margin-top: 0; }   /* the answer spacing rule pushed the label below its dot or orb */
   .a.stopped i { flex: none; width: 7px; height: 7px; border-radius: 2px; background: #ff453a; box-shadow: 0 0 8px rgba(255,69,58,.6);
-    animation: in .35s var(--spring) both; }
+    animation: in var(--t-slow) var(--spring) both; }
   .step.cut { color: var(--fg2); text-decoration: line-through; text-decoration-color: rgba(255,255,255,.2); }
 
   #x { position: relative; flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid;
     place-items: center; opacity: .7;
     background: radial-gradient(120% 120% at 30% 15%, rgba(255,255,255,.30), rgba(255,255,255,.07) 55%, rgba(255,255,255,.03));
     box-shadow: inset 0 0 0 .5px rgba(255,255,255,.35), inset 0 -1.5px 2px rgba(0,0,0,.28), 0 2px 6px rgba(0,0,0,.22);
-    transition: transform .45s var(--spring), opacity .25s, box-shadow .3s, background .3s; }
-  #x svg { width: 8px; height: 8px; stroke: #fff; stroke-width: 1.6; stroke-linecap: round; transition: transform .45s var(--spring); }
+    transition: transform var(--t-slow) var(--spring), opacity var(--t-base), box-shadow var(--t-slow), background var(--t-slow); }
+  #x svg { width: 8px; height: 8px; stroke: #fff; stroke-width: 1.6; stroke-linecap: round; transition: transform var(--t-slow) var(--spring); }
   #x.hot { transform: scale(1.28); opacity: 1;
     background: radial-gradient(120% 120% at 30% 15%, rgba(255,255,255,.5), rgba(255,255,255,.14) 55%, rgba(255,255,255,.06));
     box-shadow: inset 0 0 0 .5px rgba(255,255,255,.55), inset 0 -1.5px 3px rgba(0,0,0,.3), 0 0 0 4px rgba(255,255,255,.05),
@@ -193,26 +216,26 @@
 
   /* safe mode: Atticus asks before it deletes, sends or buys */
   .ok { margin-top: 14px; padding: 13px 14px 14px; border-radius: 14px; background: rgba(255,255,255,.07); cursor: pointer;
-    box-shadow: inset 0 0 0 .5px rgba(255,255,255,.14); animation: grow .32s var(--spring) both; overflow: hidden; max-height: 320px;
-    transition: max-height .34s var(--ease), opacity .25s, margin .34s var(--ease), padding .34s var(--ease), background .2s; }
+    box-shadow: inset 0 0 0 .5px rgba(255,255,255,.14); animation: grow var(--t-slow) var(--spring) both; overflow: hidden; max-height: 320px;
+    transition: max-height var(--t-slow) var(--ease), opacity var(--t-base), margin var(--t-slow) var(--ease), padding var(--t-slow) var(--ease), background var(--t-base); }
   .ok:is(:hover,.hot) { background: rgba(255,255,255,.09); }
   .ok.gone { max-height: 0; opacity: 0; margin-top: 0; padding-top: 0; padding-bottom: 0; }
   .ok b { display: block; font-size: 13.5px; font-weight: 600; }
   .ok code { display: block; margin-top: 4px; font: 11px/15px ui-monospace, Menlo, monospace; color: var(--fg2); max-height: 15px;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: max-height .34s var(--ease), color .2s; }
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: max-height var(--t-slow) var(--ease), color var(--t-base); }
   .ok code.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
   .ok code.full { max-height: 165px; overflow-y: auto; color: #d1d1d6; }
   .ok code::-webkit-scrollbar { width: 0; }
   .ok div { display: flex; gap: 8px; margin-top: 11px; }
   .ok button, .pk .bar button, .rewrite button { flex: 1; height: 28px; border: 0; border-radius: 14px; font: 500 12.5px -apple-system, system-ui, sans-serif; color: #fff;
-    cursor: pointer; background: rgba(255,255,255,.1); box-shadow: inset 0 0 0 .5px rgba(255,255,255,.16); transition: transform .3s var(--spring), background .2s; }
+    cursor: pointer; background: rgba(255,255,255,.1); box-shadow: inset 0 0 0 .5px rgba(255,255,255,.16); transition: transform var(--t-slow) var(--spring), background var(--t-base); }
   .ok button.go, .pk .bar button.go, .rewrite button.go { background: var(--accent); box-shadow: none; }
   .ok button:is(:hover,.hot), .pk .bar button:is(:hover,.hot), .rewrite button:not(:disabled):is(:hover,.hot) { transform: scale(1.03); } .ok button:active, .pk .bar button:active, .rewrite button:not(:disabled):active { transform: scale(.96); }
 
   /* "which one?": the AI isn't sure, so it shows its choices. Click one to see it big; click outside it for all of them again */
   .pk { margin-top: 14px; padding: 13px 14px 14px; border-radius: 14px; background: rgba(255,255,255,.07); box-shadow: inset 0 0 0 .5px rgba(255,255,255,.14);
-    animation: grow .32s var(--spring) both; overflow: hidden; max-height: 900px; cursor: default;
-    transition: max-height .34s var(--ease), opacity .25s, margin .34s var(--ease), padding .34s var(--ease); }
+    animation: grow var(--t-slow) var(--spring) both; overflow: hidden; max-height: 900px; cursor: default;
+    transition: max-height var(--t-slow) var(--ease), opacity var(--t-base), margin var(--t-slow) var(--ease), padding var(--t-slow) var(--ease); }
   .pk.gone { max-height: 0; opacity: 0; margin-top: 0; padding-top: 0; padding-bottom: 0; }
   .pk > b { display: block; margin-bottom: 10px; font-size: 13.5px; font-weight: 600; }
   .pk :is(b, .n) > p { margin: 0; }
@@ -224,21 +247,21 @@
   .pk .c:focus-visible { outline: 2px solid rgba(10,132,255,.7); outline-offset: 1px; }
   .pk .c { display: flex; flex-direction: column; gap: 3px; min-width: 0; margin: 0; padding: 5px 5px 7px; border: 0; border-radius: 10px; text-align: left;
     font: inherit; color: inherit; cursor: pointer; background: rgba(255,255,255,.04); box-shadow: inset 0 0 0 .5px rgba(255,255,255,.08);
-    animation: in .35s var(--ease) both; transition: transform .3s var(--spring), background .2s; }
+    animation: in var(--t-slow) var(--ease) both; transition: transform var(--t-slow) var(--spring), background var(--t-base); }
   .pk .g.list .c { padding: 8px 11px; }
   .pk .c:is(:hover,.hot) { background: rgba(255,255,255,.1); transform: scale(1.03); } .pk .c:active { transform: scale(.97); }
   .pk .th { display: grid; place-items: center; aspect-ratio: 4 / 3; margin-bottom: 3px; border-radius: 6px; overflow: hidden; background: rgba(0,0,0,.28);
-    font-size: 11px; font-weight: 600; letter-spacing: .4px; color: var(--fg2); transition: height .34s var(--ease); }
+    font-size: 11px; font-weight: 600; letter-spacing: .4px; color: var(--fg2); transition: height var(--t-slow) var(--ease); }
   .pk .th img { width: 100%; height: 100%; object-fit: contain; }
   .pk .p { display: none; font-size: 10.5px; color: var(--fg2); overflow-wrap: anywhere; } .pk.open .c.on .p:not(:empty) { display: block; }
   .pk .n, .pk .s { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pk .n { font-size: 12px; color: #f5f5f7; } .pk .s { font-size: 10.5px; color: var(--fg2); } .pk .s:empty { display: none; }
   .pk.open .c:not(.on), .pk.open .other { display: none; }
   .pk .other { display: block; width: 100%; box-sizing: border-box; height: 30px; margin: 8px 0 0; padding: 0 11px; border: 0; border-radius: 10px; outline: none;
-    background: rgba(255,255,255,.05); box-shadow: inset 0 0 0 .5px rgba(255,255,255,.14); color: #f5f5f7; font: 12.5px -apple-system, system-ui, sans-serif; transition: box-shadow .2s, background .2s; }
+    background: rgba(255,255,255,.05); box-shadow: inset 0 0 0 .5px rgba(255,255,255,.14); color: #f5f5f7; font: 12.5px -apple-system, system-ui, sans-serif; transition: box-shadow var(--t-base), background var(--t-base); }
   .pk .other::placeholder { color: var(--fg2); }
   .pk .other:focus { background: rgba(255,255,255,.08); box-shadow: inset 0 0 0 1px #0a84ff; }
-  .pk.open .c.on { grid-column: 1 / -1; transform: none; background: rgba(255,255,255,.06); animation: grow .32s var(--spring) both; }
+  .pk.open .c.on { grid-column: 1 / -1; transform: none; background: rgba(255,255,255,.06); animation: grow var(--t-slow) var(--spring) both; }
   .pk.open .c.on .th { aspect-ratio: auto; height: 200px; }
   .pk.open .c.on .n { font-size: 13px; } .pk.open .c.on .n, .pk.open .c.on .s { white-space: normal; overflow-wrap: anywhere; }
   .pk .bar { display: flex; gap: 8px; margin-top: 10px; }
@@ -254,18 +277,18 @@
   /* safe mode off: a small tag says so; clicking it turns safe mode back on */
   #mode { flex: none; display: none; align-items: center; gap: 5px; height: 22px; padding: 0 9px;
     box-sizing: border-box; border-radius: 11px; font-size: 11px; font-weight: 500; line-height: 1; color: #ffb340; cursor: pointer;
-    background: rgba(255,159,10,.13); box-shadow: inset 0 0 0 .5px rgba(255,159,10,.32); transition: transform .3s var(--spring), background .2s; }
+    background: rgba(255,159,10,.13); box-shadow: inset 0 0 0 .5px rgba(255,159,10,.32); transition: transform var(--t-slow) var(--spring), background var(--t-base); }
   #mode::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: #ff9f0a; }
-  #mode.on { display: flex; animation: in .35s var(--ease) both; } #mode:is(:hover,.hot) { transform: scale(1.05); background: rgba(255,159,10,.16); }
+  #mode.on { display: flex; animation: in var(--t-slow) var(--ease) both; } #mode:is(:hover,.hot) { transform: scale(1.05); background: rgba(255,159,10,.16); }
   #mode:focus-visible { outline: 2px solid #64d2ff; outline-offset: 3px; }
 
   /* tip: once in a while, one quiet line under the answer */
   .tip { display: flex; align-items: baseline; gap: 7px; width: fit-content; max-width: 100%; margin-top: 14px; padding: 7px 12px 7px 10px; box-sizing: border-box;
     border-radius: 12px; font-size: 12px; line-height: 1.4; color: #e5e5ea; background: rgba(10,132,255,.16); box-shadow: inset 0 0 0 .5px rgba(10,132,255,.45);
-    animation: pop .5s var(--spring) .4s both; }
+    animation: pop var(--t-slow) var(--spring) .4s both; }
   .tip::before { content: attr(data-k); flex: none; font-weight: 600; color: #64d2ff; }
   .tip.learned { background: rgba(48,209,88,.14); box-shadow: inset 0 0 0 .5px rgba(48,209,88,.45); } .tip.learned::before { color: #30db5b; }
-  .tip .off, .ok .details { flex: none; margin-left: auto; padding: 0; border: 0; background: none; font: 500 11px -apple-system, system-ui, sans-serif; color: var(--fg2); cursor: pointer; transition: color .2s; }
+  .tip .off, .ok .details { flex: none; margin-left: auto; padding: 0; border: 0; background: none; font: 500 11px -apple-system, system-ui, sans-serif; color: var(--fg2); cursor: pointer; transition: color var(--t-base); }
   .tip .off:is(:hover,.hot), .ok .details:is(:hover,.hot) { color: #f5f5f7; }
   .ok.offer { cursor: default; } .ok.offer:is(:hover,.hot) { background: rgba(255,255,255,.07); }   /* a question, not a command: nothing to unfold */
   .ok.offer p { margin: 4px 0 0; font-size: 12px; line-height: 1.4; color: var(--fg2); }
@@ -275,12 +298,12 @@
   .tip.kofi:is(:hover,.hot) { background: rgba(10,132,255,.22); box-shadow: inset 0 0 0 1px #64d2ff; }
   .tip.kofi .support:is(:hover,.hot) { background: rgba(10,132,255,.2); }
   .tip.kofi .support:focus-visible { outline: 2px solid #64d2ff; outline-offset: 3px; }
-  .tip.gone { opacity: 0; transform: translateY(-4px); transition: opacity .4s, transform .4s; }
+  .tip.gone { opacity: 0; transform: translateY(-4px); transition: opacity var(--t-slow), transform var(--t-slow); }
 
   /* memory receipt: one quiet row under an answer that remembered or forgot something. Click: it opens in place; click an item: Settings → Memory there */
-  .mem { margin-top: 12px; animation: in .35s var(--ease) .15s both; }
+  .mem { margin-top: 12px; animation: in var(--t-slow) var(--ease) .15s both; }
   .mem-h { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0; border: 0; cursor: pointer;
-    font: 500 12px -apple-system, system-ui, sans-serif; color: var(--fg2); background: none; transition: color .2s; }
+    font: 500 12px -apple-system, system-ui, sans-serif; color: var(--fg2); background: none; transition: color var(--t-base); }
   .mem-h:is(:hover,.hot), .mem.open .mem-h { color: #f5f5f7; }
   .mem-h .ic { width: 14px; height: 14px; flex: none; border-radius: 50%; display: grid; place-items: center; background: rgba(48,209,88,.2); }
   .mem.off .mem-h .ic { background: rgba(142,142,147,.22); }
@@ -288,54 +311,55 @@
   .mem-h .ic svg { width: 8px; height: 8px; stroke: #30d158; } .mem.off .mem-h .ic svg { stroke: #a1a1a6; }
   .mem.off .mem-h b { text-decoration: line-through; text-decoration-color: rgba(161,161,166,.7); }
   .mem-h b { font-weight: 500; } .mem-h .cat { color: var(--fg2); }
-  .mem-h .chev { width: 8px; height: 8px; stroke: currentColor; opacity: .7; transition: transform .38s var(--spring); }
+  .mem-h .chev { width: 8px; height: 8px; stroke: currentColor; opacity: .7; transition: transform var(--t-slow) var(--spring); }
   .mem.open .mem-h .chev { transform: rotate(90deg); }
-  .mem-b { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .36s var(--ease), opacity .24s var(--ease); }
+  .mem-b { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows var(--t-slow) var(--ease), opacity var(--t-base) var(--ease); }
   .mem.open .mem-b { grid-template-rows: 1fr; opacity: 1; }
   .mem-b > div { min-height: 0; overflow: hidden; }
   .mem-card { margin-top: 6px; padding: 4px; border-radius: 12px; background: rgba(255,255,255,.05); box-shadow: inset 0 0 0 .5px rgba(255,255,255,.1); }
   .mem-c { padding: 6px 9px 2px; font-size: 10.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--fg2); }
   .mem-i { display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 6px 9px; border: 0; border-radius: 8px; text-align: left; cursor: pointer;
     font: 12.5px/1.4 -apple-system, system-ui, sans-serif; color: #e5e5ea; background: none; opacity: 0; transform: translateY(-4px);
-    transition: background .15s, opacity .25s var(--ease), transform .36s var(--ease); }
+    transition: background var(--t-fast), opacity var(--t-base) var(--ease), transform var(--t-slow) var(--ease); }
   .mem.open .mem-i { opacity: 1; transform: none; transition-delay: 0s, calc(60ms + var(--i) * 35ms), calc(60ms + var(--i) * 35ms); }
   .mem-i:is(:hover,.hot) { background: rgba(255,255,255,.07); }
   .mem-i svg { width: 9px; height: 9px; flex: none; stroke: #30d158; transform: translateY(1px); }
   .mem-i.del svg { stroke: #8e8e93; } .mem-i.del span { color: var(--fg2); text-decoration: line-through; }
   .mem-i span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-  .mem-i em { flex: none; font: 500 11px -apple-system, system-ui, sans-serif; color: var(--fg2); opacity: 0; transition: opacity .2s; }
+  .mem-i em { flex: none; font: 500 11px -apple-system, system-ui, sans-serif; color: var(--fg2); opacity: 0; transition: opacity var(--t-base); }
   .mem-i:is(:hover,.hot) em, .mem-i:focus-visible em { opacity: 1; }
 
-  /* typing box: grows in on hover (or the shortcut, in typing mode); the mic goes back to voice */
-  #comp { position: relative; display: flex; align-items: center; gap: 8px; margin-top: 0; height: 0; opacity: 0; overflow: hidden; flex: none; transition: height .24s var(--ease), margin .24s var(--ease), padding .24s var(--ease), opacity .18s; }
+  /* typing box: grows in on hover or the first key typed after the shortcut; the mic goes back to voice */
+  #comp { position: relative; display: flex; align-items: center; gap: 8px; margin-top: 0; height: 0; opacity: 0; overflow: hidden; flex: none; transition: height var(--t-base) var(--ease), margin var(--t-base) var(--ease), padding var(--t-base) var(--ease), opacity var(--t-base); }
   #comp.open { height: 36px; margin: 10px -4px 0; padding: 4px; opacity: 1; }   /* 4px of room inside the clip: round tops, shadows and the hover scale aren't cut flat */
   #model, #models button { flex: none; height: 34px; max-width: 132px; padding: 0 12px; border: 0; border-radius: 17px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     font: 500 12px -apple-system, system-ui, sans-serif; color: var(--fg2); background: rgba(255,255,255,.08); box-shadow: inset 0 0 0 .5px rgba(255,255,255,.14);
-    transition: color .2s, background .25s, opacity .22s var(--ease), transform .38s var(--ease); }
+    transition: color var(--t-base), background var(--t-base), opacity var(--t-base) var(--ease), transform var(--t-slow) var(--ease); }
   #model:is(:hover,.hot), #models button:is(:hover,.hot) { color: #fff; }
   /* the model row: the choices fan out of the chip while the field and mic fade back; a click mid-way just reverses */
   #models { position: absolute; inset: 1px 0; display: flex; justify-content: flex-end; gap: 6px; overflow-x: auto; scrollbar-width: none; pointer-events: none; }
-  #models button { opacity: 0; transform: translateX(var(--dx, 0px)) scale(.9); transition-duration: .2s, .25s, .12s, .3s; }   /* folding back: labels fade before they overlap */
+  #models button { opacity: 0; transform: translateX(var(--dx, 0px)) scale(.9); transition-duration: var(--t-base), var(--t-base), var(--t-fast), var(--t-slow); }   /* folding back: labels fade before they overlap */
   #models button.on { color: #fff; background: rgba(10,132,255,.35); }
   #comp.pick #models { pointer-events: auto; }
-  #comp.pick #models button { opacity: 1; transform: none; transition-duration: .2s, .25s, .22s, .38s; transition-delay: 0s, 0s, calc(var(--i) * 30ms), calc(var(--i) * 30ms); }
+  #comp.pick #models button { opacity: 1; transform: none; transition-duration: var(--t-base), var(--t-base), var(--t-base), var(--t-slow); transition-delay: 0s, 0s, calc(var(--i) * 30ms), calc(var(--i) * 30ms); }
+  #modewhy { margin: 6px 4px 0; color: var(--fg2); font: 11px/1.35 -apple-system, system-ui, sans-serif; }
   #ask { transform-origin: left center; } #comp.pick #ask { opacity: 0; transform: scale(.97); pointer-events: none; }
   #comp.pick #model, #comp.pick #point, #comp.pick #mic { opacity: 0; transform: scale(.8); pointer-events: none; }
   #ask { flex: 1; min-width: 0; height: 34px; box-sizing: border-box; padding: 0 13px; border: 0; outline: 0; border-radius: 17px;
     font: 13.5px -apple-system, system-ui, sans-serif; color: #fff; caret-color: #0a84ff; -webkit-user-select: text; cursor: text;
-    background: rgba(255,255,255,.08); box-shadow: inset 0 0 0 .5px rgba(255,255,255,.14); transition: background .25s, box-shadow .25s, opacity .22s var(--ease), transform .38s var(--ease); }
+    background: rgba(255,255,255,.08); box-shadow: inset 0 0 0 .5px rgba(255,255,255,.14); transition: background var(--t-base), box-shadow var(--t-base), opacity var(--t-base) var(--ease), transform var(--t-slow) var(--ease); }
   #ask::placeholder { color: var(--fg2); }
   #ask:focus { background: rgba(255,255,255,.12); box-shadow: inset 0 0 0 .5px rgba(255,255,255,.22), 0 0 0 3px rgba(10,132,255,.35); }
   #point, #mic { flex: none; width: 34px; height: 34px; border-radius: 50%; border: 0; padding: 0; display: grid; place-items: center; cursor: pointer;
     background: radial-gradient(120% 120% at 30% 15%, rgba(255,255,255,.26), rgba(255,255,255,.07) 60%);
-    box-shadow: inset 0 0 0 .5px rgba(255,255,255,.3), 0 2px 6px rgba(0,0,0,.22); transition: transform .35s var(--spring), background .25s, opacity .22s var(--ease); }
+    box-shadow: inset 0 0 0 .5px rgba(255,255,255,.3), 0 2px 6px rgba(0,0,0,.22); transition: transform var(--t-slow) var(--spring), background var(--t-base), opacity var(--t-base) var(--ease); }
   #point:is(:hover,.hot), #mic:is(:hover,.hot) { transform: scale(1.1); background: radial-gradient(120% 120% at 30% 15%, rgba(255,255,255,.4), rgba(255,255,255,.12) 60%); }
   #point:active, #mic:active { transform: scale(.94); }
   #point svg, #mic svg { width: 15px; height: 15px; fill: none; stroke: #fff; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   #point.active, #point.marked { background: rgba(10,132,255,.55); }
   /* Point at your screen: one row over the typing box. on: the hint; marked: the crop's chip; coach: the one-time intro */
   #pointbar { display: none; align-items: center; gap: 8px; min-height: 28px; margin-top: 12px; font: 12px -apple-system, system-ui, sans-serif; color: var(--fg2); }
-  #pointbar[data-s] { display: flex; animation: in .3s var(--spring) both; }
+  #pointbar[data-s] { display: flex; animation: in var(--t-slow) var(--spring) both; }
   #pointbar .hint { flex: 1; min-width: 0; line-height: 1.35; } #pointbar .hint b { color: #f5f5f7; font-weight: 600; }
   #pointbar .hint svg, #pointbar .chip i svg { width: 13px; height: 13px; margin: 0 1px -2px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   #pointbar .keys { margin: 0 0 0 auto; }
@@ -350,7 +374,7 @@
   #pointbar[data-s=coach] + #comp #point { box-shadow: inset 0 0 0 .5px rgba(255,255,255,.3), 0 0 0 2px rgba(10,132,255,.8); }
 
   /* resize: drag the bottom-right corner */
-  #grip { position: absolute; right: 4px; bottom: 4px; width: 12px; height: 12px; opacity: 0; transition: opacity .25s; cursor: nwse-resize; }
+  #grip { position: absolute; right: 4px; bottom: 4px; width: 12px; height: 12px; opacity: 0; transition: opacity var(--t-base); cursor: nwse-resize; }
   .e { position: fixed; z-index: 3; }
   #eL, #eR { top: 0; bottom: 0; width: 6px; cursor: ew-resize; } #eL { left: 0; } #eR { right: 0; }
   #eT, #eB { left: 0; right: 0; height: 6px; cursor: ns-resize; } #eT { top: 0; } #eB { bottom: 0; }
@@ -373,7 +397,7 @@
   /* agents: a quiet badge in the header, count + live dot; it opens the Agent view */
   #agents-pill { flex:none; white-space:nowrap; display:inline-flex; align-items:center; gap:6px; height:22px; padding:0 9px 0 8px; border:0; border-radius:11px;
     background:rgba(255,255,255,.07); box-shadow:inset 0 0 0 .5px rgba(255,255,255,.12); color:#d1d1d6; font:500 11px -apple-system, system-ui, sans-serif;
-    font-variant-numeric:tabular-nums; cursor:pointer; overflow:hidden; animation:in .35s var(--spring) both; transition:background .2s, transform .3s var(--spring); }
+    font-variant-numeric:tabular-nums; cursor:pointer; overflow:hidden; animation:in var(--t-slow) var(--spring) both; transition:background var(--t-base), transform var(--t-slow) var(--spring); }
   #agents-pill span { white-space:nowrap; }   /* "1 agent" stays on one line; #status beside it gives up the room */
   #agents-pill[hidden] { display:none; } #agents-pill:is(:hover,.hot) { background:rgba(255,255,255,.12); color:#fff; } #agents-pill:active { transform:scale(.95); }
   #agents-pill i { flex:none; width:6px; height:6px; border-radius:50%; background:#0a84ff; box-shadow:0 0 6px rgba(10,132,255,.8); animation:pulse 1.8s ease-in-out infinite; }
@@ -409,16 +433,24 @@
   .agent-card .a :is(div, p) { display:block; margin-top:0; font-size:inherit; line-height:inherit; color:inherit; }
   .agent-card .a code { display:inline; max-height:none; margin:0; white-space:normal; font:12.5px ui-monospace, Menlo, monospace; color:inherit; }
   @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+    /* crossfade only: nothing moves, grows or loops; what appears or goes still fades */
+    *, *::before, *::after { transition-property: opacity, color, background-color, border-color, box-shadow !important; scroll-behavior: auto !important; }
+    @keyframes grow { from { opacity: 0; } } @keyframes pop { from { opacity: 0; } } @keyframes in { from { opacity: 0; } }
+    @keyframes word { from { opacity: 0; } } @keyframes morph { from { opacity: 0; } }
+    @keyframes pulse {} @keyframes blink {} @keyframes hfdot {} @keyframes shimmer {} @keyframes sweep {}
     #status.live span { background: none; color: #f5f5f7; }
-    body.dictate #orb { animation: fade .2s both !important; } body.dictate :is(#check, .dn) { animation: fade .2s both !important; }   /* the pill's states cross-fade */
-    .mini { transform: none !important; transition: opacity .2s !important; }
-    .mini-point { animation: none !important; transition: opacity .2s !important; }
+    body.dictate #orb { animation: fade var(--t-base) both !important; } body.dictate :is(#check, .dn) { animation: fade var(--t-base) both !important; }   /* the pill's states cross-fade */
+    .mini { transform: none !important; transition: opacity var(--t-base) !important; }
+    .mini-point { animation: none !important; transition: opacity var(--t-base) !important; }
   }
+  #updated { margin-top: 8px; color: var(--fg2); font: 11px -apple-system, system-ui, sans-serif; }
+  #updated button { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }
+  body.dictate #updated { display: none; }
 </style></head>
 <body>
 <div id="card">
   <div id="head"><canvas id="orb"></canvas><div id="status"></div><button id="agents-pill" hidden><i></i><span></span></button><div id="mode" role="button" tabindex="0" title="Safe mode is off. Click to turn it on.">Full access</div><button id="fold" title="Minimize answer" aria-label="Minimize answer" aria-expanded="true"><svg viewBox="0 0 16 16"><path d="M3.5 8h9"/></svg></button><div id="x"><svg viewBox="0 0 10 10"><path d="M1 1L9 9M9 1L1 9"/></svg></div></div>
+  <div id="updated" role="status" hidden><span></span> · <button type="button">What’s new</button></div>
   <span id="dictwave" role="img" aria-label="Listening"></span>
   <div id="thread"></div>
   <svg id="lock" viewBox="0 0 10 13" role="img" aria-label="Locked. Press the shortcut to finish."><path d="M2.5 6V4a2.5 2.5 0 0 1 5 0v2"/><rect x="0" y="5.5" width="10" height="7.5" rx="2"/></svg>
@@ -429,6 +461,7 @@
     <div id="models" role="menu" aria-label="Model"></div><button id="model" title="Model" aria-label="Model" hidden></button>
     <button id="point" title="Point at your screen" aria-label="Point at your screen" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M9 8l11 4.5-4.6 1.9L13.5 19z"/><path d="M5.1 11.9A5.5 5.5 0 0 1 12.9 4.1"/></svg></button>
     <button id="mic" title="Talk instead" aria-label="Talk instead"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button></div>
+  <div id="modewhy" aria-live="polite" hidden></div>
 </div>
 <div class="e" id="eL"></div><div class="e" id="eR"></div><div class="e" id="eT"></div><div class="e" id="eB"></div>
 <div class="e" id="cTL"></div><div class="e" id="cTR"></div><div class="e" id="cBL"></div><div class="e" id="cBR"></div>
@@ -489,10 +522,14 @@
     if (e.detail === 1 && getSelection().isCollapsed && Math.hypot(e.clientX - pressAt[0], e.clientY - pressAt[1]) <= 3) window.ui.tap([e.clientX, e.clientY]);
   }, true);
   let defaultEnabled=false,defaultComposing=false;
-  function defaultButton(){if(!visible||folded||defaultComposing||$('ask').value.trim()||document.hasFocus()&&document.querySelector('button:focus,select:focus,input:focus:not(#ask),textarea:focus,[contenteditable=true]:focus')||$('thread').querySelector('.pk:not(.gone),.ok:not(.agent-card):not(.gone)'))return null;return $('thread').querySelector('.agent-card .go:not(:disabled)');}
+  function defaultButton(){if(!visible||folded||defaultComposing||$('ask').value.trim()||document.hasFocus()&&document.querySelector('button:focus,[role=button]:focus,select:focus,input:focus:not(#ask),textarea:focus,[contenteditable=true]:focus')||$('thread').querySelector('.pk:not(.gone),.ok:not(.agent-card):not(.gone)'))return null;return $('thread').querySelector('.agent-card .go:not(:disabled)');}
   let folded = false, foldedScroll = 0, foldBeforeQuestion = false, foldAuto = false, foldSeq = 0, foldTimer = 0, foldDone = null;
-  const FOLD_MS = reduced.matches ? 0 : 250;
+  const FOLD_MS = reduced.matches ? 0 : 200;   // --t-base, as Motion.base folds the panel
+  // Folded hides the thread with display: none (also while measuring the folded height), which forgets where its animations are:
+  // showing it again would replay every entrance in it. What was on screen shows its last frame instead; endless ones keep going.
+  const keepEntered = () => document.getAnimations().forEach(a => { const e = a.effect?.target; if (a instanceof CSSAnimation && e && $('thread').contains(e) && e.getAnimations().every(b => Number.isFinite(b.effect.getComputedTiming().iterations))) e.dataset.entered = ''; });
   const foldBody = on => {
+    if (on) keepEntered();
     folded = on; document.body.classList.toggle('folded', on);
     $('fold').title = on ? 'Expand answer' : 'Minimize answer';
     $('fold').setAttribute('aria-label', $('fold').title); $('fold').setAttribute('aria-expanded', !on);
@@ -500,10 +537,11 @@
     $('thread').inert = on; $('comp').inert = on || !$('comp').classList.contains('open');
     if (on) $('ask').blur();
   };
-  const compactHeight = () => { document.body.classList.add('folded'); const h = $('card').offsetHeight; document.body.classList.remove('folded'); return h; };
+  const compactHeight = () => { keepEntered(); document.body.classList.add('folded'); const h = $('card').offsetHeight; document.body.classList.remove('folded'); return h; };
   const finishFold = on => {
     clearTimeout(foldTimer);
     document.body.classList.remove('fold-morph', 'fold-away');
+    $('card').getAnimations().forEach(a => a instanceof CSSTransition && a.finish());   // a padding ease still in flight would size the box to its first frame
     foldBody(on);
     if (!on) $('thread').scrollTop = foldedScroll;
     fit(false);
@@ -516,29 +554,44 @@
     else if (!foldAuto) foldBeforeQuestion = false;
     if (FOLD_MS === 0) { finishFold(on); return; }
     clearTimeout(foldTimer);
-    const id = ++foldSeq;
-    document.body.classList.add('fold-morph');
+    const card = $('card'), padding = getComputedStyle(card).padding;
+    if (on) document.body.classList.remove('fold-morph');
+    const id = ++foldSeq, h = on && compactHeight();   // without a morph: under it the thread still takes room and the padding is mid-transition
+    // Measuring lays the card out at its end padding; the padding on screen is laid out again before the ease is on, so it eases from there.
+    const ease = () => { card.style.padding = padding; void card.offsetHeight; document.body.classList.add('fold-morph'); card.style.padding = ''; };
     if (on) {
-      document.body.classList.add('fold-away');
-      post({ fold: id, h: compactHeight() }); foldTimer = setTimeout(() => window.ui.foldSettled(id), FOLD_MS + 80);   // no rAF: a hidden box never paints, so it would never settle
+      ease(); document.body.classList.add('fold-away');
+      post({ fold: id, h }); foldTimer = setTimeout(() => window.ui.foldSettled(id), FOLD_MS + 80);   // no rAF: a hidden box never paints, so it would never settle
     } else {
-      document.body.classList.remove('folded');
-      post({ fold: id, h: $('card').offsetHeight }); foldTimer = setTimeout(() => window.ui.foldSettled(id), FOLD_MS + 80);
+      document.body.classList.remove('folded', 'fold-away', 'fold-morph');
+      const h = $('card').offsetHeight;
+      ease();
+      post({ fold: id, h }); foldTimer = setTimeout(() => window.ui.foldSettled(id), FOLD_MS + 80);
     }
   };
-  const refoldIfAsked = () => { if (!foldBeforeQuestion) return; foldBeforeQuestion = false; setTimeout(() => foldBox(true), 360); };
+  let autoMinimize = true, drawingActive = false, drawingThisTurn = false;
+  const foldedOrFolding = () => document.body.classList.contains('fold-away') || folded && !document.body.classList.contains('fold-morph');
+  const manualFold = on => {
+    if (working || drawingActive) { autoMinimize = on; post({ autoMinimize: on }); }
+    foldBeforeQuestion = false; foldBox(on);
+  };
+  const refoldIfAsked = () => { if (!foldBeforeQuestion) return; foldBeforeQuestion = false; setTimeout(() => { if (working && autoMinimize && clockHeld === null && !part('a')?.hasChildNodes()) foldBox(true); }, 360); };
   const unfoldForAnswer = fn => {
-    if (!folded) { fn?.(); return; }
+    if (!foldedOrFolding()) { fn?.(); return; }
     foldBeforeQuestion = true; foldAuto = true;
     foldBox(false, () => { foldAuto = false; fn?.(); });
   };
-  const unfoldToEnd = () => folded && foldBox(false, () => { atBottom = true; $('thread').scrollTop = $('thread').scrollHeight; });   // a finished answer opens the box
+  const unfoldToEnd = () => {
+    if (!foldedOrFolding()) return;
+    foldBox(false, () => { atBottom = true; $('thread').scrollTop = $('thread').scrollHeight; });
+    $('thread').scrollTop = $('thread').scrollHeight;   // reveal the new answer during the resize, rather than jumping to it at the end
+  };
   const focusAnswer = () => {
     const pk = $('thread').querySelector('.pk:not(.gone)');
     if (pk) (pk.querySelector('.c') || pk.querySelector('.other'))?.focus();
     else comp(true, true);
   };
-  $('fold').onclick = () => { if (folded) foldBeforeQuestion = false; foldBox(!folded); };
+  $('fold').onclick = () => manualFold(!foldedOrFolding());
   const fit = (follow = true) => {
     const card = $('card'); webkit.messageHandlers.h.postMessage(document.body.classList.contains('dictate') ? [card.offsetWidth, card.offsetHeight] : card.offsetHeight);   // the dictation pill sizes its width too
     if (!folded && follow && atBottom) $('thread').scrollTop = $('thread').scrollHeight;
@@ -549,10 +602,10 @@
   // Typing box. listening: the mic is on (clicking in drops it). Enter always sends; the app ignores it while an answer runs,
   // and the text stays in the box until the app takes it (ui.listen), so nothing typed is lost.
   let listening = false, hover = false, working = false, hot = [];
-  let compFrame = 0;
+  let compFrame = 0, armed = false;   // armed: Type right away gave the field the keys; it stays folded until the first key
   const comp = (on, focus) => {
     if (folded) { if (on && focus) foldBox(false); else return; }
-    $('comp').inert = !on;
+    $('comp').inert = !on && !armed;
     if ($('comp').classList.contains('open') !== on) {
       $('comp').classList.toggle('open', on); fit();
       cancelAnimationFrame(compFrame);
@@ -560,7 +613,7 @@
       const resize = () => { fit(false); if (performance.now() < end) compFrame = requestAnimationFrame(resize); };
       compFrame = requestAnimationFrame(resize);
     }
-    if (on && focus) $('ask').focus(); else if (!on) $('ask').blur();
+    if (on && focus) $('ask').focus(); else if (!on && !armed) $('ask').blur();
     if (on) coachShow(); else if (bar.dataset.s === 'coach') { delete bar.dataset.s; fit(); }
   };
   // Clicking in or typing (not the cursor landing there from the shortcut): typing wins, so the mic stops and what was heard goes
@@ -568,8 +621,8 @@
     if (listening) { listening = false; document.body.classList.remove('hearing'); turn()?.remove(); setState('breathing'); status(''); boost = 1; $('orb').style.transform = ''; fit(); }
     post({ type: 1 });
   };
-  $('ask').onmousedown = drop; $('ask').oninput = () => { drop(); if (miniEnd) { post({miniClear:true});miniClear(); follow(440); } fit(false); };   // typing the next ask: the finished view goes
-  $('ask').onblur = () => { if (!hover && !$('ask').value) comp(false); };
+  $('ask').onmousedown = drop; $('ask').oninput = () => { armed = false; drop(); if (!$('comp').classList.contains('open')) comp(true, true); if (miniEnd) { post({miniClear:true});miniClear(); follow(440); } fit(false); };   // typing the next ask: the finished view goes
+  $('ask').onblur = () => { armed = false; if (!hover && !$('ask').value) comp(false); };
   const editor = e => e?.matches?.('input,textarea,[contenteditable=true]');
   document.addEventListener('focusin', e => { fit(false); post({ focus: !!editor(e.target) }); });
   document.addEventListener('focusout', e => { fit(false); if (editor(e.target) && !editor(e.relatedTarget)) post({ focus: false }); });
@@ -591,12 +644,23 @@
   // the model row: one click picks. Each choice starts where the chip is (--dx) and fans out; the label changes while the chip is faded out
   let pickTimer = 0;
   const spread = () => [...$('models').children].forEach((b, i) => { b.style.setProperty('--i', i); b.style.setProperty('--dx', $('model').offsetLeft - b.offsetLeft + 'px'); });
+  // while picking: what the choice under the pointer or focus costs (Settings → Intelligence has the same words)
+  const WHY = { cheapest: 'Haiku for everything. Lightest on your plan.',
+    balanced: 'Haiku for quick asks; work model otherwise.',
+    capable: 'Work model for everything. Highest plan use.' };
+  const why = b => {
+    const v = $('comp').classList.contains('pick') && WHY[b?.dataset.v] ? b.dataset.v : '', e = $('modewhy');
+    if ((e.dataset.v || '') === v) return;   // the text may be translated: compare the choice
+    e.dataset.v = v; e.textContent = WHY[v] || ''; e.hidden = !v; window.i18n?.refresh(); fit();
+  };
   const pickRow = on => {
     clearTimeout(pickTimer);
     if (on) spread();
     $('comp').classList.toggle('pick', on); $('models').inert = !on; $('ask').inert = on; $('model').setAttribute('aria-expanded', on);
     if (on) ($('models').querySelector('.on') || $('models').firstChild)?.focus({ preventScroll: true });
+    why(on && $('models').querySelector('.on'));
   };
+  $('models').addEventListener('focusin', e => why(e.target.closest('button')));
   $('models').inert = true;
   $('model').onclick = () => { pickRow(true); post({ models: true }); };
   $('models').onclick = e => {
@@ -661,22 +725,23 @@
     };
     const a = target || part('a'); a ? a.after(d) : turn().append(d); fit();
   };
-  const settle = () => turn()?.querySelectorAll('.step.live').forEach(e => { e.classList.remove('live'); e.classList.add('done'); });
+  const settle = () => turn()?.querySelectorAll('.steps:not([data-walkthrough="1"]) .step.live').forEach(e => { e.classList.remove('live'); e.classList.add('done'); });
   const unstream = () => $('thread').querySelectorAll('.a.streaming').forEach(a => { a.classList.remove('streaming'); a.replaceChildren(); });   // the answer so far was a note, or a later attempt follows
   const { MML, markdown, shut } = E;   // the answer renderer, shared with agents.html
   const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
-  const leaf = c => c.nodeType === 3 || c.namespaceURI === MML || c.classList.contains('w') || c.classList.contains('tex');
+  const leaf = c => c.nodeType === 3 || c.namespaceURI === MML || c.classList.contains('w') || c.classList.contains('tex') || c.classList.contains('graph');
   const merge = (old, now, gone) => {   // keeps the nodes both share from the start (words on screen keep their fade) and swaps in the rest
     const o = [...old.childNodes], n = [...now.childNodes]; let i = 0;
     for (; i < o.length && i < n.length && o[i].nodeName === n[i].nodeName && o[i].className === n[i].className; i++)
-      if (!leaf(o[i])) merge(o[i], n[i], gone); else if (o[i].textContent !== n[i].textContent) break;
+      if (!leaf(o[i])) merge(o[i], n[i], gone); else if (o[i].textContent !== n[i].textContent || o[i].dataset?.spec !== n[i].dataset?.spec) break;
     o.slice(i).forEach(c => { gone.push(c); c.remove(); }); old.append(...n.slice(i));
   };
-  const reveal = (a, text, keep = false) => {   // the answer fades in word by word (a formula as one), under a second in total; a draft stays exactly as it will paste
-    const t = document.createElement('div'); t.append(a.classList.contains('draft') ? text : markdown(text));   // keep: a streamed answer, only its new words fade in
+  const reveal = (a, text, keep = false, streaming = false) => {   // the answer fades in word by word (a formula as one), under a second in total; a draft stays exactly as it will paste
+    const graphs = keep ? [...(a.querySelectorAll?.('.graph[data-spec]') || [])] : [];   // reuse a finished plot while the surrounding words stream
+    const t = document.createElement('div'); t.append(a.classList.contains('draft') ? text : markdown(text, streaming, graphs));   // keep: a streamed answer, only its new words fade in
     const units = [], boxes = [], walk = n => [...n.childNodes].forEach(c => {
       if (c.nodeType === 3) c.replaceWith(...c.data.split(/(\s+)/).filter(Boolean).map(w => { if (/^\s/.test(w)) return w; const s = document.createElement('span'); s.className = 'w'; s.textContent = w; units.push(s); return s; }));
-      else if (c.namespaceURI === MML || c.classList.contains('tex')) units.push(c);
+      else if (c.namespaceURI === MML || c.classList.contains('tex') || c.classList.contains('graph')) units.push(c);
       else { c.first = units.length; boxes.push(c); walk(c); }   // a block's marker, background or border fades in with its first word
     });
     walk(t);
@@ -764,14 +829,14 @@
   $('thread').addEventListener('scroll', miniRect);
   new ResizeObserver(miniRect).observe($('thread'));
 
-  let clockStart = null, clockHeld = null, clockFrame = 0, clock = null;   // clockHeld: ms so far while a card waits for the user
+  let clockStart = null, clockHeld = null, clockFrame = 0, clock = null, upgradeKeep = null;   // clockHeld: ms so far while a card waits for the user
   const clockPaint = () => { const t = (performance.now() - clockStart) / 1000; clock.querySelector('b').firstChild.data = t < 60 ? t.toFixed(2) + ' s' : Math.floor(t / 60) + ':' + (t % 60).toFixed(2).padStart(5, '0'); };   // past a minute, stopwatch style: 4:01.27
   const clockTick = () => {
     if (clockStart === null) return;
     clockPaint();
     clockFrame = requestAnimationFrame(clockTick);
   };
-  const clockStop = () => { cancelAnimationFrame(clockFrame); if (clockStart !== null) clockPaint(); clockStart = clockHeld = null; };
+  const clockStop = () => { cancelAnimationFrame(clockFrame); if (clockStart !== null) { clockPaint(); clock.ms = performance.now() - clockStart; } clockStart = clockHeld = null; };
   const clockHold = () => { if (clockStart === null) return; cancelAnimationFrame(clockFrame); clockPaint(); clockHeld = performance.now() - clockStart; clockStart = null; };
   const clockGo = () => { if (clockHeld === null) return; clockStart = performance.now() - clockHeld; clockHeld = null; clockTick(); };
   const clockBegin = () => {
@@ -828,8 +893,16 @@
   $('agents-pill').onclick=()=>post({agents:true});
   document.addEventListener('toggle', () => follow(420), true);   // an answer's fold opened: the box grows with it
   document.addEventListener('click', e => { const a = e.target.closest?.('a[href]'); if (a) { e.preventDefault(); e.stopPropagation(); post({ link: a.href }); } }, true);   // links open in the browser, never in the box
-  document.addEventListener('keydown',e=>{const b=defaultButton();if(b&&e.key==='Enter'&&!e.isComposing&&!e.target.closest('button,input,textarea,select,a,[contenteditable=true]')){e.preventDefault();e.stopPropagation();b.click();}},true);
+  $('thread').addEventListener('graphresize', () => fit());
+  document.addEventListener('keydown',e=>{const b=defaultButton();if(b&&e.key==='Enter'&&!e.isComposing&&!e.target.closest('button,[role=button],input,textarea,select,a,[contenteditable=true]')){e.preventDefault();e.stopPropagation();b.click();}},true);
+  $('updated').querySelector('button').onclick = () => post({ updateNews: true });
   window.ui = {
+    updated(version) { $('updated').hidden = !version; $('updated').querySelector('span').textContent = version ? 'Updated to ' + version : ''; fit(false); },
+    autoMinimize(on) { autoMinimize = !!on; },
+    drawing(on) {
+      const started = on && !drawingActive; drawingActive = drawingThisTurn = !!on;
+      if (started && autoMinimize && !listening) foldBox(true);
+    },
     foldSettled(id) { if (id === foldSeq) finishFold(document.body.classList.contains('fold-away')); },
     agentDefaultAction(){defaultButton()?.click();},
     movePending(){turn()?.querySelectorAll('.pk,.ok:not(.agent-card)').forEach(e=>e.remove());status('Moving to an agent…',true);fit();},   // a waiting pick or Allow goes with the ask
@@ -861,6 +934,7 @@
     agentCount(value){const count=typeof value==='number'?value:value.count,pill=$('agents-pill'),label=count+' agent'+(count===1?'':'s');pill.hidden=!count;pill.classList.toggle('attention',!!value.attention);
       pill.lastChild.textContent=label;pill.title=value.attention?'An agent needs you':'Open Agents';pill.setAttribute('aria-label',label+(value.attention?', one needs you':' running')+'. Open Agents');fit();},
     agentEscape(){const b=$('thread').querySelector('.agent-card [data-esc]');if(b)b.click();else post({agentGone:true});},   // Esc is a native hotkey: it picks the card's quiet choice
+    graphShrink(){const g=$('thread').querySelector('.graph.expanded');if(!g)return false;g.click();return true;},
     selected(t) {   // the text Atticus is working from, so the user knows it saw the right thing
       const d = turn(); if (!d || !t.trim()) return;
       const s = document.createElement('div'); s.className = 'sel'; s.textContent = 'Selected: “' + t.trim().replace(/\s+/g, ' ') + '”';
@@ -906,7 +980,7 @@
       fit();
     },
     pointCoach(open) { coachPending = true; if (open) comp(true); else if ($('comp').classList.contains('open')) coachShow(); },   // open: the first ask after setup shows it without a hover
-    finished() { clockStop(); miniFinish(false); unstream(); unfoldToEnd(); },
+    finished() { if (working) { working = false; setState('breathing'); status('Done'); } clockStop(); miniFinish(false); unstream(); if (!(drawingThisTurn && autoMinimize)) unfoldToEnd(); this.upgradeKeepOffer(); },
     dictate(on) { dictateMode(on); },   // the last dictation's wave must not show on the next; its empty turn never reaches the box
     locked(on) { document.body.classList.toggle('locked', !!on); fit(false); },   // a double tap: hands-free until the next press; the pill makes room for the lock
     visible(on) { visible = on; if (!on) { clockStop(); miniClear(); } fit(false); },
@@ -927,8 +1001,8 @@
       $('thread').querySelectorAll('.elapsed .hf').forEach(e => e.remove());
       const keep = mode === true, dict = mode === 'dict';
       dictateMode(dict);   // establish this turn's kind here: separate native WebKit calls can arrive after this one
-      miniClear(); clockStop();
-      $('thread').querySelectorAll('.rewrite, .paused, .worker').forEach(e => e.remove());   // a new ask: a paused card (resumed elsewhere) or a helper failure no longer applies
+      miniClear(); clockStop(); drawingThisTurn = false;
+      $('thread').querySelectorAll('.rewrite, .paused, .worker, .upgrade').forEach(e => e.remove());   // a new ask: a paused card (resumed elsewhere) or a helper failure no longer applies
       hover = false;
       listening = !keep;
       document.body.classList.toggle('hearing', listening);
@@ -963,13 +1037,28 @@
       fit();
     },
     tail(on) { part('q')?.classList.toggle('tail', !!on); fit(); },
+    walkthrough(g) {
+      const st = part('steps'); if (!st) return;
+      const active = ['starting', 'waiting', 'checking'].includes(g.phase);
+      st.replaceChildren(); delete st.dataset.more; st.dataset.walkthrough = active ? '1' : '';
+      if (active) g.plan.forEach((label, i) => {
+        const d = document.createElement('div'); d.className = 'step' + (i < g.index ? ' done' : i === g.index ? ' live' : '');
+        const text = document.createElement('span'); text.textContent = label; d.append(text); st.append(d);
+      });
+      if (g.phase === 'checking') {
+        clockStop(); turn()?.querySelectorAll('.elapsed').forEach(e => e.remove()); clock = null;
+        const a = part('a'); if (a) { a.replaceChildren(); delete a.dataset.answer; a.classList.remove('streaming'); }
+        working = true; status('Checking the step…', true); setState('solving');
+      } else status(g.phase === 'waiting' ? 'Your turn' : '');
+      fit();
+    },
     think() {
       clockBegin();
       listening = false;
       document.body.classList.remove('hearing');
       working = true;
       boost = 1; $('orb').style.transform = ''; setState('solving');
-      part('q')?.classList.remove('live', 'hear'); status('Thinking…', true); fit();
+      part('q')?.classList.remove('live', 'hear'); status('Thinking…', true); if (autoMinimize && !document.body.classList.contains('dictate')) foldBox(true); fit();
     },
     finishing(label) {   // dictation released: the wave goes and the pill folds into the working orb
       listening = false; boost = 1; $('orb').style.transform = ''; document.body.classList.remove('locked', 'hearing');
@@ -1005,7 +1094,7 @@
       let top = null;   // a streamed answer: the box keeps its start in view and never chases the bottom
       if (tag !== '…' && tag !== '✓') unstream();
       if (tag === '…') {   // the answer as it arrives; ✓ replaces it
-        const a = part('a'); if (a && !a.dataset.answer) { clockBegin(); if (!s) unstream(); else { reveal(a, shut(s.replace(/\u2028/g, '\n').replace(/\S+$/, '')), a.classList.contains('streaming')); a.classList.add('streaming'); top = a; } }   // its last word may still be arriving
+        const a = part('a'); if (a && !a.dataset.answer) { clockBegin(); if (!s) unstream(); else { const source = s.replace(/\u2028/g, '\n'); reveal(a, shut(/(?:^|\n)[ \t]*```[^\n]*$/.test(source) ? source : source.replace(/\S+$/, '')), a.classList.contains('streaming'), true); a.classList.add('streaming'); top = a; } }   // its last word may still be arriving
       }
       else if (tag === '▣') { try { miniUpdate(JSON.parse(s)); } catch {} }
       else if (tag === '@') miniPoint(s);
@@ -1021,7 +1110,7 @@
         const d = document.createElement('div'); d.className = 'step live'; d.innerHTML = '<span></span>'; d.firstChild.textContent = s;
         st.append(d);
         while (st.children.length > 4) { st.firstChild.remove(); st.dataset.more = (+st.dataset.more || 0) + 1; }   // long tasks: a quiet count, not a wall of steps
-        if (positions) for (const e of st.children) e.animate([{transform:`translateY(${positions.has(e) ? positions.get(e).top - e.getBoundingClientRect().top : 19}px)`,opacity:positions.get(e)?.opacity??0},{transform:'none',opacity:1}],{duration:350,easing:'cubic-bezier(.2,.8,.2,1)'});
+        if (positions) for (const e of st.children) e.animate([{transform:`translateY(${positions.has(e) ? positions.get(e).top - e.getBoundingClientRect().top : 19}px)`,opacity:positions.get(e)?.opacity??0},{transform:'none',opacity:1}],{duration:280,easing:'cubic-bezier(.32,.72,0,1)'});
         }
         status(s, true);
         setState(/^(Searching|Reading|Looking|Taking|Checking|Finding|Waiting)/.test(s) ? 'searching' : /^(Moving|Opening|Using|Clicking|Scrolling|Pressing|Dragging|Typing)/.test(s) ? 'working' : 'connecting');
@@ -1046,6 +1135,7 @@
         turn().append(d);
         setTimeout(() => { d.classList.add('gone'); setTimeout(() => { d.remove(); fit(); }, 400); }, 9000);   // never sticks around
       }
+      if ((tag === '…' && s || tag === '✓') && !(drawingThisTurn && autoMinimize)) unfoldToEnd();
       fit(!top);
       if (!folded && top && atBottom) {   // grow down to the answer's start, never past it or past where the user scrolled; once it is full they scroll on
         const t = $('thread'), end = t.scrollHeight - t.clientHeight, start = top.getBoundingClientRect().top - t.getBoundingClientRect().top + t.scrollTop - 16;
@@ -1054,7 +1144,7 @@
     },
     msg(s) {
       if (document.body.classList.contains('dictate')) return window.ui.dictated({ text: s });   // its status line and answer are hidden
-      miniFinish(false); clockStop();
+      miniFinish(false); clockStop(); unfoldToEnd();
       listening = false; working = false; settle(); part('q')?.classList.remove('live'); setState('breathing'); status('');
       document.body.classList.remove('hearing'); boost = 1; $('orb').style.transform = '';   // a quiet end can come straight from listening
       if (part('q')?.classList.contains('empty')) { turn().remove(); status(s); }
@@ -1062,7 +1152,7 @@
       fit();
     },
     stopped(s) {   // Esc or the hotkey cut it off
-      miniClear(); clockStop();
+      miniClear(); clockStop(); unfoldToEnd();
       listening = false;
       document.body.classList.remove('hearing');
       working = false;
@@ -1078,16 +1168,22 @@
     hover(on) {   // the mouse came over the box: the typing box grows in; left with nothing typed: it goes
       hover = on;
       if (on) comp(true);   // even while listening: the mic keeps going until the user clicks in
-      else if (!on && !$('ask').value && document.activeElement !== $('ask')) comp(false);
+      else if (!on && !$('ask').value && (armed || document.activeElement !== $('ask'))) comp(false);
     },
-    compose(on) { comp(on, on); },
+    compose(on) { armed = false; comp(on, on); },
+    keys(on) {   // Type right away: the field takes the keys while the box listens
+      armed = on;
+      if (on) { $('comp').inert = false; $('ask').focus({ preventScroll: true }); }
+      else if (!$('comp').classList.contains('open')) { $('comp').inert = true; $('ask').blur(); }
+    },
     draft(t) { $('ask').value = t; comp(true, true); },
     tap([x, y]) {   // a click on the box, not a drag: on the answer = copy it, anywhere else = type
-      const el = document.elementFromPoint(x, y), b = el?.closest('a[href], .ok button, .ok, .pk button, .pk, .rewrite button, .mini-view, .mem-i, .mem-h, .mem, .shot, #pointbar button, .redo, #fold, #agents-pill, .dn button, .tip .support');
+      const el = document.elementFromPoint(x, y), b = el?.closest('a[href], .ok button, .ok, .pk button, .pk, .rewrite button, .upgrade button, .mini-view, .mem-i, .mem-h, .mem, .shot, .graph:not(.pending), #pointbar button, #updated button, .redo, #fold, #agents-pill, .dn button, .tip .support');
+      if (el?.closest('#x')) return post({ close: true });   // the drawn ×, hover-grown, reaches past native's × corner
       const field = el?.closest('.ok input, .ok textarea, .pk input, .pk textarea');   // "Something else…": a text field in a card takes the cursor
       if (field) return field.focus();
       if (b) return b.click();
-      if (folded) return;
+      if (foldedOrFolding()) return manualFold(false);
       if (document.body.classList.contains('dictate')) return;   // the pill has no typing box: only its buttons act
       if (el?.closest('#mode')) return enableSafeMode();
       if ($('comp').classList.contains('pick')) pickRow(false);   // a click anywhere else closes the model row
@@ -1098,7 +1194,7 @@
       drop();
       if (on?.dataset.answer) post({ copy: on.dataset.answer });
       else { if (q) $('ask').value = q.textContent; comp(true, true); }
-    },   // typing mode's shortcut: open and put the cursor in it
+    },
     size(h) { $('thread').style.maxHeight = h + 'px'; fit(); },
     hold(h) {   // pin the panel to the pointer while an edge is being dragged
       const c = $('card'), t = $('thread');
@@ -1133,6 +1229,47 @@
       if(button){$('ask').value='';button.click();}
       else { $('ask').value = text; status('Say “Retry” or “Not now”', true); }   // heard, but not an answer
       return true;
+    },
+    upgradeClear() { upgradeKeep = null; document.querySelectorAll('.upgrade').forEach(e => e.remove()); fit(); },
+    upgrade(id) {
+      const t = turn(); if (!t || t.dataset.upgrade) return;
+      this.upgradeClear(); t.dataset.upgrade = '1';
+      const d = document.createElement('div'); d.className = 'upgrade';
+      d.innerHTML = '<span>Not what you wanted?</span><button>Try Most capable</button><button>Don’t remind me</button>';
+      d.querySelector('button').title = 'Retry this ask with Opus. Uses more of your plan.';
+      d.querySelectorAll('button').forEach((b, i) => b.onclick = e => {
+        e.stopPropagation(); if (!d.isConnected) return;
+        d.remove(); post({upgrade:{id,action:i?'off':'try'}}); fit();
+      });
+      t.append(d); fit();
+      setTimeout(() => { if (d.isConnected) { d.remove(); post({upgrade:{id,action:'expire'}}); fit(); } }, 60000);
+    },
+    upgradeStarted(id) {   // the same answer, retried: its one time line keeps counting; whether to keep Opus is asked once the new answer is in
+      this.upgradeClear(); drawingThisTurn = false;
+      const a = part('a'); if (a) delete a.dataset.answer;
+      const c = turn()?.querySelector('.elapsed');
+      if (clockStart === null && clockHeld === null && c?.ms != null) { clock = c; clockHeld = c.ms; }
+      upgradeKeep = id; status('Trying Most capable', true); clockGo(); setState('solving'); fit();
+    },
+    upgradeKeepOffer() {
+      const id = upgradeKeep; upgradeKeep = null; if (!id || !turn()) return;
+      const d = document.createElement('div'); d.className = 'upgrade';
+      d.innerHTML = '<span>Opus uses more of your plan.</span><button>Keep using it</button><button>Just this once</button>';
+      d.querySelectorAll('button').forEach((b, i) => b.onclick = e => {
+        e.stopPropagation(); if (!d.isConnected) return;
+        d.remove(); if (!i) post({upgrade:{id,action:'keep'}}); fit();
+      });
+      turn().append(d); fit();
+    },
+    permission(text) {
+      document.querySelectorAll('.permission').forEach(e => e.remove());
+      if (!text) { fit(); return; }
+      const d = document.createElement('div'); d.className = 'ok permission';
+      d.innerHTML = '<b></b><div><button class="go">Open Settings</button></div>';
+      d.querySelector('b').textContent = text;
+      d.querySelector('button').hidden = text.startsWith('Waiting');
+      d.querySelector('button').onclick = e => { e.stopPropagation(); post({permissionSettings: true}); };
+      (turn() || $('thread')).append(d); status(text); fit();
     },
     notice(s) { status(s, true); },
     ask([q, cmd, retry, details]) {   // retry: a failure card (Not now / Retry) instead of an approval
@@ -1238,8 +1375,10 @@
     },
     pointer(p, x) {   // native's mouse tracking: .hot is the :hover chain under the point (x: on the ×'s corner); returns whether the cursor is a hand
       const m = x ? $('x') : p.length ? document.elementFromPoint(p[0], p[1]) : null, now = [];
+      const graph = m?.closest('.graph'); $('thread').querySelectorAll('.graph').forEach(g => g.graphHover?.(g === graph ? p : null));
       for (let e = m; e; e = e.parentElement) now.push(e);
       hot.forEach(e => now.includes(e) || e.classList.remove('hot')); now.forEach(e => e.classList.add('hot')); hot = now;
+      const choice = m?.closest('#models button'); if (choice) why(choice);
       const text = !x && !!m?.closest('.a:not(.stopped):not(.cancel), .q:not(.empty)');
       if (text !== overText) post({ overText: overText = text });
       return !!x || !!m && getComputedStyle(m).cursor === 'pointer';

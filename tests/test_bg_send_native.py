@@ -171,15 +171,16 @@ for _ in 0..<count {
         result, elapsed = self.user_types_during(lambda: self.hands_action(receipt, "type", "Prompt", prompt, "submit"))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual((self.root / "agent-submitted").read_text(), prompt)
-        self.assertIn('Typed into "Prompt"', result.stdout)
+        self.assertTrue(result.stdout.startswith('verified: Submitted from "Prompt".'), result.stdout)
         print(f"BACKGROUND SEND native chat: {elapsed:.1f} ms, focus loss {self.status('user')['longestFocusLoss'] * 1000:.1f} ms", flush=True)
 
     def test_native_chat_does_not_claim_an_unobserved_background_return(self):
         prompt = "safe unsubmitted prompt"
         receipt = self.hands_receipt("agent-ignore", "type", "Prompt", prompt, "submit")
         result, _ = self.user_types_during(lambda: self.hands_action(receipt, "type", "Prompt", prompt, "submit"))
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Could not verify", result.stdout)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(result.stdout.startswith('unverified: Return dispatched'), result.stdout)
+        self.assertNotIn('verified: Submitted', result.stdout)
         self.assertEqual(self.status("agent-ignore")["value"], prompt)
         self.assertFalse((self.root / "agent-ignore-submitted").exists())
 

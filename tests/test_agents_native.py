@@ -54,16 +54,24 @@ func currentMeetingEvent(_ store:EKEventStore)->[String:Any]?{nil}
 let calendar=EKEventStore()
 final class MeetingStub {var running=false;func open(){};func acceptAgent(_ row:[String:Any]){};func showAgentPrep(_ row:[String:Any]){}}
 let meeting=MeetingStub()
-final class OnboardingStub{var allowed:[String]=[];func allow(_ need:String,app:String){allowed.append(need)}}   // setup asks: what Allow opened
+final class OnboardingStub {
+ var allowed:[String]=[]
+    func help(_ pane:String) {}
+ static func permissionState(_ need:String,app:String)->Int { Onboarding.on ? 1 : -1 }
+ static func granted(_ need:String,app:String)->Bool { Onboarding.on }
+ func allow(_ need:String,app:String,done:((Bool)->Void)? = nil) { allowed.append(need) }
+''' + source[source.index('    func request(_ need:'):source.index('    func allow(_ need:')] + '''
+}   // setup asks: what Allow opened
 let onboarding=OnboardingStub()
 enum Onboarding{static var on=false;static func granted(_ need:String,app:String)->Bool{on}}
+enum Updater{static func takeNotice()->String{""}}
 final class EngineStub{var isRunning=false}
 final class AppStub{
  let web=WKWebView()
  let panel=KeyPanel(contentRect:NSRect(x:40,y:40,width:340,height:120),styleMask:[.nonactivatingPanel,.borderless],backing:.buffered,defer:false)
- let mini=MiniScreen(),engine=EngineStub();var busy=false,composing=false,pinned=false,stuck=false,dragging=false,hovering=false,pillOn=false,gen=0,escRef:EventHotKeyRef?,agentCard=""
+ let mini=MiniScreen(),engine=EngineStub();var pageReady=false,busy=false,composing=false,pinned=false,stuck=false,dragging=false,hovering=false,pillOn=false,gen=0,escRef:EventHotKeyRef?,agentCard=""
  var calls:[String]=[],defaultKeys:[EventHotKeyRef]=[],allowUntil=Date.distantPast,allowUserApp=false
- var askFile="",retryOffer=false,moveRef:EventHotKeyRef?
+ var askFile="",retryOffer=false,moveRef:EventHotKeyRef?,speechPressedAt:TimeInterval?
  var agentMoveFile=""{didSet{moveKey()}}
  var defaultWanted=false,defaultObservers:[NSObjectProtocol]=[]
  func js(_ call:String,_ data:Any?=nil){calls.append(call)}
@@ -91,7 +99,7 @@ enum Hands {
     return harness
 
 
-def run_fixture(test,body,marker,real_mini=False):
+def run_fixture(test,body,marker,real_mini=False,timeout=120):
     with tempfile.TemporaryDirectory() as folder:
         root=Path(folder); fixture=root/'agents.swift';fixture.write_text(native_fixture(body,real_mini))
         # No real Claude, connector, audio, or app actions; all native UI stays in the VM.
@@ -100,7 +108,7 @@ def run_fixture(test,body,marker,real_mini=False):
         binary=root/'agents';env={**os.environ,'ATTICUS_DIR':str(root),'ATTICUS_ASK':str(root)}
         build=subprocess.run(['swiftc','-O',str(fixture),'-o',str(binary)],env=env,capture_output=True,text=True)
         test.assertEqual(build.returncode,0,build.stderr)
-        result=subprocess.run([str(binary),str(resources)],env=env,capture_output=True,text=True,timeout=120)
+        result=subprocess.run([str(binary),str(resources)],env=env,capture_output=True,text=True,timeout=timeout)
         test.assertEqual(result.returncode,0,result.stdout+result.stderr)
         test.assertIn(marker,result.stdout)
         print(result.stdout.strip(),flush=True)
@@ -158,6 +166,21 @@ let lines=String(decoding:sent.fileHandleForReading.readDataToEndOfFile(),as:UTF
 guard lines.allSatisfy({$0["action"]=="stop"}),Set(lines.compactMap{$0["id"]})==Set(rows.prefix(4).map{$0["id"] as! String}),lines.count==4 else{print("Pause missed a live agent or stopped a finished one: \\(lines)");exit(1)}
 guard lines.first?["id"]==String(repeating:"4",count:32) else{print("A running stop could start queued work first");exit(1)}
 agentsUI.process?.terminate();print("pause stop-all ok")''','pause stop-all ok')
+
+    def test_open_on_a_file_asks_the_brain_instead_of_opening_it(self):
+        run_fixture(self,'''let agentsUI=AgentPanels();agentsUI.start()
+let folder=ProcessInfo.processInfo.environment["ATTICUS_DIR"]!+"/agent-made/fixture"
+try! FileManager.default.createDirectory(atPath:folder,withIntermediateDirectories:true)
+FileManager.default.createFile(atPath:folder+"/run.terminal",contents:Data("<plist/>".utf8))
+let id=String(repeating:"d",count:32)
+agentsUI.receive(["event":"list","agents":[["id":id,"title":"Made a file","status":"done","created":Date().timeIntervalSince1970,"directory":folder,"made":[["url":"run.terminal"]]]]])
+let sent=Pipe();agentsUI.input=sent.fileHandleForWriting
+agentsUI.open(id);agentsUI.open(id,reveal:true);try! sent.fileHandleForWriting.close()
+let lines=String(decoding:sent.fileHandleForReading.readDataToEndOfFile(),as:UTF8.self).split(separator:"\\n").map{try! JSONSerialization.jsonObject(with:Data($0.utf8)) as! [String:Any]}
+let path=URL(fileURLWithPath:folder+"/run.terminal").standardizedFileURL.path
+guard lines.count==2,lines.allSatisfy({$0["action"] as? String=="open" && $0["id"] as? String==id && $0["path"] as? String==path}),
+      lines.map({$0["reveal"] as? Bool}) == [false,true] else{print("Open did not hand the file to atticus.py: \\(lines)");exit(1)}
+agentsUI.process?.terminate();print("open asks the brain ok")''','open asks the brain ok')
 
     def test_crashed_supervisor_restarts_without_its_half_line(self):
         run_fixture(self,'''let agentsUI=AgentPanels();agentsUI.start()
@@ -283,7 +306,7 @@ nsapp.run()''','move shortcut checks ok')
             shutil.copy2(binary,contents/'MacOS'/'Atticus');shutil.copy2(ROOT/'atticus.py',contents/'Resources'/'atticus.py')
             shutil.copytree(ROOT/'ui',contents/'Resources'/'ui',dirs_exist_ok=True)
             launcher=contents/'MacOS'/'launch'
-            launcher.write_text('#!/bin/zsh\nexport ATTICUS_DIR=$(mktemp -d)\nexport ATTICUS_RESOURCES_DIR="$(cd "$(dirname "$0")/../../../.." && pwd)"\nprintf \'%s\\n\' \'{"input":"type","safe":true}\' > "$ATTICUS_DIR/settings.json"\nexec "$(dirname "$0")/Atticus" -onboarded YES\n');launcher.chmod(0o755)
+            launcher.write_text('#!/bin/zsh\nexport ATTICUS_DIR=$(mktemp -d)\nexport ATTICUS_RESOURCES_DIR="$(cd "$(dirname "$0")/../../../.." && pwd)"\nprintf \'%s\\n\' \'{"typeRight":true,"safe":true}\' > "$ATTICUS_DIR/settings.json"\nexec "$(dirname "$0")/Atticus" -onboarded YES\n');launcher.chmod(0o755)
             with (contents/'Info.plist').open('wb') as f:
                 plistlib.dump({'CFBundleIdentifier':'com.atticus.agents-preview','CFBundleName':'Atticus Agents Preview',
                               'CFBundleExecutable':'launch','CFBundlePackageType':'APPL','CFBundleVersion':'1','LSUIElement':True,

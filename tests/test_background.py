@@ -12,7 +12,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import atticus
-from tests import scratch_dir
+from tests import scratch_dir, run_swift
 
 
 class BackgroundTests(unittest.TestCase):
@@ -23,6 +23,20 @@ class BackgroundTests(unittest.TestCase):
                   patch.object(atticus, 'wait_commit', return_value=True)]:
             p.start(); self.addCleanup(p.stop)
         self.target = {'pid': 123, 'windowID': '42', 'windowFrame': [0, 0, 300, 200], 'app': 'Notes', 'window': 'Fixture'}
+
+    def test_native_metadata_read_stays_behind_even_with_work_in_front(self):
+        source=(Path(__file__).resolve().parents[1]/'Atticus.swift').read_text()
+        begin=source.index('    static var workInFront: Bool')
+        prop=source[begin:source.index('    static func work(',begin)]
+        run_swift(self, 'import Foundation\nstruct Prefs {static var value="front";static func str(_ k:String)->String{value}}\nstruct MiniScreen {\n'+prop+\
+                  '''
+}
+setenv("ATTICUS_FOCUS_REQUESTED","0",1);precondition(!MiniScreen.workInFront)
+setenv("ATTICUS_FOCUS_REQUESTED","1",1);Prefs.value="back";precondition(MiniScreen.workInFront)
+unsetenv("ATTICUS_FOCUS_REQUESTED");precondition(!MiniScreen.workInFront)
+Prefs.value="front";precondition(MiniScreen.workInFront)
+print("metadata read never activates")
+''')
 
     def gate(self, cmd):
         with patch('sys.stdin', io.StringIO(json.dumps({'tool_input': {'command': cmd}}))), patch('sys.stdout', new_callable=io.StringIO) as out, patch.object(atticus, 'preview_app'):
@@ -189,16 +203,28 @@ class BackgroundTests(unittest.TestCase):
         with patch.object(atticus,'browser_adapter',return_value='webkit'),patch.object(atticus,'page_ready',return_value=False),patch.object(atticus.subprocess,'run',side_effect=result),patch.object(atticus,'preview_app'):
             self.assertIn('Requested page not ready',atticus.web('read',url,app='Fixture browser'))
 
+    def test_read_only_reply_uses_appkit_and_never_requests_automation(self):
+        for result in (subprocess.CompletedProcess([],0,'Editor',''), subprocess.CompletedProcess([],1,'','unavailable'), OSError('unavailable'), subprocess.TimeoutExpired('osascript',2)):
+            with self.subTest(result=result), patch.object(atticus.subprocess,'run') as run, patch.object(atticus,'osa') as osa:
+                if isinstance(result,Exception): run.side_effect=result
+                else: run.return_value=result
+                atticus.restore_focus('Editor','what is on my screen',[])
+                osa.assert_not_called()
+                script=run.call_args.args[0]
+                self.assertIn('JavaScript',script)
+                self.assertIn('NSWorkspace',script[-1])
+                self.assertNotIn('System Events',script[-1])
+
     def test_restore_does_not_interrupt_a_new_unrelated_app(self):
-        with patch.object(atticus, 'osa', return_value='Editor') as osa:
+        with patch.object(atticus.subprocess, 'run', return_value=subprocess.CompletedProcess([],0,'Editor','')), patch.object(atticus, 'osa') as osa:
             atticus.restore_focus('Finder', 'make a note', ['tell application "Notes" to make new note'])
-            self.assertEqual(osa.call_count, 1)
+            self.assertEqual(osa.call_count, 0)
 
     def test_restore_ignores_a_window_an_earlier_task_worked_in(self):
         Path(atticus.WORKED).write_text(json.dumps({'app': 'Editor', 'window': 'Draft'}))
         started = os.path.getmtime(atticus.WORKED)
-        for start, calls in ((started + 1, 1), (started, 2)):   # written before this ask began: the user switched there themselves
-            with self.subTest(start=start), patch.dict(atticus.TURN, {'_started': start}), patch.object(atticus, 'osa', return_value='Editor') as osa:
+        for start, calls in ((started + 1, 0), (started, 1)):   # written before this ask began: the user switched there themselves
+            with self.subTest(start=start), patch.dict(atticus.TURN, {'_started': start}), patch.object(atticus.subprocess, 'run', return_value=subprocess.CompletedProcess([],0,'Editor','')), patch.object(atticus, 'osa') as osa:
                 atticus.restore_focus('Finder', 'what time is it', [])
                 self.assertEqual(osa.call_count, calls)
 
@@ -212,8 +238,9 @@ class BackgroundTests(unittest.TestCase):
                 self.assertEqual(behind.call_count, int(mode == 'back'))
                 osa.reset_mock()
                 osa.return_value = 'Fixture'
+                run.return_value = subprocess.CompletedProcess([],0,'Fixture','')
                 atticus.restore_focus('Editor', 'work in Fixture', ['tell application "Fixture" to work'])
-                self.assertEqual(osa.call_count, 0 if mode == 'front' else 2)
+                self.assertEqual(osa.call_count, 0 if mode == 'front' else 1)
 
     def test_preview_passes_explicit_focus_intent_to_native_apps(self):
         for requested in (False, True):
@@ -449,7 +476,56 @@ class BackgroundTests(unittest.TestCase):
             calls.clear()
             labels = [label for _, label in atticus.look(cleanup=False)]
             self.assertEqual(len(calls), 2); self.assertTrue(labels[0].endswith('click spots as 1:x,y in picture pixels)'))
+            self.assertIn('external monitor, 1280x720 px picture', labels[1])   # the model's pixel space, never its guess
         for path in Path(os.environ['ATTICUS_ASK']).glob('atticus-screen-*'): path.unlink()
+
+    def test_picture_spots_stay_tied_to_the_window_the_picture_showed(self):
+        # Nov 17: spots read from one picture must not land elsewhere after that window moves or resizes (any app, any window).
+        def run(cmd, **_):
+            if cmd[:2] == [atticus.APP, '--look']: Path(cmd[3]).write_bytes(b'jpg')
+            return subprocess.CompletedProcess(cmd, 0, 'window 1900 200 1100 800\n' if len(cmd) == 5 else '', '')
+        displays = [('Built-in', 0, 0, 1512, 982, True), ('Monitor', 1512, 0, 2560, 1440, False)]
+        window = {**self.target, 'windowFrame': [1900, 200, 1100, 800], 'visible': False}
+        shown = Path(os.environ['ATTICUS_ASK'], 'picture-window.json')
+        with patch.object(atticus, 'screens', return_value=displays), patch.object(atticus.subprocess, 'run', side_effect=run), \
+             patch.object(atticus, 'pref', side_effect=lambda k, d: False if k == 'draw' else d):
+            label = atticus.look(cleanup=False, window=window)[0][1]
+            self.assertIn('painted where it sits', label); self.assertIn('2:x,y in picture pixels, several in one click', label)
+            self.assertEqual(json.loads(shown.read_text()), {'screen': 2, 'windowID': 42, 'frame': [1900, 200, 1100, 800]})
+            env, _ = atticus.hands_env(['click', '2:10,10'])
+            self.assertEqual(env['ATTICUS_PICTURE_WINDOW'], '2 42 1900 200 1100 800')   # native moves the spot with that window, or refuses after a resize
+            atticus.look(cleanup=False)   # a plain look of every display: its spots are plain screen spots again
+            self.assertFalse(shown.exists())
+            self.assertNotIn('ATTICUS_PICTURE_WINDOW', atticus.hands_env(['click', '1:10,10'])[0])
+        for path in Path(os.environ['ATTICUS_ASK']).glob('atticus-screen-*'): path.unlink()
+
+    def test_one_look_drives_several_spots_in_one_hands_call(self):
+        self.assertTrue(atticus.hands_valid(['click', '2:10,10', '2:40,10', '880,200']))
+        self.assertFalse(atticus.hands_valid(['click', '2:10,10', 'Save']))
+        self.assertFalse(atticus.hands_valid(['click', *[f'1:{i},5' for i in range(41)]]))
+        self.assertEqual(atticus.hands_label('click 2:10,10 2:40,10 2:70,10'), 'Clicking 3 spots')
+        self.assertFalse(atticus.hands_replayable(f'{atticus.ME} --hands click 2:10,10 2:40,10'))   # picture spots never replay
+        source = (Path(atticus.__file__).parent / 'Atticus.swift').read_text()
+        self.assertIn('case "click" where spots(input).count > 1:', source)   # one map before and one after, not one per spot
+
+    def test_a_loop_in_the_window_the_user_watches_stays_in_the_main_ask(self):
+        # Nov 17: "play this game" on the front window became an agent: ~10 s of handoff before its first look. Watched windows stay.
+        self.assertIn('unwatched look-act loops', atticus.AGENT_HANDOFF)
+        self.assertNotIn('look-act loops to a goal', atticus.AGENT_HANDOFF)
+
+    def test_front_reads_the_window_while_its_picture_is_taken(self):
+        started, order = threading.Event(), []
+        def mapped(app, target=None):
+            order.append('map'); started.set(); time_sleep(.2); order.append('mapped'); return {'description': 'App: Fixture'}
+        def looked(**_):
+            self.assertTrue(started.wait(1)); order.append('look'); return [('/fake.jpg', 'Screen 1')]
+        time_sleep = __import__('time').sleep
+        with patch.dict(os.environ, {'ATTICUS_AGENT': 'a' * 32}), patch.object(atticus, 'window_target', return_value={**self.target, 'visible': False}), \
+             patch.object(atticus, 'preview_app'), patch.object(atticus, 'hands_map', side_effect=mapped), patch.object(atticus, 'look', side_effect=looked), \
+             patch('sys.stdout', new_callable=io.StringIO) as out, patch('sys.argv', ['atticus.py', '--front', 'Fixture App', 'Board']):
+            atticus.main()
+        self.assertEqual(order, ['map', 'look', 'mapped'])
+        self.assertIn('App: Fixture', out.getvalue()); self.assertIn('Screen 1: /fake.jpg', out.getvalue())
 
     def test_learned_open_replays_in_front_when_the_user_asked_to_open(self):
         saved = {'cmds': [f"{atticus.ME} --show --bg https://www.netflix.com"], 'reply': 'Netflix is open in Chrome in the background.'}

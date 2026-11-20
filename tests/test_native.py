@@ -1,4 +1,5 @@
 """Run the actual live-worker methods headlessly, with fake actions and scratch state."""
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -58,7 +59,7 @@ func py(_ args: [String], _ extra: [String: String] = [:]) -> Process {
 final class Harness {
     var consumed = 0, fastBusy = false, liveRevised = false, consumedText = "", targetScreen = "Fixture display", mine = "Notes", text = "open Spotify"
     var fastProc: Process?, proc: Process?, did: [String] = []
-    var busy = false, ahead = ""
+    var busy = false, ahead = "", clickTalk = true, toggleTalk = false, releasePending = false
     let drawing = DrawingStub()
     let engine = Engine()
     func words() -> [Substring] { text.split(separator: " ") }
@@ -108,6 +109,9 @@ if CommandLine.arguments.contains("--benchmark") {
     }
     report("live on", on); report("live off", off)
 } else {
+    clear()
+    let held = Harness(); held.clickTalk = false; held.text = "snap this left"; held.tryFast()
+    precondition(held.fastProc == nil && !held.fastBusy, "held pointing ask acted before release")
     clear(); delay = "0.4"
     let h = Harness(); h.tryFast(); precondition(h.fastBusy)
     h.cancelFast(); h.text = "new request"; delay = "0.05"; h.tryFast(); waitIdle(h)
@@ -138,13 +142,16 @@ class NativeTests(unittest.TestCase):
         branch = source.split('                    if line.hasPrefix("✎ ") {', 1)[1].split('                    if line.hasPrefix("@ ")', 1)[0]
         out = run_swift(self, '''import Cocoa
 final class Prefs { static func bool(_ key: String) -> Bool { true } }
+struct DrawingRequest: Decodable { let steps: [String]; var guide: String? }
 final class Drawing {
-    var focus: CGRect?
+    var focus: CGRect?, driven = false
     func receive(_ data: Data) -> Bool { String(decoding: data, as: UTF8.self).contains("steps") }
 }
-func lead(from: CGRect, to: CGRect) {}
 final class Harness {
     let drawing = Drawing(), panel = NSPanel()
+    var pendingDrawings: [String:Data] = [:]
+    func drawAlong(_ data: Data, guide: String, steps: Int) { print("along") }
+    func leadToDrawing() {}
     func shush() { print("guide") }
     func js(_ call: String, _ value: String) { print(value) }
     func feed(_ lines: [String]) {
@@ -156,9 +163,9 @@ final class Harness {
         print(guided)
     }
 }
-Harness().feed(["✎ {\\"remembered\\":[\\"Use concise answers\\"]}", "✎ {\\"steps\\":[]}"])
+Harness().feed(["✎ {\\"remembered\\":[\\"Use concise answers\\"]}", "✎ {\\"steps\\":[],\\"guide\\":\\"g\\"}", "✎ {\\"steps\\":[]}"])
 ''')
-        self.assertEqual(out.splitlines(), ['✎ {"remembered":["Use concise answers"]}', 'guide', 'true'])
+        self.assertEqual(out.splitlines(), ['✎ {"remembered":["Use concise answers"]}', 'along', 'guide', 'true'])   # a streamed guide never mutes the answer
 
     def test_page_calls_skip_values_json_cannot_hold(self):
         source = (ROOT / 'Atticus.swift').read_text()
@@ -326,7 +333,7 @@ print("caret safety ok")
 
     def test_typed_box_prewarms_but_confirmation_stays_at_submit(self):
         source = (ROOT / 'Atticus.swift').read_text()
-        branch = source[source.index('if !replying && Prefs.str("input") == "type"'):source.index('\n        toggleTalk', source.index('if !replying && Prefs.str("input") == "type"'))]
+        branch = source[source.index('        if typeOnly {'):source.index('\n        toggleTalk', source.index('        if typeOnly {'))]
         self.assertIn('unwarm(); warm = spawn()', branch)
         run = source[source.index('    func run(_ t: String'):source.index('\n    }\n}', source.index('    func run(_ t: String'))]
         self.assertIn('try "go".write(toFile: commit', run)
@@ -345,11 +352,13 @@ print("caret safety ok")
         source = (ROOT / 'Atticus.swift').read_text()
         finish = source[source.index('    func finish()', source.index('    func typed(')):source.index('    // atticus.py --wait, started')]
         swift = '''import Foundation
+struct SpeechSentences {}
 final class Engine { var isRunning = false }
 final class Panel { func makeKey() {}; func makeFirstResponder(_ v: Int) {} }
 final class DrawingStub { var active = false, advances = 0; func next() { advances += 1 } }
 final class Harness {
     var quietFollowUp = false
+    var speechSentences = SpeechSentences(), speechMuted = false
     var handsFree = false, followUp = false
     var drawingReply = false; let drawing = DrawingStub()
     func typed(_ text: String, heard: Bool = false) { request = text }
@@ -358,7 +367,8 @@ final class Harness {
     var did = ["Fixture: left."], consumed = 2, stops = 0, web = 0
     var proc: Process?, aheadItem: DispatchWorkItem?, commit = "", lastDone = Date()
     let panel = Panel(), engine = Engine()
-    var request = "", remaining: String?, delivered = ""
+    var request = "", remaining: String?, delivered = "", talkMoved = false
+    func settleTalkPointer() {}
     func rest() -> String { text.split(separator:" ").dropFirst(consumed).joined(separator:" ") }
     func run(_ t: String, remaining: String? = nil) { request = t; self.remaining = remaining }
     func dropAhead() { ahead = "" }
@@ -444,6 +454,7 @@ final class NSAnimationContext {
  static var done: (() -> Void)?
  static func runAnimationGroup(_ changes: (NSAnimationContext) -> Void, completionHandler: @escaping () -> Void) { changes(NSAnimationContext()); done = completionHandler }
 }
+enum Motion { static let base = 0.2; static func run(_ d: Double, _ f: () -> Void, done: (() -> Void)? = nil) { NSAnimationContext.runAnimationGroup({ $0.duration = d; f() }, completionHandler: { done?() }) } }
 final class Panel {
  var screen = NSScreen.main, frame = NSRect(x: -552, y: 258, width: 340, height: 230)
  func setFrame(_ f: NSRect, display: Bool, animate: Bool) { frame = f }
@@ -507,7 +518,9 @@ DispatchQueue.main.pending.removeFirst()(); precondition(meeting.panel == 2, "ol
 scheduleNudge(); DispatchQueue.main.pending.removeFirst()(); precondition(meeting.panel == nil, "current nudge did not dismiss")
 final class Engine { var isRunning = false }
 final class Voice { var isRunning = false }
-final class App { var busy = false, engine = Engine(), voice: Voice? }
+final class Panel { var isVisible = false }
+final class Drawing { var active = false, hasInput = false, voice: Voice? }
+final class App { var busy = false, dictating = false, dictateSelectionPending = false, composing = false, engine = Engine(), voice: Voice?, panel = Panel(), drawing = Drawing() }
 final class Window { var isKeyWindow = false }
 final class Settings { var win: Window? }
 struct Agents { var hasLive = false }
@@ -539,7 +552,9 @@ print("calendar/update safety ok")
         poll = next(line for line in source.splitlines() if 'if !toggleTalk && !clickTalk && !f.isEmpty' in line)
         typing = source[source.index('            if b["type"] != nil {'):source.index('            if let s = b["link"]')]
         run_swift(self, """import Foundation
-struct Prefs { static func bool(_ key: String) -> Bool { false } }
+struct Prefs { static func bool(_ key: String) -> Bool { false }; static func str(_ key: String) -> String { "voice" } }
+enum Onboarding { static func permissionState(_ need: String) -> Int { 1 } }
+struct NSWorkspace { static var shared = NSWorkspace(); var frontmostApplication: Int? { nil } }
 func AXIsProcessTrusted() -> Bool { true }
 func unpoint(_ notify: Bool) {}
 struct NSEvent { static var modifierFlags: Set<Int> = [] }
@@ -552,15 +567,23 @@ final class Mini { func reset() {} }
 final class Harness {
     let drawing = Drawing(), engine = Engine(), mini = Mini()
     var handsFreeIdle = 0, drawingReply = false, retryOffer = false, askFile = "", replyAgent = "", agentCard = ""
-    var focusFile = "/unused-fixture-focus", dictating = false, busy = false
+    var focusFile = "/unused-fixture-focus", dictating = false, busy = false, keysHeld = false
+    var voicePermissionTarget: Int?
+    var voicePermissionID = 0, pinned = false, voicePermissionPending = false
+    var voicePermissionAction: (() -> Void)?
+    func voicePermissions(_ needs: [String], dictate: Bool, quiet: Bool) {}
+    var releasePending = false
     var quietFollowUp = false, clickTalk = false, toggleTalk = false, stops = 0
     var quiet: DispatchWorkItem?, offerText: String?, proc: Int?, text = ""
-    var resets = 0, sends = 0
+    var resets = 0, sends = 0, talkPath: [Int] = [], talkReleased = false
+    func dismissUpgrade() {}
+    func sampleTalkPointer() {}
     func stopWake() {}; func pill(_ on: Bool) {}; func show() {}; func hide(after: Double) {}
     func js(_ name: String, _ value: Any? = nil) {}; func shush() {}
     func dismiss() { hush() }; func cancel() { hush() }
     func dictateShortcut(_ pressed: Bool) { stop() }
     func stopOfferInput() { hush() }
+    func releaseWalkthrough() {}
     func hush(keepReply: Bool = false) {
         resets += 1; engine.isRunning = false; busy = false
 """ + reset + """
@@ -590,16 +613,67 @@ let hold = Harness(); hold.start(dictate: false); hold.poll()
 precondition(!hold.clickTalk && !hold.engine.isRunning && hold.sends == 1, "hold-to-talk no longer stops when keys are released")
 let toggle = Harness(); toggle.start(dictate: false); toggle.toggleTalk = true; toggle.poll()
 precondition(toggle.engine.isRunning && toggle.sends == 0, "key-state poll stopped toggle talk")
+let typedKeys = Harness(); typedKeys.drawing.active = false; typedKeys.start(dictate: false); typedKeys.keysHeld = true
+typedKeys.receive(["type": 1])
+precondition(!typedKeys.engine.isRunning && !typedKeys.keysHeld && typedKeys.sends == 0, "the first typed key did not stop listening, sent the voice ask, or gave the keyboard back")
 print("drawing reply input modes ok")
 """)
 
+    def test_type_right_away_defaults_on_and_keeps_old_typing_users_typing(self):
+        if sys.platform != 'darwin': self.skipTest('needs macOS frameworks')
+        source = (ROOT / 'Atticus.swift').read_text()
+        prefs = source[source.index('enum Prefs {'):source.index('// Only an explicit language choice')]
+        with tempfile.TemporaryDirectory() as path:
+            file, binary = Path(path) / 'prefs.swift', Path(path) / 'prefs'
+            file.write_text('import Foundation\nimport Carbon\n' + prefs + 'print(Prefs.bool("typeRight"), Prefs.str("talkMode"))\n')
+            compiled = subprocess.run(['swiftc', str(file), '-o', str(binary)], capture_output=True, text=True)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            for saved, expected in [(None, 'true hold'), ({'input': 'type'}, 'true hold'), ({'input': 'type', 'talkMode': 'toggle'}, 'true toggle'),
+                                    ({'input': 'voice'}, 'true hold'), ({'input': 'type', 'typeRight': False}, 'false hold')]:
+                with self.subTest(saved=saved), tempfile.TemporaryDirectory() as state:
+                    if saved is not None: (Path(state) / 'settings.json').write_text(json.dumps(saved))
+                    result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=10, env={**os.environ, 'ATTICUS_DIR': state})
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout.strip(), expected)
+
+    def test_type_right_away_takes_the_keyboard_and_gives_it_back(self):
+        source = (ROOT / 'Atticus.swift').read_text()
+        app = source.index('final class App')
+        start = source[source.index('    func start(dictate: Bool,', app):source.index('    func heard(', app)]
+        take = start.index('if !quiet && !dictate && !replying && !clickTalk && Prefs.bool("typeRight") {')
+        self.assertLess(start.index('No microphone is available'), take)   # only once listening can really start
+        self.assertLess(take, start.index('talkPen.start()'))
+        self.assertIn('keysHeld = keysHeld || !panel.isKeyWindow', start[take:])
+        self.assertIn('panel.makeKey(); panel.makeFirstResponder(web); js("keys", true)', start[take:])
+        self.assertIn('panel.makeKey(); panel.makeFirstResponder(web); js("compose", true)', start[start.index('        if typeOnly {'):])   # the same focus path as the typed box
+        at = source.index('    func stop()', app)
+        stop = source[at:source.index('\n    }\n', at)]
+        self.assertLess(stop.index('busy = true'), stop.index('releaseKeys()'))
+        self.assertLess(stop.index('releaseKeys()'), stop.index('if dictating { cue("soundRelease")'))
+        hush = source[source.index('    func hush(keepReply: Bool'):source.index('    func stopOfferInput()')]
+        self.assertIn('busy = false   // an early start dropped above never reports back (its exit handler sees proc changed)\n        releaseKeys()\n    }', hush)
+        release = source[source.index('    func releaseKeys()'):source.index('    func stopOfferInput()')]
+        self.assertIn('guard keysHeld else { return }', release)
+        self.assertNotIn('orderOut', release)   # ordering the box out and back blinked it on every spoken release
+        self.assertLess(release.index('panel.keyable = false'), release.index('panel.resignKey()'))
+        typed = source[source.index('            if b["type"] != nil {'):source.index('            if let s = b["link"]')]
+        self.assertLess(typed.index('keysHeld = false'), typed.index('hush()'))
+        review = source[source.index('    func review('):source.index('    func recordingLimit(')]
+        self.assertLess(review.index('keysHeld = false'), review.index('hush()'))
+        resign = source.index('NSWindow.didResignKeyNotification, object: panel')
+        self.assertIn('composing = false; keysHeld = false', source[resign:resign + 300])
+        self.assertIn('composing = false; keysHeld = false; js("compose", false)', source[source.index('    func gone()'):])
+        # Click-away is unchanged: an idle box goes on a click elsewhere; a listening one waits for its ask.
+        self.assertIn('guard let self, !handsFree, !voicePermissionPending, panel.isVisible, !busy, !engine.isRunning, !stuck, !drawing.active, !drawing.hasInput else { return }\n            close(clear: false)', source)
+
     def test_shortcut_states_and_recording_limit(self):
         source = (ROOT / 'Atticus.swift').read_text()
-        self.assertIn('"input": "voice", "talkMode": "hold"',source)
+        self.assertIn('"typeRight": true, "talkMode": "hold"',source)
+        self.assertNotIn('Prefs.str("input")', source)
         self.assertIn('if !dictating && held > 60', source)
         start=source[source.index('    func start()',source.index('final class App')):source.index('        quietAudio.begin',source.index('    func start()',source.index('final class App')))]
-        self.assertIn('if !replying && Prefs.str("input") == "type" && !clickTalk',start)
-        self.assertIn('AVCaptureDevice.authorizationStatus(for: .audio) == .authorized',start)
+        self.assertIn('if typeOnly {',start)
+        self.assertIn('Onboarding.permissionState($0) != 1',start)
         methods = source[source.index('    func shortcut('):source.index('    func review(')]
         methods += source[source.index('    func recordingLimit('):source.index('    func captureSelection()')]
         methods += source[source.index('    func stopOfferInput()'):source.index('    func dismiss()')]
@@ -608,6 +682,7 @@ print("drawing reply input modes ok")
         stop = source[at:source.index('        let inputs = speechInputs', at)]
         swift = """import Foundation
 struct Prefs { static var paused = false, toggle = false; static func bool(_ k: String) -> Bool { paused } }
+final class PenStub { func stop(fade: Bool = false) {} }
 final class MeetingStub { var running = false, focuses = 0; func focus() { focuses += 1 } }
 let meeting = MeetingStub()
 final class Engine { var isRunning = false, stopped = false; func stop() {isRunning=false; stopped=true} }
@@ -619,19 +694,23 @@ final class Panel { var isVisible = true; func makeKey() {}; func makeFirstRespo
 final class DrawingStub { var active = false, hasInput = false; func clear() { hasInput = false }; func clearInput() { hasInput = false } }
 final class Harness {
     static var keysUp = Date(); func gone() {}; func unwarm() {}
-    var quietFollowUp = false
-    var handsFree = false, followUp = false
+    var voicePermissionID = 0
+    var voicePermissionPending = false, voicePermissionTarget: Int?
+    var voicePermissionAction: (() -> Void)?
+    var quietFollowUp = false, whisperReleasing = false, releasePending = false
+    var handsFree = false, followUp = false, walkthroughActive = false
     func stopWake() {}
     var drawingReply = false; let drawing = DrawingStub()
-    let engine = Engine(), panel = Panel(), quietAudio = QuietAudio()
+    let engine = Engine(), panel = Panel(), quietAudio = QuietAudio(), talkPen = PenStub()
     var askNeed: [String:Any] = [:]
 """ + source[source.index('    var picking:'):source.index('\n', source.index('    var picking:'))] + """
     var retryOffer=false,offerText:String?,askFile="fixture-answer",agentCard="",listenID=0,stops=0
     var feed:Input?,reading:Input?,quiet:Input?,analyzer:Analyzer?,speechInputs:SpeechInputs?=SpeechInputs()
     var nextFeed:Input?,nextReading:Input?,nextAnalyzer:Analyzer?,nextSpeechInputID:Int?,nextSpeechSegment=0
-    var shortcutDown = false, toggleTalk = false, clickTalk = false, busy = false, speaking = false
+    var shortcutDown = false, toggleTalk = false, clickTalk = false, busy = false, speaking = false, keysHeld = false
     var dictateShortcutDown = false, dictating = false, dictatePressed = Date.distantPast, dictateTap: DispatchWorkItem?
-    var events: [String] = [], text = "hello", began = Date(), wasUp = false, web = 0
+    var events: [String] = [], text = "hello", began = Date(), wasUp = false, web = 0, talkReleased = false
+    func sampleTalkPointer() {}
     func start() { events.append("start"); engine.isRunning = true; toggleTalk = Prefs.toggle }
     func startDictation() { events.append("dictate"); engine.isRunning = true; dictating = true; toggleTalk = false }
     func dictationDeliveryFailed(_ value: String) { events.append("copied"); busy = false }
@@ -640,10 +719,11 @@ final class Harness {
     func shush() -> Bool { let was = speaking; speaking = false; if was { events.append("quiet") }; return was }
     func hush() { events.append("hush"); engine.isRunning = false; busy = false; toggleTalk = false; listenID += 1 }
     func close(clear: Bool) { events.append("close"); hush() }
+    func shrinkGraphOrClose() { close(clear: false) }
     func review(_ text: String) { events.append("review"); hush() }
     func cue(_ text: String) {}
     func followUpSoon() {}
-    func js(_ f: String, _ text: Any? = nil) { if ["agentEscape", "locked", "pickHear", "draft"].contains(f) { events.append(f) } }
+    func js(_ f: String, _ text: Any? = nil) { if ["agentEscape", "locked", "pickHear", "draft", "compose"].contains(f) { events.append(f) } }
     func hide(after: Double) {}
     var pausedNotice = Date.distantPast; func show() {}
 """ + methods + stop + '        events.append("send"); engine.isRunning = false; busy = true; toggleTalk = false\n    }\n' + """}
@@ -660,9 +740,16 @@ toggle.shortcut(false); toggle.shortcut(true); precondition(toggle.events.contai
 let empty = Harness(); empty.text = ""; empty.shortcut(true); empty.shortcut(false); empty.shortcut(true); precondition(empty.events == ["start", "send"] && !empty.clickTalk && !empty.engine.isRunning, "empty toggle failed to finalize late speech or reopened typing")
 Prefs.toggle = false
 let tap = Harness(); tap.text = ""; tap.began = Date(); tap.shortcut(true); tap.shortcut(false); precondition(tap.events == ["start", "hush"] && !tap.clickTalk && !tap.engine.isRunning, "quick voice tap kept listening, sent, or opened typing")
+let typeTap = Harness(); typeTap.text = ""; typeTap.began = Date(); typeTap.shortcut(true); typeTap.keysHeld = true; typeTap.shortcut(false)
+precondition(typeTap.events == ["start", "hush", "compose"] && typeTap.keysHeld && !typeTap.engine.isRunning, "a tap with Type right away did not leave the box open to type, or forgot whose keys it holds")
+let typeHold = Harness(); typeHold.shortcut(true); typeHold.keysHeld = true; typeHold.began = .distantPast; typeHold.shortcut(false)
+precondition(typeHold.events == ["start", "send"], "Type right away changed what releasing after talking does")
 let silent = Harness(); silent.text = ""; silent.began = .distantPast; silent.shortcut(true); silent.shortcut(false); precondition(silent.events == ["start", "send"], "a real hold must still wait for late final words")
 let hand = Harness(); hand.handsFree = true; hand.shortcut(true); hand.shortcut(false)
 precondition(hand.handsFree, "a voice shortcut ended the hands-free chat")
+let lesson = Harness(); lesson.walkthroughActive = true; lesson.speaking = true; lesson.busy = true
+lesson.escape()
+precondition(!lesson.walkthroughActive && !lesson.speaking && !lesson.busy, "Esc left the walkthrough running while speech stopped")
 let handEscape = Harness(); handEscape.handsFree = true; handEscape.escape()
 precondition(handEscape.events == ["close", "hush"], "Esc did not end hands-free chat")
 let hold = Harness(); hold.shortcut(true); hold.shortcut(false); precondition(hold.events == ["start", "send"], "hold release regressed")

@@ -33,13 +33,16 @@ try {
   assert([...language.options].slice(1).map(o=>o.text).join()==='English,Italiano,Español,Français,Deutsch','Languages keep their own names');
   w.st.load({prefs:{...base,routing:'balanced'}});
   assert([...d.querySelectorAll('[data-k=routing] button')].map(b=>b.dataset.v).join()==='cheapest,balanced,capable','One intelligence setting offers three modes');
-  assert(d.querySelector('[data-k=routing] [data-v=balanced]').getAttribute('aria-pressed')==='true','Balanced is selected accessibly');
+  assert(d.querySelector('[data-k=routing] [data-v=balanced]').getAttribute('aria-checked')==='true','Balanced is selected accessibly');
+  const why=d.getElementById('routingwhy');
+  assert(why.children.length===0&&why.textContent==='Haiku for quick asks; work model otherwise.','Only the selected mode has one short line');
   d.querySelector('[data-k=routing] [data-v=cheapest]').click();
   await new Promise(r=>setTimeout(r,20));
+  assert(why.textContent==='Haiku for everything. Lightest on your plan.','The line follows the new mode');
   assert(messages.some(m=>m.do==='set'&&m.k==='routing'&&m.v==='cheapest'),'The routing choice is saved');
   assert(d.querySelector('[data-k=model]').closest('.row').hidden,'Cheapest needs no work model choice');
   w.st.load({prefs:{...base,routing:'capable',model:'opus'}});
-  assert(d.querySelector('[data-k=model] [data-v=opus]').getAttribute('aria-pressed')==='true','Most capable retains the chosen bigger model');
+  assert(d.querySelector('[data-k=model] [data-v=opus]').getAttribute('aria-checked')==='true','Most capable retains the chosen bigger model');
   w.st.load({prefs:{...base,routing:'balanced',apiBase:'https://fixture.invalid',apiModel:'main-model',agentApiModel:'agent-model'}});
   w.st.models({base:'https://fixture.invalid',key:'',list:['main-model','agent-model']});
   assert(d.querySelector('[data-k=routing]').closest('.row').hidden&&!d.getElementById('agentServerModel').hidden,'Custom servers retain their own models and hide routing');
@@ -54,6 +57,11 @@ try {
   assert(messages.some(m=>m.do==='set'&&m.k==='apiBase'&&m.v==='http://localhost:11434')&&messages.some(m=>m.do==='set'&&m.k==='apiModel'&&m.v==='qwen3'),'Local offer fills the address and first server model');
   w.st.load({prefs:{...base,routing:'balanced',client:'devin'}});
   assert(d.querySelector('[data-k=routing]').closest('.row').hidden,'Other clients hide Claude routing');
+  assert(d.getElementById('server').hidden&&d.getElementById('serverheading').hidden,'Devin hides the Custom server, which only Claude Code uses');
+  w.st.load({prefs:{...base,routing:'balanced',client:'pi',apiBase:'https://fixture.invalid'}});
+  assert(d.getElementById('server').hidden&&d.getElementById('serverheading').hidden,'Pi hides the Custom server, even one already saved (issue #30)');
+  w.st.load({prefs:{...base,routing:'balanced',client:'claude'}});
+  assert(!d.getElementById('server').hidden&&!d.getElementById('serverheading').hidden,'Claude shows the Custom server');
   w.st.load({prefs:{...base,routing:'balanced',client:'pi'}});
   assert(d.querySelector('[data-k=routing]').closest('.row').hidden&&d.getElementById('agentsettings').hidden,'Pi hides Claude routing and background agents');
   assert(!d.querySelector('[data-k=longAsks]'),'Long asks always move: no setting');
@@ -107,10 +115,10 @@ try {
   assert(messages.some(m => m.do === 'meetingDemo'), 'Demo row opens meeting');
   w.st.tab('general');
   const mode = d.querySelector('[data-k="talkMode"]'), hold = mode.querySelector('[data-v="hold"]'), toggle = mode.querySelector('[data-v="toggle"]');
-  assert(hold.getAttribute('aria-pressed') === 'true', 'Hold remains the default');
+  assert(hold.getAttribute('aria-checked') === 'true', 'Hold remains the default');
   toggle.click(); await new Promise(resolve => setTimeout(resolve, 20));
   assert(messages.some(m => m.do === 'set' && m.k === 'talkMode' && m.v === 'toggle'), 'Toggle choice persists through the native bridge');
-  assert(toggle.getAttribute('aria-pressed') === 'true' && hold.getAttribute('aria-pressed') === 'false', 'Selected mode is accessible');
+  assert(toggle.getAttribute('aria-checked') === 'true' && hold.getAttribute('aria-checked') === 'false', 'Selected mode is accessible');
   assert(d.getElementById('schint').textContent.includes('again to send'), 'Shortcut hint follows toggle mode');
   assert(d.getElementById('talkhint').textContent.includes('Pauses keep listening'), 'Toggle explains what a pause does');
   toggle.focus(); assert(d.activeElement === toggle, 'Mode buttons can receive keyboard focus');
@@ -119,8 +127,11 @@ try {
   frame.style.width = '700px'; await new Promise(resolve => requestAnimationFrame(resolve));
   assert(d.documentElement.scrollWidth <= 700 && row.scrollWidth <= row.clientWidth, 'Controls fit a narrower window');
   frame.style.width = '780px';
-  load({input: 'type', talkMode: 'toggle'});
-  assert(mode.closest('.row').hidden && !d.querySelector('[data-k=input]').closest('.row').hidden && d.getElementById('schint').textContent.includes('Return sends'), 'Typing mode shows its own shortcut interaction');
+  load({typeRight: true, talkMode: 'toggle'});
+  const typeRight = d.querySelector('[data-k="typeRight"]');
+  assert(!d.querySelector('[data-k=input]') && !mode.closest('.row').hidden && typeRight.checked && typeRight.closest('.group') === mode.closest('.group') && d.getElementById('schint').textContent.includes('again to send'), 'Type right away is one switch beside the shortcut behavior, which stays visible');
+  typeRight.click(); await new Promise(resolve => setTimeout(resolve, 20));
+  assert(messages.some(m => m.do === 'set' && m.k === 'typeRight' && m.v === false) && !typeRight.checked, 'Type right away turns off through the native bridge');
   load({talkMode: 'toggle'});
   const change = d.getElementById('change');
   change.click(); assert(change.textContent === 'Cancel Recording', 'Recording has a visible cancel action');
@@ -194,11 +205,20 @@ try {
   assert(d.documentElement.scrollWidth<=780,'Meeting dashboard fits Settings');
   // Agents setup: live status, connectors from the Claude account, Enable All and the step it is on
   w.st.tab('account');w.st.perms({mic:true,speech:true,ax:true,screen:true,auto:true,chrome:false,calendar:false});
-  assert(d.querySelector('#agentsetup [data-g="calendar"]').hidden===false&&d.querySelector('#agentsetup [data-g="auto"]').hidden===true,'Agents rows show Allowed or Allow, live');
+  assert(d.querySelector('#agentsetup [data-g="calendar"]').hidden===false&&d.querySelector('#perms [data-g="auto"]').hidden===true,'Permission and agent rows show Allowed or Allow, live');
   w.st.connectors({connected:['Gmail','Google Drive'],signin:['Notion']});assert(d.getElementById('conntext').textContent==='Gmail, Google Drive connected · 1 need sign-in','Connectors row reads the Claude account');
   d.getElementById('enableAll').click();await new Promise(r=>setTimeout(r,20));assert(messages.some(m=>m.do==='enableAll'&&m.connected==='true'),'Enable All posts with connector state');
   w.st.walk('calendar');assert(d.querySelector('#agentsetup [data-g="calendar"]').closest('.row').classList.contains('now'),'Enable All marks the current step');
+  w.st.walk('auto');assert(d.querySelector('#perms [data-g="auto"]').closest('.row').classList.contains('now'),'Enable All marks a step in Permissions too');
   w.st.tab('apps');assert(d.getElementById('apps').classList.contains('on')&&d.querySelector('nav button[data-s="account"]').classList.contains('on'),'Apps opens from Account & Access without its own sidebar page');
+  w.st.tab('about');
+  w.st.load({prefs:base,version:'1.6.2',update:'Build failed. Your current app is still running.',updateRepair:'Retry'});
+  assert(d.getElementById('aboutver').textContent==='Version 1.6.2'&&d.getElementById('checkUpdate').textContent==='Retry','A failed update shows the running version and one Retry button');
+  d.getElementById('checkUpdate').click();await new Promise(r=>setTimeout(r,20));
+  assert(messages.some(m=>m.do==='checkUpdate'),'Retry uses the existing update action');
+  w.st.load({prefs:base,updateRepair:'Open Source Folder'});d.getElementById('checkUpdate').click();await new Promise(r=>setTimeout(r,20));
+  assert(messages.some(m=>m.do==='updateSource'),'Local edits have a safe source-folder action');
+  w.st.load({prefs:base,updateChecking:true});assert(d.getElementById('checkUpdate').disabled,'An update in progress cannot be started twice');
   results.textContent = checks.join('\n') + `\n\n${checks.length} checks passed.`; results.className = 'pass';
 } catch (error) { results.textContent = checks.join('\n') + '\n✗ ' + error.message; results.className = 'fail'; }
 </script></html>

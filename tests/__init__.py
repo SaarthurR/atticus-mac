@@ -20,6 +20,12 @@ def scratch_dir(test):
     return Path(root.name)
 
 
+def swift_motion(source):
+    """Atticus.swift's shared Motion timings, for a slice that fades or resizes a window."""
+    start = source.index('enum Motion {')
+    return source[start:source.index('\n}\n', start) + 3]
+
+
 def run_swift(test, source, timeout=10):
     """Compile Swift source to a temp binary, run it, assert both succeed; returns its stdout."""
     import subprocess, sys

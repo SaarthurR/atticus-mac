@@ -18,5 +18,4 @@ else
   git clone -q --depth 1 https://github.com/SaarthurR/atticus-mac.git "$DIR"
 fi
 "$DIR/build.sh"
-open "$HOME/Applications/Atticus.app"
 echo "Done. The Atticus setup window walks you through the rest."

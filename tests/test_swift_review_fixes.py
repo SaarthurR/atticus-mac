@@ -19,7 +19,7 @@ class SwiftReviewFixTests(unittest.TestCase):
         self.settings = (ROOT / "ui/settings.html").read_text()
 
     def test_hands_free_follow_up_keeps_answer_until_words(self):
-        wake = self.swift.split('    func wakeTick()', 1)[1].split('    func enableWakeWord()', 1)[0]
+        wake = self.swift.split('    func wakeTick()', 1)[1].split('    func enableWakeWord(settings: Bool = false)', 1)[0]
         self.assertIn('clickMicrophone(quiet: true)', wake)
         self.assertIn('guard Date() >= wakeRetry else { return }', wake)   # a backoff once pushed the retry back every tick, forever
         self.assertIn('("sound", cueSound?.isPlaying == true || Date() < cueEnds)', wake)
@@ -80,7 +80,7 @@ print("special shortcuts stay distinct")
         self.assertIn("NSScrollView", callout)
         self.assertNotIn("scrollToEndOfDocument", callout)   # one step per callout: read it from the top
         harness = "import Cocoa\n" + MATH_STUB + callout + r'''
-let words = String(repeating: "A readable instruction needs enough words to wrap. ", count: 20)
+let words = String(repeating: "A readable instruction needs enough words to wrap. ", count: 40)
 let size = DrawingCalloutView.size(words, total: 12)
 let view = DrawingCalloutView(frame: CGRect(x: 0, y: 0, width: size.width + 24, height: size.height + 24),
                               card: CGRect(x: 12, y: 12, width: size.width, height: size.height), side: nil, tip: 0, text: words, step: 12, total: 12)
@@ -132,12 +132,7 @@ console.log(heard);
     def test_hidden_rewrite_keeps_its_target(self):
         close = self.swift[self.swift.index("    func close(clear: Bool)"):self.swift.index("    func shortcut(", self.swift.index("    func close(clear: Bool)"))]
         harness = r'''import Foundation
-final class NSAnimationContext {
-    var duration = 0.0
-    static func runAnimationGroup(_ changes: (NSAnimationContext) -> Void, completionHandler: () -> Void) {
-        changes(NSAnimationContext()); completionHandler()
-    }
-}
+enum Motion { static let fast = 0.12, base = 0.2, slow = 0.28; static func run(_ d: Double, _ f: () -> Void, done: (() -> Void)? = nil) { f(); done?() } }
 final class Panel { var alphaValue = 1.0; func animator() -> Panel { self } }
 final class Drawing { func clear() {} }
 func unpoint() {}
@@ -194,11 +189,11 @@ print("hidden rewrite target kept")
 
     def test_voice_ask_that_heard_nothing_ends_quietly(self):
         # Oct 20, 2026: a tap, or clicking in to type after letting go, ended in "Didn't catch that." / an empty review.
-        finish = self.swift[self.swift.index("    func finish() {"):self.swift.index("    // atticus.py --wait, started")]
+        finish = self.swift[self.swift.index("    func finish() {", self.swift.index("final class App")):self.swift.index("    // atticus.py --wait, started")]
         self.assertNotIn("Didn't catch that", finish)
-        self.assertIn('if did.isEmpty { js("msg", ""); return hide(after: 0.2) }', finish)
+        self.assertIn('if did.isEmpty { js("msg", ""); return hide(after: 3) }', finish)   # tap piece: box stays for the model picker
         stop = self.swift[self.swift.index("    func stop() {", self.swift.index("final class App")):self.swift.index("    func applyReplacement()")]
-        quiet = 'if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { hush(); js("msg", ""); return hide(after: 0.2) }'
+        quiet = 'if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { hush(); js("msg", ""); return hide(after: 3) }'
         self.assertLess(stop.index(quiet), stop.index("review(\"Couldn’t confirm your words."))
         typing = self.swift[self.swift.index('if b["type"] != nil {'):self.swift.index('if let s = b["link"]')]
         self.assertIn('else if busy && proc == nil && offerText == nil && !dictating && text.isEmpty { hush(); js("msg", "") }', typing)
@@ -441,7 +436,7 @@ print("shelf follows")
         self.assertNotIn("mouseMoved", init)
         tick = panels[panels.index("    func tick()"):panels.index("    func open(")]
         hidden = tick[tick.index("if hidden || !hasChips {"):tick.index("            else {")]
-        self.assertIn('if shelf.isVisible { shelf.orderOut(nil); js("shelf","visible",false); pointerNext = []; flushPointer() }', hidden)
+        self.assertIn('if shelf.isVisible && !Motion.leaving(shelf) { Motion.fade(shelf, in: false); js("shelf","visible",false); pointerNext = []; flushPointer() }', hidden)   # fades once (tests.test_motion runs it)
         self.assertIn("moves.forEach(NSEvent.removeMonitor); moves = []", hidden)
         shown = tick[tick.index("            else {"):tick.index("follow()")]
         self.assertLess(shown.index("if moves.isEmpty {"), shown.index("addGlobalMonitorForEvents(matching:.mouseMoved)"))
@@ -486,9 +481,11 @@ print("shelf follows")
     def test_agent_permission_poll_stops_after_one_grant(self):
         panels = self.swift[self.swift.index("final class AgentPanels"):self.swift.index("    func receive(_ event:", self.swift.index("final class AgentPanels"))]
         allow = panels[panels.index("    func allow("):]
-        granted = allow[allow.index("if Onboarding.granted"):]
-        self.assertLess(granted.index("t.invalidate()"), granted.index('self.send(["action":"granted"'))
-        self.assertGreaterEqual(granted.count('["_a"] as? String == ask'), 1)
+        self.assertIn('onboarding.request(need, app: app, settingsOnRefusal: true, current:', allow)
+        self.assertIn('["_a"] as? String == ask', allow)
+        request = self.swift[self.swift.index('    func request(_ need:'):self.swift.index('    func allow(_ need:')]
+        self.assertIn('guard !finished else { return }; finished = true', request)
+        self.assertIn('if granted { t.invalidate(); finish(true) }', request)
 
     def test_target_app_also_matches_the_app_bundle_name(self):
         lookup = self.swift[self.swift.index('["--window-target","--target-app"].contains'):]

@@ -13,6 +13,36 @@
 
 https://github.com/user-attachments/assets/26822ad2-6281-477d-b676-2f490a4a207b
 
+<br>
+
+## Circle it. Ask about it.
+
+<img src="docs/circle.gif" width="100%" alt="Circling part of a photo and asking what it is">
+
+*"What is this?"* Hold the shortcut, circle anything on your screen and ask. Atticus looks at what you circled and answers.
+Works on photos, pages, code, anything you can see.
+
+<br>
+
+## And it does the work
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/arrange.gif" width="100%" alt="Spotify moves left and Chrome right">
+      <h3>Arrange windows</h3>
+      <i>"Spotify on the left, Chrome on the right."</i><br>
+      Atticus moves and sizes your windows in one go.
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/pdf.gif" width="100%" alt="Three photos become one PDF">
+      <h3>Hand off a job</h3>
+      <i>"Turn these photos into one PDF."</i><br>
+      An agent does the whole job in the background and hands you the file.
+    </td>
+  </tr>
+</table>
+
 ## Install
 
 ```
@@ -27,6 +57,7 @@ Needs **macOS 26** and an AI client: Claude Code on a Claude plan, Devin, Pi or 
 |---|---|
 | *"Code on my big screen, Chrome and Terminal on the laptop."* | Arranges three windows across two displays. |
 | *"Open Spotify."* · *"Terminal on the left."* | Runs instantly, with no AI at all. |
+| *"Play Blinding Lights by The Weeknd."* | Starts it in Spotify in about a second. |
 | *"Find my notes about the Tokyo trip."* | Searches your files by what's inside them. |
 | *"What's wrong with this code?"* | Looks at your screen and answers in a line. |
 | *"Move my dentist appointment to 4."* | Shows the change on a card. Adding is immediate; moving or deleting asks first. |
@@ -37,8 +68,9 @@ Needs **macOS 26** and an AI client: Claude Code on a Claude plan, Devin, Pi or 
 ## What it does
 
 - **Learns.** Ask once and it works out the steps. Ask again and it runs in a blink, with no AI.
-- **Sees your screen.** Ask about anything on it. Use **Point at your screen** to mark a spot first.
-- **Draws to explain.** "Explain this and draw it" builds a labeled diagram over your screen.
+- **Sees your screen.** Ask about anything on it. Point or circle with your mouse while you hold the shortcut, or use **Point at your screen** to mark a spot first.
+- **Teaches and draws.** "Teach me…" points at each spot, one step at a time. "Explain this and draw it" builds a labeled diagram over your screen.
+- **Picks the right model.** Easy asks go to a quick model; harder ones go to a stronger one. Change it in Settings → Intelligence.
 - **Dictate anywhere.** Hold fn, talk, let go. Your words land in any text field, cleaned up.
 - **Hands-free.** Turn on the wake word and just say "Atticus".
 - **Background agents.** Big jobs run behind your apps while you keep working.

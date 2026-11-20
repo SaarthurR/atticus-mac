@@ -82,7 +82,10 @@ enum Prefs { static func set(_ k:String,_ v:Bool) {} }
 final class Onboarding {
     static var granted = false
     var calls = 0
-    func allow(_ need:String, app:String) { precondition(need == "screen"); calls += 1 }
+    func help(_ pane:String) {}
+    static func permissionState(_ need:String, app:String)->Int { granted ? 1 : -1 }
+    func allow(_ need:String, app:String,done:((Bool)->Void)? = nil) { precondition(need == "screen"); calls += 1 }
+''' + source[source.index('    func request(_ need:'):source.index('    func allow(_ need:')] + '''
     static func granted(_ need:String, app:String) -> Bool { granted }
 }
 let onboarding = Onboarding()
@@ -458,7 +461,7 @@ print("Clicked Export")
             atticus.run.ok = True; atticus.run.ran = atticus.run.cmds = []
             return 'Done.',0,[]
         with patch.multiple(atticus, licensed=lambda:True, ping=lambda:None, look=slow_capture, fast=lambda _:None,
-                            window_summary=slow_summary, front=lambda:('Fixture','Window'), osa=lambda *_:'', screens=lambda:[],
+                            window_summary=slow_summary, system_ui_context=lambda:'', front=lambda:('Fixture','Window'), window_target=lambda *_:{}, osa=lambda *_:'', screens=lambda:[],
                             describe=lambda *_:'Fixture display', me_line=lambda:'', selection_context=lambda:'',
                             relevant_rules=lambda _: '', workflows=lambda *args:'', recent=lambda:[], remember_turn=lambda *_:None,
                             log_turn=lambda *_, **__:None, learn=lambda *_:None, restore_focus=lambda *_:None, tip=lambda *_:None), \

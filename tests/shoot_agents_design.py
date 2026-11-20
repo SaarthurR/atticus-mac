@@ -280,6 +280,7 @@ nsapp.run()'''
 
 # The setup screens themselves: the real onboarding and Settings pages, with live status sent in like the app does.
 SETUP = r'''setvbuf(stdout,nil,_IONBF,0)
+let agentsUI=AgentPanels()
 let nsapp=NSApplication.shared;nsapp.setActivationPolicy(.accessory)
 let out="OUTDIR",screen=NSScreen.screens[0],top=screen.frame.maxY
 func after(_ s:Double,_ f:@escaping()->Void){DispatchQueue.main.asyncAfter(deadline:.now()+s,execute:f)}
@@ -290,6 +291,7 @@ func page(_ file:String,_ size:NSSize,_ handler:String)->(NSWindow,WKWebView){
  w.titlebarAppearsTransparent=true;w.titleVisibility = .hidden
  let bg=NSVisualEffectView(frame:w.contentRect(forFrameRect:w.frame));bg.material = .underWindowBackground;bg.blendingMode = .behindWindow;bg.state = .active
  let cfg=WKWebViewConfiguration();cfg.userContentController.add(sink,name:handler)
+ if handler=="ob",let arrow=arrowCursorScript(){cfg.userContentController.addUserScript(arrow)}   // as Onboarding.open
  let v=WKWebView(frame:NSRect(x:0,y:0,width:size.width,height:size.height-28),configuration:cfg);v.setValue(false,forKey:"drawsBackground");v.autoresizingMask=[.width,.height]
  let html=(try! String(contentsOfFile:dir+"/ui/"+file,encoding:.utf8)).replacingOccurrences(of:"/*ORBS*/",with:(try? String(contentsOfFile:dir+"/ui/orbs.js",encoding:.utf8)) ?? "")
  v.loadHTMLString(html,baseURL:nil);bg.addSubview(v);w.contentView=bg;w.orderFrontRegardless();return (w,v)}
@@ -300,15 +302,9 @@ func ob(_ js:String,_ done:@escaping(Any?)->Void={_ in}){ov.evaluateJavaScript(j
 let some="{mic:true,speech:true,ax:true,screen:false,auto:true,chrome:false,calendar:false,tools:true}"
 var steps:[(Double,()->Void)]=[]
 func run(_ i:Int){guard i<steps.count else{return};after(steps[i].0){steps[i].1();run(i+1)}}
-steps.append((2.0,{ob("ob.plan({ok:true,text:'Signed in. Claude Max.'});ob.set(\(some));document.querySelector('[data-go=\"perms\"]').click()")}))
-steps.append((1.5,{shoot("8-setup-perms",ow);ob("document.querySelector('#perms [data-go=\"agents\"]').click()")}))
-steps.append((0.4,{ob("ob.connectors({connected:['Gmail','Google Drive','Google Calendar','Slack'],signin:['Notion']})")}))
-steps.append((1.4,{shoot("9-setup-agents",ow)
- if !sink.got.contains(where:{($0 as? [String:Any])?["do"] as? String == "connectors"}){print("agents step did not ask for connector status");exit(1)}
- ob("document.getElementById('enable').click();ob.walk('screen')")}))
-steps.append((1.0,{if !sink.got.contains(where:{($0 as? [String:Any])?["do"] as? String == "enableAll"}){print("Enable All did not post");exit(1)};shoot("10-setup-enable-all",ow)
- ob("ob.set({mic:true,speech:true,ax:true,screen:true,auto:true,chrome:true,calendar:true,tools:true});ob.walk('');[document.getElementById('enable').hidden,document.getElementById('agents-next').textContent]"){v in print("all set: \(v ?? "")")}}))
-steps.append((1.2,{shoot("11-setup-agents-done",ow);ob("document.getElementById('agents-next').click()")}))
+steps.append((2.0,{ob("ob.plan({ok:true,text:'Signed in. Claude Max.'});ob.set(\(some));document.querySelector('[data-to=perms]').click()")}))
+steps.append((1.0,{shoot("8-setup-perms",ow);ob("document.querySelector('[data-to=ai]').click()")}))
+steps.append((1.0,{shoot("9-setup-ai",ow);ob("document.querySelector('[data-to=try]').click()")}))
 steps.append((1.2,{shoot("12-setup-try",ow);ow.orderOut(nil)
  let (sw,sv)=page("settings.html",NSSize(width:780,height:560),"st");sw.appearance=NSAppearance(named:.darkAqua)   // as SettingsWindow.open
  after(2.0){sv.evaluateJavaScript("st.tab('account');st.perms({mic:true,speech:true,ax:true,screen:true,auto:true,chrome:false,calendar:false});st.connectors({connected:['Gmail','Google Drive','Google Calendar','Slack','Figma'],signin:['Notion','Canva']});st.walk('calendar');document.getElementById('agentsetup').scrollIntoView({block:'center'})"){_,e in if let e{print("js error \(e)")}}
@@ -321,7 +317,9 @@ def point_fixture():
     source = (ROOT / 'Atticus.swift').read_text()
     cut = lambda start, end: source[source.index(start):source.index(end, source.index(start))]
     return ('import Cocoa\n' + cut('func axAttribute(', '// AX has no public') + 'enum Hands {\n' + cut('    static func attribute(_ e: AXUIElement', '    static func array(') + '}\n'
-            + cut('var ring: NSPanel?', 'func jsonString') + 'enum Onboarding {\n static let name = "Atticus"\n' + cut('    static func pointSwitch(', '    static func bundle(') + '}\n'
+            + 'enum Prefs { static func bool(_ key: String) -> Bool { false } }\n' + cut('func applySharing(', 'func profileName(')
+            + 'var leader: NSPanel?\nfunc lead(from: NSRect, to: NSRect) -> Bool { preconditionFailure("Switch ring has no answer box") }\n'
+            + cut('var ring: NSPanel?', '// A line from the box') + 'enum Onboarding {\n static let name = "Atticus"\n' + cut('    static func pointSwitch(', '    static func bundle(') + '}\n'
             + r'''setvbuf(stdout,nil,_IONBF,0)
 let nsapp=NSApplication.shared;nsapp.setActivationPolicy(.accessory)
 NSWorkspace.shared.open(URL(string:"x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)

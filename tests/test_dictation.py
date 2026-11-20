@@ -173,6 +173,11 @@ print("dictation stitching ok")
         start = source[source.index('    func start(dictate: Bool, quiet: Bool = false)'):source.index('    func heard(')]
         self.assertIn('if !dictate && (!replying || drawingReply) { unwarm(); warm = spawn() }', start)
         self.assertIn('if dictateCleanup { warmDictationCleanup() }', start)
+        capture = start.index('engine.start(device,')
+        self.assertGreater(start.index('warm = spawn()', start.index('toggleTalk =')), capture)
+        self.assertGreater(start.index('warmDictationCleanup()'), capture)
+        self.assertGreater(start.index('whisperPrompt = String(hints'), capture)
+
         method = source[source.index('    func stopDictationCleanup()'):source.index('    func dictationDeliveryFailed(')]
         swift = r'''import Foundation
 var processCalls = 0, hang = false, workers: [Process] = []
@@ -192,6 +197,7 @@ final class Harness {
     var dictateSelectionPending = false, dictateCleanup = false, busy = true, dictating = true
     var dictateID = 1, text = "Exact words.", inserted: [String] = [], dictateBefore = "Notes before the cursor."
     var dictateFellBack = false, dictateTimedOut = false, dictateSelectionRetried = false
+    var dictatePractice: Int?
     var dictationTargetApp: AppRef?
     var dictateSelection: Selection?, dictateProcess: Process?, dictateInput: FileHandle?, dictateOutput: FileHandle?
     func captureDictationSelection(retry: Bool = false) {}
@@ -253,6 +259,15 @@ print("dictation routing ok")
         source = (ROOT / 'Atticus.swift').read_text()
         method = source[source.index('    func insertDictation('):source.index('    func typed(')]
         swift = r'''import Foundation
+
+final class Practice {
+    var result = true
+    func evaluateJavaScript(_ code: String, completion: @escaping (Any?, Error?) -> Void) { completion(result, nil) }
+}
+final class PracticeWindow { var isKeyWindow = true }
+final class Setup { var web: Practice?; var dictationFocus = true; var win: PracticeWindow? = PracticeWindow() }
+let onboarding = Setup()
+
 struct Prefs { static func bool(_ key: String) -> Bool { false } }
 enum DictationData { static func fixed(_ text: String) -> String { text } }
 final class AppRef: Equatable {
@@ -277,7 +292,9 @@ final class Target {
 }
 final class Harness {
     var dictateSelection: Target?, busy = true, dictating = true, dictateID = 1
-    var failed: [String] = []
+    var failed: [String] = [], lastDictation: String?
+    var dictatePractice: Practice?
+    func saveDictation(_ value: String, appName: String) -> Bool { true }
     func cue(_ value: String) {}
     func js(_ call: String, _ arg: Any? = nil) {}
     func hide(after: Double, shrink: Bool = false) {}
@@ -297,6 +314,13 @@ precondition(moved.received.isEmpty && h2.failed == ["wrong"] && NSWorkspace.sha
 let late = Target(user), h3 = Harness(); late.deferred = true; h3.dictateSelection = late; NSWorkspace.shared.frontmostApplication = user
 h3.insertDictation("late"); h3.dictateID += 1; h3.dictating = false; late.pending?()
 precondition(late.received.isEmpty, "cancelled dictation replaced the selection")
+let practice = Practice(), own = Harness(); own.dictatePractice = practice; onboarding.web = practice
+own.insertDictation("practice words"); precondition(!own.dictating && own.lastDictation == "practice words")
+let unfocused = Harness(); unfocused.dictatePractice = practice; onboarding.dictationFocus = false
+unfocused.insertDictation("wrong"); precondition(unfocused.failed == ["wrong"])
+onboarding.dictationFocus = true; practice.result = false
+let edited = Harness(); edited.dictatePractice = practice; edited.insertDictation("changed")
+precondition(edited.failed == ["changed"])
 print("dictation target safety ok")
 '''
         self.assertIn('dictation target safety ok', run_swift(self, swift))
@@ -381,7 +405,7 @@ print("single delivery fallback ok")
         # Oct 28, 2026: AnalyzerInput traps inside Speech.framework on a plain 16 kHz Float32 buffer, so Whisper gets raw samples.
         source = (ROOT / 'Atticus.swift').read_text()
         start = source[source.index('    func start(dictate: Bool'):source.index('    func heard(')]
-        self.assertIn('guard whisper || dictate || SFSpeechRecognizer.authorizationStatus() == .authorized', start)
+        self.assertIn('dictate || Prefs.str("speechModel") == "whisper" ? [] : ["speech"]', start)
         self.assertLess(start.index('guard !whisper || Whisper.shared.ready'), start.index('listenID += 1'))
         self.assertIn('if whisper { pcm.append(out) } else { self?.speechInputs?.yield(AnalyzerInput(buffer: out)) }', start)
         self.assertIn('if whisper { pcm.append(buf) } else { self?.speechInputs?.yield(AnalyzerInput(buffer: buf)) }', start)
@@ -396,7 +420,7 @@ print("single delivery fallback ok")
         self.assertIn('guard let self, self.listenID == listeningID else { return }', tick)
         self.assertIn('await prev?.value', tick)   # final passes stay in order
         stop = source[source.index('    func stop()', source.index('final class App')):source.index('    func applyReplacement(')]
-        self.assertIn('engine.stop { inputs?.finishAll(); whisperFlush?() }', stop)
+        self.assertIn('engine.stop { inputs?.finishAll(); whisperFlush?(); drained.leave() }', stop)
         self.assertIn('min(15, 4 + 0.15 * (whisperAudio.seconds + whisperQueued))', stop)
         self.assertLess(stop.index('if whisperListen'), stop.index('Finalizing can hang'))
 
@@ -406,9 +430,9 @@ print("single delivery fallback ok")
         self.assertIn('!whisperReleasing', stop)  # repeated key-up/timer stops cannot submit twice
         self.assertIn('whisperReleasing = whisperListen && !clickTalk && !toggleTalk', stop)
         self.assertIn('if whisperReleasing { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: stopMic) }', stop)
-        self.assertIn('else { stopMic() }', stop)  # Apple, click and toggle keep their immediate stop
+        self.assertIn('else { stopMic() }', stop)  # Whisper click/toggle keep their immediate stop; Apple now has a tail
         self.assertLess(stop.index('guard let self, self.listenID == id'), stop.index('engine.stop'))
-        self.assertIn('engine.stop { inputs?.finishAll(); whisperFlush?() }', stop)
+        self.assertIn('engine.stop { inputs?.finishAll(); whisperFlush?(); drained.leave() }', stop)
         flush = stop[stop.index('whisperFlush = {'):]
         self.assertLess(flush.index('guard let self, self.listenID == id'), flush.index('self.whisperFinal(id)'))
         start = source[source.index('    func start(dictate: Bool'):source.index('    func heard(')]
@@ -532,6 +556,15 @@ print("clipboard borrow ok")
         cancel = source[source.index('    func cancel()'):source.index('    // ✕ also ends')]
         self.assertNotIn('NSPasteboard', delivery)
         swift = r'''import Foundation
+
+final class Practice {
+    var result = true
+    func evaluateJavaScript(_ code: String, completion: @escaping (Any?, Error?) -> Void) { completion(result, nil) }
+}
+final class PracticeWindow { var isKeyWindow = true }
+final class Setup { var web: Practice?; var dictationFocus = true; var win: PracticeWindow? = PracticeWindow() }
+let onboarding = Setup()
+
 struct Prefs { static var on: Set<String> = ["dictateHistory"]; static func bool(_ key: String) -> Bool { on.contains(key) } }
 enum DictationData { static func fixed(_ text: String) -> String { text } }
 final class AppRef: Equatable { static func == (a: AppRef, b: AppRef) -> Bool { a === b } }
@@ -547,6 +580,7 @@ final class Target {
 }
 final class Harness {
     var dictateSelection: Target?, busy = false, dictating = true, dictateID = 1, dictateCleanup = false
+    var dictatePractice: Practice?
     var dictationAppName = "App", lastDictation: String?
     func saveDictation(_ value: String, appName: String) -> Bool { if saves { saved.append(value) }; return saves }
     var log: [String] = [], hides: [Double] = [], words: [String] = []
@@ -600,8 +634,7 @@ print("dictation states ok")
         clickout = source.split('NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown])', 1)[1].split('var grab:', 1)[0]
         self.assertIn('!handsFree', clickout)
         swift = r'''import Foundation
-final class Ctx { var duration = 0.0 }
-enum NSAnimationContext { static func runAnimationGroup(_ a: (Ctx) -> Void, completionHandler: (() -> Void)?) { a(Ctx()); completionHandler?() } }
+enum Motion { static let fast = 0.12, base = 0.2, slow = 0.28; static func run(_ d: Double, _ f: () -> Void, done: (() -> Void)? = nil) { f(); done?() } }
 final class Panel { var alphaValue = 1.0; func animator() -> Panel { self } }
 final class Flag { var active = false, hasInput = false, holds = false, isRunning = false }
 final class Harness {
@@ -676,7 +709,7 @@ const node = () => { const n = { classList: set(), className: '', remove: () => 
 const document = { body: { classList: set() }, createElement: node }, card = { classList: set() };
 const $ = id => id === 'thread' ? thread : id === 'card' ? card : { children: [], value: '' };
 const foldBox = () => {}, miniClear = () => {}, clockStop = () => {}, comp = () => {}, markShot = () => '', setState = () => {}, status = () => {}, fit = () => {}, pill = () => {};
-let hover, listening, working, boost, atBottom;
+let hover, listening, working, boost, atBottom, drawingThisTurn;
 ''' + helper + r'''
 const ui = {
 ''' + methods + r'''};
@@ -712,7 +745,7 @@ if (!answer.classList.contains('old')) process.exit(console.error('a real ask no
         self.assertIn('body.dictate.locked::after { opacity: 1; }', page)
         self.assertIn("locked(on) { document.body.classList.toggle('locked', !!on); fit(false); }", page)   # the pill makes room for the lock
         reduce = page[page.index('@media (prefers-reduced-motion: reduce)'):page.index('</style>')]
-        self.assertIn('transition: none !important', reduce)   # Reduce Motion: the ring just appears
+        self.assertIn('transition-property: opacity,', reduce)   # Reduce Motion: the ring only fades
 
     def test_pill_is_sized_by_the_page_and_shows_no_transcript_or_divider(self):
         # Oct 20, 2026: the pill had empty space between the wave and the lock, live words, and a line at finish

@@ -123,6 +123,26 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(row['title'], 'Original')
         self.assertEqual(len(self.events), before)
 
+    def test_open_reveals_a_program_an_agent_wrote_and_opens_documents(self):
+        row = self.manager.new(); folder = Path(row['directory'])
+        (folder/'run.terminal').write_text('<plist/>'); (folder/'go.command').write_text('echo hi')
+        (folder/'tool').write_text('#!/bin/sh\n'); (folder/'tool').chmod(0o755)
+        (folder/'Thing.app'/'Contents').mkdir(parents=True)
+        (folder/'report.pdf').write_bytes(b'%PDF-1.4'); (folder/'notes.txt').write_text('notes'); (folder/'images').mkdir()
+        (folder/'summary.pdf').symlink_to(folder/'run.terminal')
+        (folder/'app.jar').write_bytes(b'PK\x03\x04'); (folder/'here.fileloc').write_text('<plist/>')
+        (folder/'report alias').write_bytes(b'book\0\0\0\0mark\0\0\0\0' + bytes(32))   # the header every Finder alias file starts with
+        def reveals(name, **extra):
+            self.manager.command({'action':'open', 'id':row['id'], 'path':str(folder/name), **extra})
+            self.assertEqual(self.events[-1]['event'], 'open'); self.assertEqual(self.events[-1]['path'], str(folder/name))
+            return self.events[-1]['reveal']
+        for name in ('run.terminal', 'go.command', 'tool', 'Thing.app', 'summary.pdf', 'app.jar', 'here.fileloc', 'report alias'):
+            self.assertIs(reveals(name), True, name)
+        for name in ('report.pdf', 'notes.txt', 'images'):
+            self.assertIs(reveals(name), False, name)
+        self.assertIs(reveals('report.pdf', reveal=True), True)   # Show in Finder stays a reveal
+        self.assertEqual(atticus.risky(f'open {folder/"summary.pdf"}'), 'Run a program?')   # the brain's own gate reads the same rule
+
     def receipt(self, row, tool, inp, output='Done.', error=False):
         identifier=str(time.time_ns())
         self.manager.event(row,{'event':'claude','data':{'type':'assistant','message':{'content':[{'type':'tool_use','id':identifier,'name':tool,'input':inp}]}}})
@@ -188,7 +208,7 @@ class AgentTests(unittest.TestCase):
         for draw in (False,True):   # Drawings off swaps DRAWING for POINTER: both must fit
             self.prefs.update(draw=draw,pointer=True,askMe=True,learnMe=True,tips=True,learn=True)
             prompt=atticus.system_prompt(atticus.ASK_FIRST)
-            self.assertLessEqual(len(prompt.replace(atticus.ME,installed)),10050)   # same 1.3.2 cap as test_screen_draw
+            self.assertLessEqual(len(prompt.replace(atticus.ME,installed)),10050+85+len(atticus.READ_ALOUD))   # same 1.3.2 cap as test_screen_draw; +85: charts graph line; read aloud is on by default
         self.assertIn('(--look if none)',atticus.POINTER)
         self.assertLess(prompt.index(atticus.AGENT_HANDOFF),250);self.assertEqual(prompt.count(atticus.AGENT_HANDOFF),1)
 
@@ -555,6 +575,8 @@ class AgentTests(unittest.TestCase):
                 self.assertEqual(json.loads((Path(atticus.agent_gate_dir(row['directory']))/'work-page.json').read_text())['tab'],tab)
                 targets=[]
                 def browser(args,**kwargs):
+                    # Agent completion can probe the fixture app while a page action is in flight.
+                    if args[0] == 'pgrep': return subprocess.CompletedProcess(args,1,'','')
                     if 'get {name, bounds}' in args[2]: return subprocess.CompletedProcess(args,0,'Apply, 0, 0, 800, 600','')
                     targets.append(args[2]);expression=args[-1]
                     out=(json.dumps({'ready':True,'signature':'https://jobs.fixture.test/apply|1'}) if ')("ready"' in expression else
@@ -606,7 +628,7 @@ class AgentTests(unittest.TestCase):
 
     def test_a_play_this_game_ask_hands_its_window_to_an_agent_that_acts_there(self):
         # The game sat in a browser tab on another display while the user worked in Notes; the main ask clicked twice and stopped.
-        self.assertIn('look-act loops to a goal',atticus.AGENT_HANDOFF);self.assertIn('go on until the goal or a real block',atticus.AGENT_SYSTEM)
+        self.assertIn('unwatched look-act loops',atticus.AGENT_HANDOFF);self.assertIn('go on until the goal or a real block',atticus.AGENT_SYSTEM)
         self.assertIn('--front "<app>" ["title words"] (it never raises it; works covered or unfocused)',atticus.AGENT_SYSTEM)
         marker='[agent {"title":"Play Mines","brief":"Play the game in that tab until it is won or lost","app":"chrome","page":"Mines"}]'
         p=unittest.mock.Mock();p.stdin=io.StringIO();p.ask=self.root.name;p.returncode=0
@@ -715,16 +737,19 @@ class AgentTests(unittest.TestCase):
         self.assertFalse((Path(self.root.name)/'pending-handoffs').exists())   # the move saved its own record; the directive saved none
 
     def test_normal_flags_remain_strict_and_agent_persists(self):
-        self.prefs.update(pointer=True,tips=True,learn=True)
+        self.prefs.update(pointer=True,tips=True,learn=True,speak=True)
         with patch.object(atticus.shutil,'which',return_value='/fixture/claude'),patch.object(atticus.subprocess,'Popen') as popen,patch.object(atticus.atexit,'register'):
             atticus.start_claude()
             args=popen.call_args.args[0];self.assertIn('--strict-mcp-config',args);self.assertIn('--no-session-persistence',args)
             self.assertEqual(popen.call_args.kwargs['env']['CLAUDE_CODE_MESSAGES_PROMPT_CACHE_TTL'],'5m')   # one-shot messages: 1.25x writes, not 2x
+            self.assertEqual(popen.call_args.kwargs['env']['CLAUDE_CODE_PLUGIN_CACHE_DIR'],os.path.join(atticus.DIR,'claude-plugins'))   # no walk of the user's marketplace folders
             row=self.manager.new();row.update(session='saved-session',connectors=['mcp__fixture__inspect'])
             atticus.start_claude('opus',row)
             args=popen.call_args.args[0];options=popen.call_args.kwargs
         system=args[args.index('--system-prompt')+1]
         self.assertIn(atticus.AGENT_SYSTEM,system);self.assertNotIn(atticus.AGENT_HANDOFF,system)
+        self.assertNotIn(atticus.DRAW_TOOL,system);self.assertNotIn('[DRAW:',system)   # draw() refuses agents
+        self.assertIn(atticus.READ_ALOUD,atticus.system_prompt(atticus.ASK_FIRST));self.assertNotIn(atticus.READ_ALOUD,system)
         self.assertIn(atticus.WORKFLOW,system)   # agents save verified procedures through the same parser
         for tag in ('[tip ','[point '):
             self.assertIn(tag,atticus.system_prompt(atticus.ASK_FIRST));self.assertNotIn(tag,system)
@@ -732,6 +757,7 @@ class AgentTests(unittest.TestCase):
         self.assertNotIn('--strict-mcp-config',args);self.assertNotIn('--no-session-persistence',args)
         self.assertEqual(args[args.index('--resume')+1],'saved-session');self.assertEqual(options['cwd'],row['directory'])
         self.assertNotIn('ANTHROPIC_API_KEY',options['env']);self.assertEqual(options['env']['CLAUDE_CODE_DISABLE_CLAUDE_MDS'],'1')
+        self.assertNotIn('CLAUDE_CODE_PLUGIN_CACHE_DIR',options['env'])   # agents load the user's own plugins
         self.assertEqual(options['env']['CLAUDE_CODE_MESSAGES_PROMPT_CACHE_TTL'],'5m')   # agent calls are 5 min apart or >1 h, never in between
         settings=json.loads(args[args.index('--settings')+1]);self.assertTrue(settings['sandbox']['enabled'])
         self.assertEqual(settings['hooks']['PreToolUse'][0]['matcher'],'.*');self.assertNotIn('disableAllHooks',settings)
