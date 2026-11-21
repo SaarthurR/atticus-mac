@@ -78,7 +78,7 @@ class FoldLifecycleTests(unittest.TestCase):
     def render(self, reduced=False):
         with tempfile.TemporaryDirectory() as tmp:
             page, src, binary = [Path(tmp) / name for name in ('ui.html', 'fold.swift', 'fold')]
-            html = (ROOT / 'ui/ui.html').read_text().replace('/*ORBS*/', (ROOT / 'ui/orbs.js').read_text())
+            html = (ROOT / 'ui/ui.html').read_text().replace('/*TOKENS*/', (ROOT / 'ui/tokens.css').read_text()).replace('/*ORBS*/', (ROOT / 'ui/orbs.js').read_text())
             native = harness(SOURCE).split('box.ready = {')[0]
             if reduced:
                 html = html.replace("matchMedia('(prefers-reduced-motion: reduce)')", "({matches:true,addEventListener(){}})")

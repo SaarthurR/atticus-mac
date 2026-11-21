@@ -109,14 +109,14 @@ class OnboardingPageTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
-        html = (ROOT / 'ui/onboarding.html').read_text()
+        html = (ROOT / 'ui/onboarding.html').read_text().replace('/*TOKENS*/', (ROOT / 'ui/tokens.css').read_text())
         cls.page = Path(cls.tmp.name) / 'onboarding.html'
         still = '<style>*,*::before,*::after{transition:none!important;animation:none!important}</style>'   # rows land at once, as under Reduce Motion
         cls.page.write_text(re.sub(r'<script\b.*?</script>', '', html, flags=re.S).replace('<head>', '<head>' + still, 1))
         cls.live = Path(cls.tmp.name) / 'live.html'
         cls.live.write_text(html.replace('<head>', '<head>' + still, 1))
         cls.box = Path(cls.tmp.name) / 'box.html'
-        cls.box.write_text((ROOT / 'ui/ui.html').read_text().replace('/*ORBS*/', (ROOT / 'ui/orbs.js').read_text()))
+        cls.box.write_text((ROOT / 'ui/ui.html').read_text().replace('/*TOKENS*/', (ROOT / 'ui/tokens.css').read_text()).replace('/*ORBS*/', (ROOT / 'ui/orbs.js').read_text()))
         source, cls.binary = Path(cls.tmp.name) / 'page.swift', Path(cls.tmp.name) / 'page'
         source.write_text(HARNESS)
         built = subprocess.run(['swiftc', str(source), '-o', str(cls.binary)], capture_output=True, text=True)

@@ -173,7 +173,7 @@ return {shots:10, reserved, safe:true};
             src, binary, page = [Path(tmp) / n for n in ('page.swift', 'page', 'page.html')]
             orbs = (ROOT / 'ui/orbs.js').read_text()
             formatter = orbs[orbs.index('// TeX → MathML'):orbs.index('export { MML')]
-            page.write_text((ROOT / 'ui/ui.html').read_text().replace('/*ORBS*/', orbs)
+            page.write_text((ROOT / 'ui/ui.html').read_text().replace('/*TOKENS*/', (ROOT / 'ui/tokens.css').read_text()).replace('/*ORBS*/', orbs)
                             + '<script type="module">'+formatter+'\nwindow.charts={graph,graphFunction,markdown};</script>')
             src.write_text(harness)
             built = subprocess.run(['swiftc', str(src), '-o', str(binary)], capture_output=True, text=True)

@@ -2,32 +2,27 @@
 <html><head><meta charset="utf-8">
 <!-- Atticus settings. Atticus.swift calls st.load({prefs, state}) and gets {do:'set', k, v} and other actions back. -->
 <style>
+/*TOKENS*/
   :root {
-    --fg: #1d1d1f; --fg2: #6e6e73; --fg3: #6e6e73; --card: #fff; --bg: #f5f5f7; --ctl: #fff; --well: rgba(0,0,0,.045); --line: rgba(0,0,0,.08);
-    --side: rgba(255,255,255,.28); --sel: rgba(0,0,0,.06); --accent: #0a84ff; --green: #34c759; --track: rgba(120,120,128,.24);
-    --ok-text: #1f7a35; --warn: #c93400; --danger: #d70015;   /* text on white: the light system colours, ≥4.5:1 */
-    --on: #fff; --pop: rgba(255,255,255,.96); color-scheme: light dark;
+    color-scheme: light dark;
     /* motion: the same tokens in every page and in Atticus.swift's Motion (Plip's ease and Island spring, MIT, LICENSE-Plip) */
     --t-fast: 120ms; --t-base: 200ms; --t-slow: 280ms; --ease: cubic-bezier(.32,.72,0,1);
     --spring: linear(0, .057, .184, .334, .48, .61, .717, .801, .865, .912, .946, .969, .984, .993, .999, 1.002, 1);
     --hover: color-mix(in srgb, var(--fg) 4%, var(--card)); --lift: .96;   /* --hover is opaque: floating row actions mask text with it */
   }
-  @media (prefers-color-scheme: dark) { :root {
-    --fg: #f5f5f7; --fg2: #a1a1a6; --fg3: #98989d; --ok-text: #34c759; --warn: #ff9f0a; --danger: #ff453a; --card: #2a2a2c; --bg: #1e1e20; --ctl: rgba(255,255,255,.1); --well: rgba(255,255,255,.07); --line: rgba(255,255,255,.08);
-    --side: rgba(0,0,0,.12); --sel: rgba(255,255,255,.08); --track: rgba(120,120,128,.36); --on: #636366; --pop: rgba(44,44,46,.96); --lift: 1.2;
-  } }
+  @media (prefers-color-scheme: dark) { :root { --lift: 1.2; } }
   html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; -webkit-user-select: none; cursor: default;
     font: 13px -apple-system, system-ui, sans-serif; color: var(--fg); -webkit-font-smoothing: antialiased; }
   body { display: flex; }
 
-  #meetingq,#askq,#dictationsearch { width:100%;height:32px;box-sizing:border-box;background:var(--ctl);color:var(--fg);border:0;border-radius:8px;padding:0 12px;font:13px system-ui;box-shadow:inset 0 0 0 .5px var(--line),0 1px 1px rgba(0,0,0,.04);outline:none;-webkit-user-select:text; }
-  #meetingq:focus,#askq:focus,#dictationsearch:focus { box-shadow:inset 0 0 0 .5px var(--line),0 0 0 3px rgba(10,132,255,.35); }
+  #meetingq,#askq,#dictationsearch { width:100%;height:32px;box-sizing:border-box;background:var(--ctl);color:var(--fg);border:0;border-radius:8px;padding:0 12px;font:13px system-ui;box-shadow:inset 0 0 0 .5px var(--line),0 1px 1px rgba(var(--black-rgb),.04);outline:none;-webkit-user-select:text; }
+  #meetingq:focus,#askq:focus,#dictationsearch:focus { box-shadow:inset 0 0 0 .5px var(--line),0 0 0 3px rgba(var(--blue-rgb),.35); }
   #meetingcount { margin:12px 2px 8px;font-size:11px;color:var(--fg3); }
   #meetinglist { overflow:hidden; }
   .meetingrow { all:unset;display:block;box-sizing:border-box;width:100%;padding:13px 14px;cursor:pointer;transition:background var(--t-fast); }
   .meetingrow + .meetingrow { box-shadow:inset 0 .5px 0 var(--line); }
   .meetingrow:hover { background:var(--sel); }
-  .meetingrow:focus-visible,#meetingq:focus ~ #meetinglist .meetingrow.selected { background:rgba(10,132,255,.12);outline:none;box-shadow:inset 2px 0 0 var(--accent); }   /* the row Return opens, only while you browse */
+  .meetingrow:focus-visible,#meetingq:focus ~ #meetinglist .meetingrow.selected { background:rgba(var(--blue-rgb),.12);outline:none;box-shadow:inset 2px 0 0 var(--accent); }   /* the row Return opens, only while you browse */
   .meetingrow b { display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
   .meetingrow small { display:block;margin:4px 0;font-size:11px;color:var(--fg3);font-variant-numeric:tabular-nums; }
   .meetingrow span { display:block;font-size:12px;color:var(--fg2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
@@ -46,7 +41,7 @@
   #askq { margin-bottom:8px; } #asklist { max-height:320px;overflow-y:auto; }
   #asklist .t span { -webkit-user-select:text;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap; }
   #notice { position:fixed;bottom:16px;left:208px;right:0;margin:0 auto;width:fit-content;max-width:420px;display:flex;align-items:center;gap:12px;
-    padding:8px 8px 8px 14px;border-radius:11px;background:var(--pop);box-shadow:inset 0 0 0 .5px var(--line),0 6px 20px rgba(0,0,0,.18);font-size:12.5px;animation:rise var(--t-base) var(--ease); }
+    padding:8px 8px 8px 14px;border-radius:11px;background:var(--pop);box-shadow:inset 0 0 0 .5px var(--line),0 6px 20px rgba(var(--black-rgb),.18);font-size:12.5px;animation:rise var(--t-base) var(--ease); }
   /* Reduce Motion (the system's, or Atticus's own st.motion): crossfade only. Nothing slides or loops; what appears still fades */
   @keyframes fade { from { opacity:0; } }
   @media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation-name:fade!important;animation-iteration-count:1!important;transition-property:opacity,color,background-color,border-color,box-shadow!important; } .flash { animation-name:flash!important; } }
@@ -65,17 +60,17 @@
     font-size: 13px; color: var(--fg); transition: background var(--t-fast); }
   nav button:not(.on):hover { background: color-mix(in srgb, var(--sel) 50%, transparent); }   /* fainter than #navsel: hover never reads as the current page */
   nav button.on { font-weight: 500; }
-  nav button:focus-visible { outline: 2px solid rgba(10,132,255,.5); }
+  nav button:focus-visible { outline: 2px solid rgba(var(--blue-rgb),.5); }
   /* the current page: one soft pill that slides between items, with an accent tick */
   #navsel { position: absolute; top: 0; left: 10px; right: 10px; height: 30px; border-radius: 8px; pointer-events: none; opacity: 0;
     background: var(--sel); box-shadow: inset 0 0 0 .5px var(--line); transition: transform var(--t-slow) var(--spring), opacity var(--t-base); }
   #navsel::before { content: ""; position: absolute; left: 0; top: 8px; width: 3px; height: 14px; border-radius: 2px; background: var(--accent); }
   .ni { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; flex: none; }
-  .ni svg { width: 14px; height: 14px; fill: none; stroke: #fff; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+  .ni svg { width: 14px; height: 14px; fill: none; stroke: rgb(var(--white-rgb)); stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
   nav .spacer { flex: 1; min-height: 12px; }
   nav .out { width: 13px; height: 13px; margin-left: -4px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
   #agentsnav .out { margin-left: 0; color: var(--fg3); } #agentsnav .count { margin-left: auto; color: var(--fg3); font-size: 11.5px; } #agentsnav .count:empty + .out { margin-left: auto; }
-  #feedbacknav { color: #0066cc; } @media (prefers-color-scheme: dark) { #feedbacknav { color: var(--accent); } }   /* reads as a link: easy to miss as plain text */
+  #feedbacknav { color: rgb(var(--link-rgb)); } @media (prefers-color-scheme: dark) { #feedbacknav { color: var(--accent); } }   /* reads as a link: easy to miss as plain text */
   nav .ver { color: var(--fg3); font-size: 11px; padding: 0 8px; }
 
   /* content */
@@ -89,16 +84,16 @@
   @keyframes rise { from { opacity: 0; transform: translateY(6px); } }
   h1 { font: 600 24px/1.15 system-ui; letter-spacing: -.02em; margin: 0 0 6px; }
   h1:has(> .ni) { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }   /* the page's sidebar icon, larger, beside its title */
-  h1 .ni { width: 32px; height: 32px; border-radius: 8px; box-shadow: inset 0 .5px 0 rgba(255,255,255,.3), 0 .5px 1px rgba(0,0,0,.2); } h1 .ni svg { width: 19px; height: 19px; }
+  h1 .ni { width: 32px; height: 32px; border-radius: 8px; box-shadow: inset 0 .5px 0 rgba(var(--white-rgb),.3), 0 .5px 1px rgba(var(--black-rgb),.2); } h1 .ni svg { width: 19px; height: 19px; }
   p.lede { color: var(--fg2); font-size: 13.5px; margin: 0 0 26px; line-height: 1.5; }
   h3 { font: 600 11px system-ui; letter-spacing: .06em; text-transform: uppercase; color: var(--fg3); margin: 28px 4px 8px; }
 
-  .group { background: var(--card); border-radius: 12px; box-shadow: inset 0 0 0 .5px var(--line), 0 1px 3px rgba(0,0,0,.04); }
+  .group { background: var(--card); border-radius: 12px; box-shadow: inset 0 0 0 .5px var(--line), 0 1px 3px rgba(var(--black-rgb),.04); }
   div.group { overflow: hidden; }   /* a hovered first or last row keeps the card's round corners */
   .group:has(> .empty:only-child) { background: none; box-shadow: none; }   /* an empty list is a quiet line, not a box */
   .group > .empty:only-child { padding: 2px 4px 0; font-size: 12px; }
   .row { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 9px 14px; box-sizing: border-box; }
-  .row.now { background: rgba(10,132,255,.1); } .row.now .btn { pointer-events: none; opacity: .5; }
+  .row.now { background: rgba(var(--blue-rgb),.1); } .row.now .btn { pointer-events: none; opacity: .5; }
   .row { transition: opacity var(--t-base) var(--ease), background-color var(--t-fast) var(--ease); } .row.dim { opacity: .45; }
   .row:has(> .x):hover { background: var(--hover); }   /* list items with actions */
   .row + .row { box-shadow: inset 0 .5px 0 var(--line); }
@@ -114,32 +109,32 @@
   .sw input { appearance: none; margin: 0; width: 100%; height: 100%; border-radius: 11px; background: var(--track);
     transition: background var(--t-base) var(--ease); cursor: pointer; }
   .sw input:checked { background: var(--green); }
-  .sw input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff;
-    box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: transform var(--t-base) var(--spring); }
+  .sw input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: rgb(var(--white-rgb));
+    box-shadow: 0 1px 3px rgba(var(--black-rgb),.25); transition: transform var(--t-base) var(--spring); }
   .sw input:checked::after { transform: translateX(16px); }
-  .sw input:focus-visible { outline: 3px solid rgba(10,132,255,.45); outline-offset: 2px; }
+  .sw input:focus-visible { outline: 3px solid rgba(var(--blue-rgb),.45); outline-offset: 2px; }
 
   /* segmented */
   .seg { position: relative; display: inline-flex; padding: 2px; border-radius: 8px; background: var(--track); flex: none; }
   .seg button { all: unset; position: relative; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 500; color: var(--fg); }
   /* the chosen option's thumb slides between options on the spring (Plip's Segmented, MIT); placed without sliding when it first shows */
   .seg::before { content: ""; position: absolute; top: 2px; bottom: 2px; left: 0; width: var(--w, 0); transform: translateX(var(--x, 0)); border-radius: 6px;
-    background: var(--on); box-shadow: 0 1px 3px rgba(0,0,0,.15), inset 0 0 0 .5px var(--line); opacity: 0; }
+    background: var(--on); box-shadow: 0 1px 3px rgba(var(--black-rgb),.15), inset 0 0 0 .5px var(--line); opacity: 0; }
   .seg.placed::before { opacity: 1; transition: transform var(--t-slow) var(--spring), width var(--t-slow) var(--spring); }
-  .seg button:focus-visible { outline: 2px solid rgba(10,132,255,.5); }
+  .seg button:focus-visible { outline: 2px solid rgba(var(--blue-rgb),.5); }
   .seg button:disabled { opacity: .4; pointer-events: none; }
   .shortcut + .group { margin-top: 12px; }
 
   select { appearance: auto; height: 28px; box-sizing: border-box; max-width: 100%; font: 13px system-ui; color: var(--fg); background: var(--ctl); border: 0; border-radius: 7px; padding: 0 8px;
-    box-shadow: inset 0 0 0 .5px var(--line), 0 1px 1px rgba(0,0,0,.05); }
-  select:focus-visible { outline: 3px solid rgba(10,132,255,.45); outline-offset: 2px; }
+    box-shadow: inset 0 0 0 .5px var(--line), 0 1px 1px rgba(var(--black-rgb),.05); }
+  select:focus-visible { outline: 3px solid rgba(var(--blue-rgb),.45); outline-offset: 2px; }
   input[type=range] { width: 150px; accent-color: var(--accent); }
   .val { width: 44px; text-align: right; color: var(--fg2); font-variant-numeric: tabular-nums; }
 
   /* the shortcut: big keycaps, one button to record a new one */
   .shortcut { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 26px 16px 18px; border-radius: 12px;
     background: var(--card); box-shadow: inset 0 0 0 .5px var(--line); transition: box-shadow var(--t-base); }
-  .shortcut.rec { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 4px rgba(10,132,255,.15); }
+  .shortcut.rec { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 4px rgba(var(--blue-rgb),.15); }
   .caps { display: flex; gap: 7px; min-height: 40px; align-items: center; }
   .caps .cap { min-width: 40px; height: 40px; font-size: 16px; border-radius: 9px; padding: 0 12px; }
   .caps .cap.wide { min-width: 96px; font-size: 14px; }
@@ -148,29 +143,29 @@
   .shortcut .acts { display: flex; gap: 8px; align-items: center; }
   .shortcut small { color: var(--fg3); font-size: 11.5px; } .shortcut small.warn, .shortcut small.taken { color: var(--warn); }
   .cap { min-width: 26px; height: 26px; padding: 0 7px; box-sizing: border-box; border-radius: 6px; display: grid; place-items: center;
-    font: 500 12px system-ui; background: linear-gradient(#fdfdfd, #e8e8ed); color: #1d1d1f;
-    box-shadow: 0 0 0 .5px rgba(0,0,0,.16), 0 1.5px 0 rgba(0,0,0,.16); }
-  @media (prefers-color-scheme: dark) { .cap { background: linear-gradient(#48484a, #3a3a3c); color: #f5f5f7;
-    box-shadow: 0 0 0 .5px rgba(0,0,0,.6), 0 1.5px 0 rgba(0,0,0,.6); } }
+    font: 500 12px system-ui; background: linear-gradient(rgb(var(--gray-99-rgb)), rgb(var(--gray-91-rgb))); color: rgb(var(--gray-11-rgb));
+    box-shadow: 0 0 0 .5px rgba(var(--black-rgb),.16), 0 1.5px 0 rgba(var(--black-rgb),.16); }
+  @media (prefers-color-scheme: dark) { .cap { background: linear-gradient(rgb(var(--gray-28-rgb)), rgb(var(--gray-23-rgb))); color: rgb(var(--gray-96-rgb));
+    box-shadow: 0 0 0 .5px rgba(var(--black-rgb),.6), 0 1.5px 0 rgba(var(--black-rgb),.6); } }
   /* a second shortcut in a row: a field that records like the big one, with its own clear button */
   .keyfield { position: relative; flex: none; }
   .kf { all: unset; box-sizing: border-box; min-width: 140px; height: 28px; padding: 0 10px; border-radius: 7px; display: flex; gap: 4px;
     align-items: center; justify-content: center; font-size: 12.5px; font-weight: 500; color: var(--accent); cursor: pointer;
-    background: var(--ctl); box-shadow: inset 0 0 0 .5px var(--line), 0 1px 1px rgba(0,0,0,.05); transition: box-shadow var(--t-base); }
+    background: var(--ctl); box-shadow: inset 0 0 0 .5px var(--line), 0 1px 1px rgba(var(--black-rgb),.05); transition: box-shadow var(--t-base); }
   .kf.set { padding-right: 30px; } .kf .cap { min-width: 20px; height: 20px; padding: 0 5px; font-size: 11px; border-radius: 4px; }
-  .kf.rec { color: var(--fg2); box-shadow: inset 0 0 0 1.5px var(--accent), 0 0 0 3px rgba(10,132,255,.18); }
-  .kf.rec > span { animation: blink 1.4s ease-in-out infinite; } .kf.bad { box-shadow: inset 0 0 0 1.5px #ff9f0a; }
-  .kf:focus-visible { outline: 2px solid rgba(10,132,255,.5); }
+  .kf.rec { color: var(--fg2); box-shadow: inset 0 0 0 1.5px var(--accent), 0 0 0 3px rgba(var(--blue-rgb),.18); }
+  .kf.rec > span { animation: blink 1.4s ease-in-out infinite; } .kf.bad { box-shadow: inset 0 0 0 1.5px rgb(var(--orange-rgb)); }
+  .kf:focus-visible { outline: 2px solid rgba(var(--blue-rgb),.5); }
   .keyfield .x { position: absolute; right: 4px; top: 3px; }
   .row .t span.warn, .row .t span.taken { color: var(--warn); }
 
   /* buttons */
   .btn { all: unset; height: 26px; padding: 0 12px; border-radius: 13px; font-size: 12.5px; font-weight: 500; flex: none;
-    background: var(--ctl); box-shadow: inset 0 0 0 .5px var(--line), 0 1px 1px rgba(0,0,0,.05); transition: filter var(--t-fast), transform .1s; }
+    background: var(--ctl); box-shadow: inset 0 0 0 .5px var(--line), 0 1px 1px rgba(var(--black-rgb),.05); transition: filter var(--t-fast), transform .1s; }
   .btn:hover { filter: brightness(var(--lift)); } .btn:active { transform: scale(.97); }
-  .btn.blue { background: var(--accent); color: #fff; box-shadow: none; }
+  .btn.blue { background: var(--accent); color: rgb(var(--white-rgb)); box-shadow: none; }
   .btn.red { color: var(--danger); }
-  .btn:focus-visible { outline: 2px solid rgba(10,132,255,.5); }
+  .btn:focus-visible { outline: 2px solid rgba(var(--blue-rgb),.5); }
 
   /* usage */
   .stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
@@ -193,10 +188,10 @@
   .rule .field { text-align: left; }
   /* a receipt in the box opened Settings here: the item glows once, then settles */
   .flash { animation: flash 2.2s var(--ease) .35s backwards; }
-  @keyframes flash { 0%, 35% { background: rgba(10,132,255,.2); box-shadow: inset 2px 0 0 var(--accent); } }
+  @keyframes flash { 0%, 35% { background: rgba(var(--blue-rgb),.2); box-shadow: inset 2px 0 0 var(--accent); } }
   .x { all: unset; width: 22px; height: 22px; border-radius: 11px; display: grid; place-items: center; color: var(--fg3); font-size: 15px; }
   .x:hover { background: var(--sel); color: var(--danger); }
-  .x:focus-visible, h3 .all:focus-visible { outline: 2px solid rgba(10,132,255,.5); }
+  .x:focus-visible, h3 .all:focus-visible { outline: 2px solid rgba(var(--blue-rgb),.5); }
   /* a list row's actions: quiet icons at the far right, shown on hover or keyboard focus */
   .row > .x { width: 26px; height: 26px; border-radius: 7px; cursor: pointer; opacity: 0; transform: translateX(6px);
     transition: opacity var(--t-base) var(--ease), transform var(--t-slow) var(--ease), background var(--t-fast), color var(--t-fast); }
@@ -223,7 +218,7 @@
   #dictationhistory { max-height: 440px; overflow-y: auto; }
   #dictationsearch { margin-bottom: 8px; } #dictationhistory + .group { margin-top: 12px; }
   h3 #dictationclear { color: var(--fg3); } h3 #dictationclear:hover { color: var(--danger); } h3 .all:disabled { visibility: hidden; }
-  .field:focus, .add input:focus { box-shadow: 0 0 0 3px rgba(10,132,255,.35); border-radius: 4px; }
+  .field:focus, .add input:focus { box-shadow: 0 0 0 3px rgba(var(--blue-rgb),.35); border-radius: 4px; }
   .app:hover, .seg button:not(.on):hover { background: var(--sel); }
   .empty { padding: 14px; color: var(--fg3); }
   .field { flex: 1; font: 13px system-ui; color: var(--fg); background: transparent; border: 0; outline: 0; text-align: right; min-width: 0; }
@@ -250,7 +245,7 @@
 
   .status { display: flex; align-items: center; gap: 8px; }
   .dot { width: 8px; height: 8px; border-radius: 4px; background: var(--green); flex: none; }
-  .dot.bad { background: #ff9f0a; }
+  .dot.bad { background: rgb(var(--orange-rgb)); }
   .wacts { display: flex; gap: 8px; flex: none; } #wtext.wait { animation: blink 1.4s ease-in-out infinite; }
 
   [hidden]:not(.going) { display: none !important; }   /* .btn's all: unset would undo it; .going: still closing (expand() below) */
@@ -259,20 +254,20 @@
   /* apps */
   .appbar { display: flex; gap: 8px; margin-bottom: 4px; position: sticky; top: -40px; padding: 8px 0; z-index: 1; background: var(--bg); }
   .search { flex: 1; height: 28px; padding: 0 10px; border: 0; border-radius: 7px; font: 13px system-ui; color: var(--fg); outline: 0;
-    background: var(--ctl); box-shadow: inset 0 0 0 .5px var(--line), 0 1px 1px rgba(0,0,0,.05); }
-  .search:focus { box-shadow: inset 0 0 0 .5px var(--line), 0 0 0 3px rgba(10,132,255,.35); }
+    background: var(--ctl); box-shadow: inset 0 0 0 .5px var(--line), 0 1px 1px rgba(var(--black-rgb),.05); }
+  .search:focus { box-shadow: inset 0 0 0 .5px var(--line), 0 0 0 3px rgba(var(--blue-rgb),.35); }
   .appbar .btn { height: 28px; } .appbar .seg { align-self: center; }
-  .btn.stop { background: #ff453a; } .btn:disabled { opacity: .45; pointer-events: none; }
+  .btn.stop { background: rgb(var(--red-rgb)); } .btn:disabled { opacity: .45; pointer-events: none; }
   h3 .all { all: unset; float: right; color: var(--accent); text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 11.5px; cursor: pointer; }
   .app { min-height: 46px; cursor: pointer; } .app img { width: 30px; height: 30px; flex: none; }
   .app .t b { font-weight: 400; }
   .ck { appearance: none; margin: 0; width: 20px; height: 20px; border-radius: 50%; flex: none; cursor: pointer;
     box-shadow: inset 0 0 0 1.5px var(--track); transition: background var(--t-fast), box-shadow var(--t-fast); }
   .ck:checked { background: var(--accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M5.5 10.5l3 3 6-7' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/20px; box-shadow: none; }
-  .ck:focus-visible { outline: 3px solid rgba(10,132,255,.45); outline-offset: 2px; }
+  .ck:focus-visible { outline: 3px solid rgba(var(--blue-rgb),.45); outline-offset: 2px; }
   .pill { font-size: 11.5px; font-weight: 500; padding: 3px 9px; border-radius: 10px; flex: none; }
-  .pill.ok { color: var(--ok-text); background: rgba(52,199,89,.13); }
-  .pill.no { color: var(--warn); background: rgba(255,159,10,.14); cursor: pointer; }
+  .pill.ok { color: var(--ok-text); background: rgba(var(--green-day-rgb),.13); }
+  .pill.no { color: var(--warn); background: rgba(var(--orange-rgb),.14); cursor: pointer; }
   .pill.wait { color: var(--fg2); background: var(--sel); animation: blink 1.2s ease-in-out infinite; }
   p.note { color: var(--fg3); font-size: 11.5px; line-height: 1.45; margin: 9px 2px 0; }
   p.note a { color: var(--accent); cursor: pointer; }
@@ -295,17 +290,17 @@
 <nav>
   <div class="me"><img id="icon" alt=""><div><b>Atticus</b><span>Just ask.</span></div></div>
   <i id="navsel" aria-hidden="true"></i>
-  <button id="agentsnav" aria-label="Open Agents"><i class="ni" style="background:#30b0c7"><svg viewBox="0 0 24 24"><rect x="4" y="8" width="13" height="12" rx="2.5"/><path d="M8 4.5h9.5A2.5 2.5 0 0 1 20 7v9"/></svg></i>Agents<span class="count" id="agentcount"></span><svg class="out" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 16 16 8M9.5 8H16v6.5"/></svg></button>
-  <button data-s="general" class="on" aria-current="page"><i class="ni" style="background:#8e8e93"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg></i>General</button>
-  <button data-s="brain"><i class="ni" style="background:#d97757"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"/></svg></i>Intelligence</button>
-  <button data-s="dictation"><i class="ni" style="background:#ff375f"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11v1a6 6 0 0 0 12 0v-1M12 18v3M8 21h8"/></svg></i>Dictation</button>
-  <button data-s="meetings"><i class="ni" style="background:#5e5ce6"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4M16 3v4M4 10h16M8 14h3M8 17h7"/></svg></i>Meetings</button>
+  <button id="agentsnav" aria-label="Open Agents"><i class="ni" style="background:rgb(var(--teal-rgb))"><svg viewBox="0 0 24 24"><rect x="4" y="8" width="13" height="12" rx="2.5"/><path d="M8 4.5h9.5A2.5 2.5 0 0 1 20 7v9"/></svg></i>Agents<span class="count" id="agentcount"></span><svg class="out" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 16 16 8M9.5 8H16v6.5"/></svg></button>
+  <button data-s="general" class="on" aria-current="page"><i class="ni" style="background:rgb(var(--gray-56-rgb))"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg></i>General</button>
+  <button data-s="brain"><i class="ni" style="background:rgb(var(--coral-rgb))"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"/></svg></i>Intelligence</button>
+  <button data-s="dictation"><i class="ni" style="background:rgb(var(--pink-rgb))"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11v1a6 6 0 0 0 12 0v-1M12 18v3M8 21h8"/></svg></i>Dictation</button>
+  <button data-s="meetings"><i class="ni" style="background:rgb(var(--indigo-rgb))"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4M16 3v4M4 10h16M8 14h3M8 17h7"/></svg></i>Meetings</button>
   <div class="grp">You</div>
-  <button data-s="memory"><i class="ni" style="background:#ff9f0a"><svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-4-6 4z"/></svg></i>Memory</button>
-  <button data-s="usage"><i class="ni" style="background:#30d158"><svg viewBox="0 0 24 24"><path d="M5 19V11M12 19V5M19 19v-6"/></svg></i>Usage</button>
+  <button data-s="memory"><i class="ni" style="background:rgb(var(--orange-rgb))"><svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-4-6 4z"/></svg></i>Memory</button>
+  <button data-s="usage"><i class="ni" style="background:rgb(var(--green-rgb))"><svg viewBox="0 0 24 24"><path d="M5 19V11M12 19V5M19 19v-6"/></svg></i>Usage</button>
   <div class="grp">Atticus</div>
-  <button data-s="account"><i class="ni" style="background:#0a84ff"><svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg></i>Account &amp; Access</button>
-  <button data-s="about"><i class="ni" style="background:#bf5af2"><svg viewBox="0 0 24 24"><path d="M12 4v10M8 10l4 4 4-4M5 19h14"/></svg></i>About &amp; Updates</button>
+  <button data-s="account"><i class="ni" style="background:rgb(var(--blue-rgb))"><svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg></i>Account &amp; Access</button>
+  <button data-s="about"><i class="ni" style="background:rgb(var(--purple-rgb))"><svg viewBox="0 0 24 24"><path d="M12 4v10M8 10l4 4 4-4M5 19h14"/></svg></i>About &amp; Updates</button>
   <div class="spacer"></div>
   <button data-s="feedback" id="feedbacknav">Report feedback<svg class="out" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 16 16 8M9.5 8H16v6.5"/></svg></button>
   <div class="ver" id="ver"></div>
@@ -443,7 +438,7 @@
 
   <section id="apps">
     <button class="btn" id="appsback" onclick="st.tab('account')">← Account &amp; Access</button>
-    <h1><i class="ni" style="background:#ff453a" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6"/></svg></i>Apps</h1>
+    <h1><i class="ni" style="background:rgb(var(--red-rgb))" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6"/></svg></i>Apps</h1>
     <p class="lede">Tick the apps Atticus can control. Allow them now so it won’t stop to ask.</p>
     <div class="appbar"><div class="seg" id="appview" role="radiogroup" aria-label="App list"><button data-v="key" class="on" role="radio" aria-checked="true">Key Apps</button><button data-v="all" role="radio" aria-checked="false" tabindex="-1">All Apps</button></div>
       <input id="appq" class="search" placeholder="Search all apps" aria-label="Search all apps"><button class="btn blue" id="allow" disabled>Allow</button></div>

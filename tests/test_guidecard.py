@@ -492,6 +492,7 @@ print("guide card edges, two display coordinates, silent lifetime, speech and na
 func loadPage(_ web: WKWebView, _ name: String) {
     let root = URL(fileURLWithPath:FileManager.default.currentDirectoryPath).appendingPathComponent("ui")
     let html = try! String(contentsOf:root.appendingPathComponent(name),encoding:.utf8)
+        .replacingOccurrences(of:"/*TOKENS*/",with:try! String(contentsOf:root.appendingPathComponent("tokens.css"),encoding:.utf8))
         .replacingOccurrences(of:"/*ORBS*/",with:try! String(contentsOf:root.appendingPathComponent("orbs.js"),encoding:.utf8))
     web.loadHTMLString(html,baseURL:root)
 }

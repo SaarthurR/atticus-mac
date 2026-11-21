@@ -70,7 +70,7 @@ class ConversationRenamePageTests(unittest.TestCase):
     def run_page(self, script):
         with tempfile.TemporaryDirectory() as tmp:
             page, src, binary = Path(tmp)/'agents.html', Path(tmp)/'page.swift', Path(tmp)/'page'
-            page.write_text((ROOT/'ui/agents.html').read_text().replace('/*ORBS*/', (ROOT/'ui/orbs.js').read_text()))
+            page.write_text((ROOT/'ui/agents.html').read_text().replace('/*TOKENS*/', (ROOT / 'ui/tokens.css').read_text()).replace('/*ORBS*/', (ROOT/'ui/orbs.js').read_text()))
             src.write_text(HARNESS.replace('width: 260, height: 400', 'width: 660, height: 580'))
             built = subprocess.run(['swiftc', str(src), '-o', str(binary)], capture_output=True, text=True)
             self.assertEqual(built.returncode, 0, built.stderr)

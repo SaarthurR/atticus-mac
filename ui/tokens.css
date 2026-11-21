@@ -1,0 +1,42 @@
+/* Every colour in ui/*.html. Atticus.swift's loadPage puts this file at each page's TOKENS marker; a raw colour in a page
+   fails tests/test_design_ratchet.py. Use the semantic tokens (--fg, --card, --line...) first. The palette holds channels:
+   rgb(var(--blue-rgb)), or rgba(var(--blue-rgb),.35) for a tint. The overlay pages (ui, agents, meeting) are always dark
+   and map their own --fg, --card... onto this palette in their :root. */
+:root {
+  --white-rgb: 255,255,255; --black-rgb: 0,0,0;
+  --gray-99-rgb: 253,253,253; --gray-96-rgb: 245,245,247; --gray-91-rgb: 232,232,237; --gray-90-rgb: 229,229,234;
+  --gray-82-rgb: 209,209,214; --gray-78-rgb: 199,199,204; --gray-63-rgb: 161,161,166; --gray-60-rgb: 152,152,157;
+  --gray-56-rgb: 142,142,147; --gray-50-rgb: 127,127,127; --gray-48-rgb: 120,120,128; --gray-44-rgb: 110,110,115;
+  --gray-39-rgb: 99,99,102; --gray-28-rgb: 72,72,74; --gray-24-rgb: 60,60,66; --gray-23-rgb: 58,58,60;
+  --gray-17-rgb: 42,42,44; --gray-15-rgb: 37,37,39; --gray-12-rgb: 30,30,34; --gray-11-rgb: 29,29,31;
+  --gray-7-rgb: 18,18,20; --gray-6-rgb: 16,16,19;
+  --blue-rgb: 10,132,255; --blue-hover-rgb: 43,149,255; --blue-light-rgb: 61,155,255; --blue-dark-rgb: 0,107,214;
+  --blue-dark-hover-rgb: 0,112,223; --link-rgb: 0,102,204; --sky-rgb: 100,181,255; --sky-2-rgb: 100,176,255;
+  --cyan-rgb: 100,210,255; --teal-rgb: 48,176,199; --indigo-rgb: 94,92,230; --glow-rgb: 120,140,255; --glow-dark-rgb: 110,130,255;
+  --purple-rgb: 191,90,242; --pink-rgb: 255,55,95; --pink-light-rgb: 255,122,138;
+  --red-rgb: 255,69,58; --red-light-rgb: 255,105,97; --red-soft-rgb: 255,138,128; --red-pale-rgb: 255,180,173;
+  --red-dark-rgb: 201,43,36; --red-deep-rgb: 215,0,21;
+  --orange-rgb: 255,159,10; --orange-light-rgb: 255,179,64; --orange-deep-rgb: 201,52,0; --coral-rgb: 217,119,87;
+  --green-rgb: 48,209,88; --green-day-rgb: 52,199,89; --green-traffic-rgb: 40,200,64; --green-bright-rgb: 48,219,91;
+  --green-top-rgb: 79,216,106; --green-deep-rgb: 31,122,53; --sage-rgb: 140,189,161;
+  --brown-rgb: 162,132,94; --slate-rgb: 170,182,196; --slate-dark-rgb: 59,65,74;
+
+  /* Settings and setup follow the system appearance: light here, dark below. Text on white uses the deep system colours (≥4.5:1). */
+  --fg: rgb(var(--gray-11-rgb)); --fg2: rgb(var(--gray-44-rgb)); --fg3: rgb(var(--gray-44-rgb)); --accent: rgb(var(--blue-rgb));
+  --card: rgb(var(--white-rgb)); --bg: rgb(var(--gray-96-rgb)); --ctl: rgb(var(--white-rgb)); --well: rgba(var(--black-rgb),.045);
+  --line: rgba(var(--black-rgb),.08); --side: rgba(var(--white-rgb),.28); --sel: rgba(var(--black-rgb),.06);
+  --green: rgb(var(--green-day-rgb)); --track: rgba(var(--gray-48-rgb),.24);
+  --ok-text: rgb(var(--green-deep-rgb)); --warn: rgb(var(--orange-deep-rgb)); --danger: rgb(var(--red-deep-rgb));
+  --on: rgb(var(--white-rgb)); --pop: rgba(var(--white-rgb),.96);
+  --key-top: rgb(var(--gray-99-rgb)); --key-bot: rgb(var(--gray-91-rgb)); --key-edge: rgba(var(--black-rgb),.16);
+  --glow: rgba(var(--glow-rgb),.28); --field: rgb(var(--white-rgb));
+}
+@media (prefers-color-scheme: dark) { :root {
+  --fg: rgb(var(--gray-96-rgb)); --fg2: rgb(var(--gray-63-rgb)); --fg3: rgb(var(--gray-60-rgb));
+  --card: rgb(var(--gray-17-rgb)); --bg: rgb(var(--gray-11-rgb)); --ctl: rgba(var(--white-rgb),.1); --well: rgba(var(--white-rgb),.07);
+  --line: rgba(var(--white-rgb),.08); --side: rgba(var(--black-rgb),.12); --sel: rgba(var(--white-rgb),.08); --track: rgba(var(--gray-48-rgb),.36);
+  --ok-text: rgb(var(--green-day-rgb)); --warn: rgb(var(--orange-rgb)); --danger: rgb(var(--red-rgb));
+  --on: rgb(var(--gray-39-rgb)); --pop: rgba(var(--gray-17-rgb),.96);
+  --key-top: rgb(var(--gray-23-rgb)); --key-bot: rgb(var(--gray-17-rgb)); --key-edge: rgba(var(--black-rgb),.55);
+  --glow: rgba(var(--glow-dark-rgb),.22); --field: rgba(var(--white-rgb),.07);
+} }

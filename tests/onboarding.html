@@ -4,7 +4,7 @@ const results=document.getElementById('results'),checks=[],messages=[],wait=ms=>
 const until=async(test,name,timeout=10000)=>{const end=performance.now()+timeout;while(!test()){if(performance.now()>end)throw Error('Timed out waiting for '+name);await wait(10)}};
 const assert=(ok,name)=>{if(!ok)throw Error(name);checks.push('✓ '+name)};
 try{
-const html=await(await fetch('../ui/onboarding.html')).text(),orbs=await(await fetch('../ui/orbs.js')).text(),i18n=await(await fetch('../ui/i18n.js')).text();
+const tokens=await(await fetch('../ui/tokens.css')).text(),html=(await(await fetch('../ui/onboarding.html')).text()).replace('/*TOKENS*/',()=>tokens),orbs=await(await fetch('../ui/orbs.js')).text(),i18n=await(await fetch('../ui/i18n.js')).text();
 async function load(id,reduce){
  const f=document.getElementById(id),bridge=`<style>*,*::before,*::after{transition:none!important;transition-delay:0s!important}:not(#done-check *),:not(#done-check *)::before,:not(#done-check *)::after{animation:none!important}</style><script>const media=window.matchMedia;window.matchMedia=q=>q.includes('prefers-reduced-motion')?{matches:${reduce},addEventListener(){},removeEventListener(){}}:media(q);window.framesRequested=0;const raf=window.requestAnimationFrame;window.requestAnimationFrame=f=>{framesRequested++;return raf(f)};window.webkit={messageHandlers:{ob:{postMessage:m=>parent.postMessage(m,'*')}}};<\/script>`;
  f.srcdoc=html.replace('/*ORBS*/',()=>orbs).replace('/*I18N*/',()=>i18n).replace('<head>','<head>'+bridge);

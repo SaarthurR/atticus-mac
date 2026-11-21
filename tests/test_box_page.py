@@ -236,7 +236,7 @@ return [r.bottom - 2, document.getElementById('comp').classList.contains('open')
         self.assertEqual(harness.count('name: "c"') + harness.count('["ready"] != nil'), 2)   # the shelf harness, pointed at the box's bridge
         with tempfile.TemporaryDirectory() as tmp:
             page, src, binary = Path(tmp) / 'ui.html', Path(tmp) / 'page.swift', Path(tmp) / 'page'
-            page.write_text((ROOT / 'ui/ui.html').read_text().replace('/*ORBS*/', (ROOT / 'ui/orbs.js').read_text()))
+            page.write_text((ROOT / 'ui/ui.html').read_text().replace('/*TOKENS*/', (ROOT / 'ui/tokens.css').read_text()).replace('/*ORBS*/', (ROOT / 'ui/orbs.js').read_text()))
             src.write_text(harness)
             built = subprocess.run(['swiftc', str(src), '-o', str(binary)], capture_output=True, text=True)
             self.assertEqual(built.returncode, 0, built.stderr)
@@ -250,7 +250,7 @@ return [r.bottom - 2, document.getElementById('comp').classList.contains('open')
     def test_real_mouse_scrolls_code_selects_text_and_click_copies(self):
         with tempfile.TemporaryDirectory() as tmp:
             page, src, binary = Path(tmp) / 'ui.html', Path(tmp) / 'page.swift', Path(tmp) / 'page'
-            page.write_text((ROOT / 'ui/ui.html').read_text().replace('/*ORBS*/', (ROOT / 'ui/orbs.js').read_text()))
+            page.write_text((ROOT / 'ui/ui.html').read_text().replace('/*TOKENS*/', (ROOT / 'ui/tokens.css').read_text()).replace('/*ORBS*/', (ROOT / 'ui/orbs.js').read_text()))
             src.write_text(REAL_MOUSE)
             built = subprocess.run(['swiftc', str(src), '-o', str(binary)], capture_output=True, text=True)
             self.assertEqual(built.returncode, 0, built.stderr)
@@ -333,7 +333,7 @@ return out;
     def test_type_right_away_keys_reach_the_box_not_the_users_app(self):
         with tempfile.TemporaryDirectory() as tmp:
             page, field = Path(tmp) / 'ui.html', Path(tmp) / 'field.txt'
-            page.write_text((ROOT / 'ui/ui.html').read_text().replace('/*ORBS*/', (ROOT / 'ui/orbs.js').read_text()))
+            page.write_text((ROOT / 'ui/ui.html').read_text().replace('/*TOKENS*/', (ROOT / 'ui/tokens.css').read_text()).replace('/*ORBS*/', (ROOT / 'ui/orbs.js').read_text()))
             binaries = {}
             for name, code in [('app', USER_APP), ('box', REAL_KEYS)]:
                 src, binaries[name] = Path(tmp) / f'{name}.swift', Path(tmp) / name

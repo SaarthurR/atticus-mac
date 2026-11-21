@@ -62,7 +62,7 @@ if mode=="measure"{   // the glass alone (no page) over flat backdrops: the mate
 }else{
  glass()
  let html=try! String(contentsOfFile:dir+"/ui/ui.html",encoding:.utf8),orbs=try! String(contentsOfFile:dir+"/ui/orbs.js",encoding:.utf8)
- web.loadHTMLString(html.replacingOccurrences(of:"/*ORBS*/",with:orbs),baseURL:nil)
+ web.loadHTMLString(html.replacingOccurrences(of:"/*TOKENS*/",with:(try? String(contentsOfFile:dir+"/ui/tokens.css",encoding:.utf8)) ?? "").replacingOccurrences(of:"/*ORBS*/",with:orbs),baseURL:nil)
  let backs=["light":#"LIGHT"#,"dark":#"DARK"#]
  let scenes:[(String,String,String,String)]=SCENES
  func play(_ i:Int){guard i<scenes.count else{print("box shots ok");exit(0)};let (name,look,ask,check)=scenes[i]

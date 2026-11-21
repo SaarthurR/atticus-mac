@@ -425,7 +425,7 @@ class SpotifyTests(unittest.TestCase):
         self.assertEqual(out.getvalue().strip(), 'Added Fixture song to your Spotify queue.')
         self.assertEqual(atticus.label('Bash', {'command': f'{atticus.QUEUE} "Fixture song"'}),
                          'Adding Fixture song to the queue')
-        self.assertIn(atticus.QUEUE, atticus.SYSTEM)
+        self.assertIn('--queue "<track>" queues', atticus.SYSTEM)
 
 
 if __name__ == '__main__':

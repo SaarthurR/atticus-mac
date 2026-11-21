@@ -106,7 +106,7 @@ class FirstClickTests(unittest.TestCase):
             failures = []
             for name, scenes in SCENES.items():
                 page = Path(tmp) / (name + '.html')
-                page.write_text((ROOT / 'ui' / (name + '.html')).read_text().replace('/*ORBS*/', (ROOT / 'ui/orbs.js').read_text()))
+                page.write_text((ROOT / 'ui' / (name + '.html')).read_text().replace('/*TOKENS*/', (ROOT / 'ui/tokens.css').read_text()).replace('/*ORBS*/', (ROOT / 'ui/orbs.js').read_text()))
                 run = subprocess.run([str(binary), str(page), json.dumps(scenes)], capture_output=True, text=True, timeout=170)
                 self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
                 self.assertNotIn('JS_ERROR', run.stdout)

@@ -55,7 +55,7 @@ class AgentMathPageTests(unittest.TestCase):
     def test_agent_answers_render_markdown_and_math_like_the_box(self):
         with tempfile.TemporaryDirectory() as tmp:
             page, src, binary = Path(tmp) / 'agents.html', Path(tmp) / 'page.swift', Path(tmp) / 'page'
-            page.write_text((ROOT / 'ui/agents.html').read_text().replace('/*ORBS*/', (ROOT / 'ui/orbs.js').read_text()))
+            page.write_text((ROOT / 'ui/agents.html').read_text().replace('/*TOKENS*/', (ROOT / 'ui/tokens.css').read_text()).replace('/*ORBS*/', (ROOT / 'ui/orbs.js').read_text()))
             src.write_text(HARNESS)
             built = subprocess.run(['swiftc', str(src), '-o', str(binary)], capture_output=True, text=True)
             self.assertEqual(built.returncode, 0, built.stderr)

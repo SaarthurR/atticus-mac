@@ -4,18 +4,14 @@
      the marker), calls ob.set({...}) every second with which permissions are on, mirrors the box's calls into ob.app(call, arg),
      and gets {do:'grant', id} / {do:'provider', ...} / {do:'done'} back. -->
 <style>
+/*TOKENS*/
   :root {
-    --fg: #1d1d1f; --fg2: #6e6e73; --fg3: #6e6e73; --card: rgba(255,255,255,.62); --line: rgba(0,0,0,.08);
-    --key-top: #fdfdfd; --key-bot: #e8e8ed; --key-edge: rgba(0,0,0,.16); --accent: #0a84ff; --green: #28c840; --ok-text: #1f7a35; --warn: #c93400;
-    --glow: rgba(120,140,255,.28); --field: #fff;
+    --card: rgba(var(--white-rgb),.62); --green: rgb(var(--green-traffic-rgb));
     /* motion: the same tokens in every page and in Atticus.swift's Motion (Plip's ease and Island spring, MIT, LICENSE-Plip) */
     --t-fast: 120ms; --t-base: 200ms; --t-slow: 280ms; --ease: cubic-bezier(.32,.72,0,1);
     --spring: linear(0, .057, .184, .334, .48, .61, .717, .801, .865, .912, .946, .969, .984, .993, .999, 1.002, 1);
   }
-  @media (prefers-color-scheme: dark) { :root {
-    --fg: #f5f5f7; --fg2: #a1a1a6; --fg3: #98989d; --card: rgba(255,255,255,.06); --line: rgba(255,255,255,.08); --ok-text: #34c759; --warn: #ff9f0a;
-    --key-top: #3a3a3c; --key-bot: #2c2c2e; --key-edge: rgba(0,0,0,.55); --glow: rgba(110,130,255,.22); --field: rgba(255,255,255,.07);
-  } }
+  @media (prefers-color-scheme: dark) { :root { --card: rgba(var(--white-rgb),.06); } }
   html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; -webkit-user-select: none; cursor: default;
     font: 13px -apple-system, system-ui, sans-serif; color: var(--fg); -webkit-font-smoothing: antialiased; }
   [hidden] { display: none !important; }
@@ -42,13 +38,13 @@
   #orb, #orb-done { position: relative; width: 100%; height: 100%; }
 
   .btn { height: 34px; padding: 0 20px; border: 0; border-radius: 17px; font: 500 14px system-ui; cursor: pointer;
-    color: #fff; background: var(--accent); box-shadow: 0 1px 2px rgba(0,0,0,.15), inset 0 .5px 0 rgba(255,255,255,.25);
+    color: rgb(var(--white-rgb)); background: var(--accent); box-shadow: 0 1px 2px rgba(var(--black-rgb),.15), inset 0 .5px 0 rgba(var(--white-rgb),.25);
     transition: transform var(--t-fast) var(--ease), filter var(--t-base), background var(--t-slow), color var(--t-slow); }
   .btn:hover { filter: brightness(1.08); } .btn:active { transform: scale(.97); }
   .btn.quiet { background: var(--card); color: var(--fg); box-shadow: inset 0 0 0 .5px var(--line); }
   .btn.big { height: 40px; padding: 0 28px; border-radius: 20px; font-size: 15px; margin-top: 26px; }
   .btn:disabled { opacity: .45; pointer-events: none; }
-  button:focus-visible { outline: 3px solid rgba(10,132,255,.45); outline-offset: 2px; }
+  button:focus-visible { outline: 3px solid rgba(var(--blue-rgb),.45); outline-offset: 2px; }
 
   /* top: thin progress dots, Skip Setup; bottom: Back and Continue */
   #dots { position: absolute; top: 22px; left: 140px; right: 140px; display: flex; gap: 6px; justify-content: center; }
@@ -70,31 +66,31 @@
   #welkeys { gap: 8px; margin-top: 26px; }
   #welkeys .key { min-width: 40px; height: 40px; padding: 0 12px; border-radius: 9px; font-size: 15px; }
   #welkeys .key.wide { min-width: 120px; font-size: 13px; }
-  #welkeys .key.down { transform: translateY(2px); color: var(--fg); box-shadow: 0 0 0 .5px var(--key-edge), 0 0 0 var(--key-edge), 0 1px 3px rgba(0,0,0,.1); }
+  #welkeys .key.down { transform: translateY(2px); color: var(--fg); box-shadow: 0 0 0 .5px var(--key-edge), 0 0 0 var(--key-edge), 0 1px 3px rgba(var(--black-rgb),.1); }
   #start { margin-top: 30px; height: 36px; padding: 0 22px; border-radius: 18px; }
 
   /* grouped lists, like System Settings */
   .list { width: 100%; max-width: 480px; margin-top: 20px; border-radius: 12px; background: var(--card); text-align: left;
-    box-shadow: inset 0 0 0 .5px var(--line), 0 1px 3px rgba(0,0,0,.04); overflow: hidden; }
+    box-shadow: inset 0 0 0 .5px var(--line), 0 1px 3px rgba(var(--black-rgb),.04); overflow: hidden; }
   .row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; transition: background var(--t-slow); }
   .row + .row { box-shadow: inset 0 .5px 0 var(--line); }
-  .row.next { background: rgba(10,132,255,.08); }
+  .row.next { background: rgba(var(--blue-rgb),.08); }
   .ic { flex: none; width: 30px; height: 30px; border-radius: 7px; display: grid; place-items: center;
-    box-shadow: inset 0 .5px 0 rgba(255,255,255,.3), 0 .5px 1px rgba(0,0,0,.2); }
-  .ic svg { width: 17px; height: 17px; fill: none; stroke: #fff; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    box-shadow: inset 0 .5px 0 rgba(var(--white-rgb),.3), 0 .5px 1px rgba(var(--black-rgb),.2); }
+  .ic svg { width: 17px; height: 17px; fill: none; stroke: rgb(var(--white-rgb)); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .txt { flex: 1; min-width: 0; }
   .txt b { display: block; font: 500 13px system-ui; }
   .txt span { display: block; font-size: 12px; color: var(--fg3); margin-top: 1px; }
   .allow { flex: none; height: 26px; min-width: 64px; padding: 0 12px; border: 0; border-radius: 13px; cursor: pointer;
-    font: 500 12px system-ui; color: var(--accent); background: rgba(10,132,255,.12); transition: transform var(--t-fast) var(--ease), background var(--t-base); }
-  .allow:hover { background: rgba(10,132,255,.2); } .allow:active { transform: scale(.95); }
-  .row.next .allow { color: #fff; background: var(--accent); }
+    font: 500 12px system-ui; color: var(--accent); background: rgba(var(--blue-rgb),.12); transition: transform var(--t-fast) var(--ease), background var(--t-base); }
+  .allow:hover { background: rgba(var(--blue-rgb),.2); } .allow:active { transform: scale(.95); }
+  .row.next .allow { color: rgb(var(--white-rgb)); background: var(--accent); }
   .allow.wait, .row.next .allow.wait { color: var(--fg3); background: transparent; pointer-events: none; }
   .allow.wait::after { content: ""; display: inline-block; width: 10px; height: 10px; margin-left: 6px; vertical-align: -1px; border-radius: 50%;
     border: 1.5px solid currentColor; border-right-color: transparent; animation: spin .8s linear infinite; }
   .check { flex: none; width: 22px; height: 22px; display: none; }
   .check circle { fill: var(--green); transform-origin: center; animation: pop var(--t-slow) var(--spring) both; }
-  .check path { fill: none; stroke: #fff; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;
+  .check path { fill: none; stroke: rgb(var(--white-rgb)); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;
     stroke-dasharray: 14; stroke-dashoffset: 14; animation: draw var(--t-slow) .15s var(--ease) forwards; }
   .row.ok .allow { display: none; } .row.ok .check { display: block; margin: 0 21px; }
   #perms-done { height: 18px; margin-top: 12px; font: 500 13px system-ui; color: var(--ok-text); opacity: 0; transition: opacity var(--t-slow); }
@@ -103,19 +99,19 @@
   /* the AI: a choice, then its live status */
   .opt { width: 100%; display: flex; align-items: center; gap: 12px; padding: 9px 14px; border: 0; cursor: pointer; text-align: left;
     color: var(--fg); background: transparent; font: inherit; transition: background var(--t-base); }
-  .opt + .opt { box-shadow: inset 0 .5px 0 var(--line); } .opt:hover { background: rgba(127,127,127,.06); }
-  .opt[aria-checked="true"] { background: rgba(10,132,255,.08); }
+  .opt + .opt { box-shadow: inset 0 .5px 0 var(--line); } .opt:hover { background: rgba(var(--gray-50-rgb),.06); }
+  .opt[aria-checked="true"] { background: rgba(var(--blue-rgb),.08); }
   .opt .dot { flex: none; width: 16px; height: 16px; border-radius: 50%; box-sizing: border-box; box-shadow: inset 0 0 0 1.5px var(--fg3); transition: box-shadow var(--t-base); }
   .opt[aria-checked="true"] .dot { box-shadow: inset 0 0 0 5px var(--accent); }
   #srv { width: 100%; max-width: 480px; margin-top: 10px; display: grid; gap: 8px; text-align: left; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; } .chips span { font-size: 11.5px; color: var(--fg3); margin-right: 2px; }
   #local-offer { width: 100%; max-width: 480px; margin-top: 10px; }
-  .chip { height: 24px; padding: 0 10px; border: 0; border-radius: 12px; cursor: pointer; font: 500 11.5px system-ui; color: var(--fg); background: rgba(127,127,127,.14); }
-  .chip:hover { background: rgba(127,127,127,.22); } .chip.on { color: #fff; background: var(--accent); }
+  .chip { height: 24px; padding: 0 10px; border: 0; border-radius: 12px; cursor: pointer; font: 500 11.5px system-ui; color: var(--fg); background: rgba(var(--gray-50-rgb),.14); }
+  .chip:hover { background: rgba(var(--gray-50-rgb),.22); } .chip.on { color: rgb(var(--white-rgb)); background: var(--accent); }
   .fld { width: 100%; box-sizing: border-box; height: 30px; padding: 0 10px; border: 0; border-radius: 8px; font: 13px system-ui; color: var(--fg);
     background: var(--field); box-shadow: inset 0 0 0 .5px var(--line); -webkit-user-select: text; outline: none; }
-  .fld:focus { box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px rgba(10,132,255,.18); }
-  #srv-row { display: flex; align-items: center; gap: 10px; } #srv-note { flex: 1; min-height: 15px; font-size: 11.5px; color: var(--fg3); } #srv-note.bad { color: #ff453a; }
+  .fld:focus { box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px rgba(var(--blue-rgb),.18); }
+  #srv-row { display: flex; align-items: center; gap: 10px; } #srv-note { flex: 1; min-height: 15px; font-size: 11.5px; color: var(--fg3); } #srv-note.bad { color: rgb(var(--red-rgb)); }
   #srv-use { height: 28px; padding: 0 14px; font-size: 12.5px; }
   #ai-status { margin-top: 12px; }
 
@@ -123,14 +119,14 @@
   #model .says { margin-top: 12px; }
   .mcards { width: 100%; max-width: 480px; margin-top: 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
   .mc { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px 14px; border: 0; border-radius: 12px; cursor: pointer; text-align: left; font: inherit; color: var(--fg);
-    background: var(--card); box-shadow: inset 0 0 0 .5px var(--line), 0 1px 3px rgba(0,0,0,.04); transition: background var(--t-base), box-shadow var(--t-base); }
-  .mc:hover { background: rgba(127,127,127,.06); }
-  .mc[aria-checked="true"] { background: rgba(10,132,255,.08); box-shadow: inset 0 0 0 1.5px var(--accent); }
+    background: var(--card); box-shadow: inset 0 0 0 .5px var(--line), 0 1px 3px rgba(var(--black-rgb),.04); transition: background var(--t-base), box-shadow var(--t-base); }
+  .mc:hover { background: rgba(var(--gray-50-rgb),.06); }
+  .mc[aria-checked="true"] { background: rgba(var(--blue-rgb),.08); box-shadow: inset 0 0 0 1.5px var(--accent); }
   .mc .head { display: flex; align-items: center; gap: 8px; font: 600 14px system-ui; }
   .mc .dot { flex: none; width: 16px; height: 16px; border-radius: 50%; box-sizing: border-box; box-shadow: inset 0 0 0 1.5px var(--fg3); transition: box-shadow var(--t-base); }
   .mc[aria-checked="true"] .dot { box-shadow: inset 0 0 0 5px var(--accent); }
   .mc .why { font-size: 12px; color: var(--fg3); }
-  .use { height: 6px; margin-top: 4px; border-radius: 3px; background: rgba(127,127,127,.16); overflow: hidden; }
+  .use { height: 6px; margin-top: 4px; border-radius: 3px; background: rgba(var(--gray-50-rgb),.16); overflow: hidden; }
   .use i { display: block; height: 100%; width: var(--w); border-radius: 3px; background: var(--fg3); transition: background var(--t-base); }
   .mc[aria-checked="true"] .use i { background: var(--accent); }
   .mc .uses { font: 500 11.5px system-ui; color: var(--fg2); }
@@ -139,25 +135,25 @@
 
   /* try it: the real keys, big, and one line that follows the app */
   .stage { width: 100%; max-width: 480px; margin-top: 18px; padding: 26px 20px 22px; box-sizing: border-box; border-radius: 16px;
-    background: linear-gradient(160deg, rgba(120,140,255,.12), rgba(191,90,242,.06) 60%, transparent), var(--card);
-    box-shadow: inset 0 0 0 .5px var(--line), 0 10px 30px rgba(0,0,0,.08); }
+    background: linear-gradient(160deg, rgba(var(--glow-rgb),.12), rgba(var(--purple-rgb),.06) 60%, transparent), var(--card);
+    box-shadow: inset 0 0 0 .5px var(--line), 0 10px 30px rgba(var(--black-rgb),.08); }
   .keys { display: flex; flex-wrap: wrap; max-width: 100%; gap: 10px; justify-content: center; }
   .key { height: 52px; min-width: 52px; padding: 0 14px; box-sizing: border-box; border-radius: 11px; display: grid; place-items: center;
     font: 500 19px system-ui; color: var(--fg2); background: linear-gradient(var(--key-top), var(--key-bot));
-    box-shadow: 0 0 0 .5px var(--key-edge), 0 2px 0 var(--key-edge), 0 4px 10px rgba(0,0,0,.08);
+    box-shadow: 0 0 0 .5px var(--key-edge), 0 2px 0 var(--key-edge), 0 4px 10px rgba(var(--black-rgb),.08);
     transition: transform var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease), color var(--t-base); }
   .key.wide { min-width: 150px; font-size: 15px; }
-  .key.lit { transform: translateY(2px); color: #fff; background: linear-gradient(#3d9bff, var(--accent));
-    box-shadow: 0 0 0 .5px rgba(0,0,0,.3), 0 0 0 4px rgba(10,132,255,.18), 0 0 24px rgba(10,132,255,.45); }
-  .key.yes { color: #fff; background: linear-gradient(#4fd86a, var(--green));
-    box-shadow: 0 0 0 .5px rgba(0,0,0,.3), 0 0 0 4px rgba(40,200,64,.16), 0 0 24px rgba(40,200,64,.4); transition-duration: var(--t-slow); }
+  .key.lit { transform: translateY(2px); color: rgb(var(--white-rgb)); background: linear-gradient(rgb(var(--blue-light-rgb)), var(--accent));
+    box-shadow: 0 0 0 .5px rgba(var(--black-rgb),.3), 0 0 0 4px rgba(var(--blue-rgb),.18), 0 0 24px rgba(var(--blue-rgb),.45); }
+  .key.yes { color: rgb(var(--white-rgb)); background: linear-gradient(rgb(var(--green-top-rgb)), var(--green));
+    box-shadow: 0 0 0 .5px rgba(var(--black-rgb),.3), 0 0 0 4px rgba(var(--green-traffic-rgb),.16), 0 0 24px rgba(var(--green-traffic-rgb),.4); transition-duration: var(--t-slow); }
   #live-title { margin-top: 22px; font: 600 16px/1.3 system-ui; letter-spacing: -.01em; animation: rise var(--t-slow) var(--ease); }
   #live-said { margin-top: 4px; min-height: 18px; font-size: 13px; line-height: 1.4; color: var(--fg2);
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   #live.listen #live-title { color: var(--accent); } #live.done #live-title { color: var(--ok-text); } #live.error #live-title { color: var(--warn); }
   #live.idle #live-title { animation: rise var(--t-slow) var(--ease), breathe 2.4s 1s ease-in-out infinite; }
   #block { display: flex; align-items: center; gap: 12px; width: 100%; max-width: 480px; margin-top: 16px; padding: 10px 12px 10px 14px; box-sizing: border-box;
-    border-radius: 12px; text-align: left; font-size: 12.5px; color: var(--fg); background: rgba(255,159,10,.1); box-shadow: inset 0 0 0 .5px rgba(255,159,10,.35); }
+    border-radius: 12px; text-align: left; font-size: 12.5px; color: var(--fg); background: rgba(var(--orange-rgb),.1); box-shadow: inset 0 0 0 .5px rgba(var(--orange-rgb),.35); }
   #block span { flex: 1; }
   .says { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; align-items: center; margin-top: 14px; }
   .says span { font-size: 12px; color: var(--fg3); margin-right: 2px; }
@@ -167,39 +163,39 @@
      keys, the box in its corner (ui.html's card on the native glass tint), and TalkPen's fading trail around a photo the mouse circles.
      The photo is a photo, so it looks the same in light and dark. The script below draws each moment of the loop; Reduce Motion holds its last frame */
   .demo { position: relative; width: 480px; max-width: 100%; aspect-ratio: 640 / 300; margin-top: 22px; flex: none; text-align: left; border-radius: 12px;
-    overflow: hidden; box-shadow: inset 0 0 0 .5px var(--line), 0 10px 30px rgba(0,0,0,.08); --desk: #aab6c4; --win: #fbfbfd; --bar: rgba(255,255,255,.4); }
-  @media (prefers-color-scheme: dark) { .demo { --desk: #3b414a; --win: #252527; --bar: rgba(0,0,0,.22); } }
+    overflow: hidden; box-shadow: inset 0 0 0 .5px var(--line), 0 10px 30px rgba(var(--black-rgb),.08); --desk: rgb(var(--slate-rgb)); --win: rgb(var(--gray-99-rgb)); --bar: rgba(var(--white-rgb),.4); }
+  @media (prefers-color-scheme: dark) { .demo { --desk: rgb(var(--slate-dark-rgb)); --win: rgb(var(--gray-15-rgb)); --bar: rgba(var(--black-rgb),.22); } }
   .demo .scr { position: absolute; left: 0; top: 0; width: 640px; height: 300px; transform-origin: 0 0; transform: scale(var(--s, .75)); background: var(--desk); }
   .demo .scr > * { position: absolute; }
   .demo .menu { left: 0; top: 0; width: 100%; height: 22px; background: var(--bar); }
-  .demo .app { left: 300px; top: 60px; width: 326px; height: 232px; border-radius: 12px; overflow: hidden; background: var(--win); box-shadow: 0 0 0 .5px rgba(0,0,0,.18), 0 8px 24px rgba(0,0,0,.18); }
-  .demo .app > i { position: absolute; top: 13px; left: 14px; width: 11px; height: 11px; border-radius: 50%; background: rgba(127,127,127,.3); }
+  .demo .app { left: 300px; top: 60px; width: 326px; height: 232px; border-radius: 12px; overflow: hidden; background: var(--win); box-shadow: 0 0 0 .5px rgba(var(--black-rgb),.18), 0 8px 24px rgba(var(--black-rgb),.18); }
+  .demo .app > i { position: absolute; top: 13px; left: 14px; width: 11px; height: 11px; border-radius: 50%; background: rgba(var(--gray-50-rgb),.3); }
   .demo .app > i + i { left: 31px; } .demo .app > i + i + i { left: 48px; }
   .demo .photo { position: absolute; left: 0; top: 36px; width: 326px; height: 196px; display: block; }
-  .demo .box { left: 14px; top: 32px; width: 340px; border-radius: 18px; overflow: hidden; opacity: 0; color: #f5f5f7; font-size: 13px;
-    background: rgba(18,18,20,.85); -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6);
-    box-shadow: 0 0 0 .5px rgba(0,0,0,.3), 0 12px 32px rgba(0,0,0,.35); --fg2: #c7c7cc; }
+  .demo .box { left: 14px; top: 32px; width: 340px; border-radius: 18px; overflow: hidden; opacity: 0; color: rgb(var(--gray-96-rgb)); font-size: 13px;
+    background: rgba(var(--gray-7-rgb),.85); -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6);
+    box-shadow: 0 0 0 .5px rgba(var(--black-rgb),.3), 0 12px 32px rgba(var(--black-rgb),.35); --fg2: rgb(var(--gray-78-rgb)); }
   .demo .card { padding: 14px 20px 18px; }
   .demo .head { display: flex; align-items: center; gap: 7px; height: 44px; }
   .demo .head canvas { width: 44px; height: 44px; flex: none; margin-left: -4px; }
   .demo .status { flex: 1 0 64px; font-size: 12.5px; line-height: 22px; color: var(--fg2); white-space: nowrap; overflow: hidden; }
   .demo .status span { display: inline-block; animation: in var(--t-slow) var(--ease) both; }
-  .demo .status.live span { background: linear-gradient(90deg, var(--fg2) 0%, #fff 45%, var(--fg2) 90%); background-size: 200% 100%;
+  .demo .status.live span { background: linear-gradient(90deg, var(--fg2) 0%, rgb(var(--white-rgb)) 45%, var(--fg2) 90%); background-size: 200% 100%;
     -webkit-background-clip: text; color: transparent; animation: in var(--t-slow) var(--ease) both, shimmer 1.5s linear infinite; }
   .demo .x { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; opacity: .7;
-    background: radial-gradient(120% 120% at 30% 15%, rgba(255,255,255,.30), rgba(255,255,255,.07) 55%, rgba(255,255,255,.03));
-    box-shadow: inset 0 0 0 .5px rgba(255,255,255,.35), inset 0 -1.5px 2px rgba(0,0,0,.28), 0 2px 6px rgba(0,0,0,.22); }
-  .demo .x svg { width: 8px; height: 8px; stroke: #fff; stroke-width: 1.6; stroke-linecap: round; }
+    background: radial-gradient(120% 120% at 30% 15%, rgba(var(--white-rgb),.30), rgba(var(--white-rgb),.07) 55%, rgba(var(--white-rgb),.03));
+    box-shadow: inset 0 0 0 .5px rgba(var(--white-rgb),.35), inset 0 -1.5px 2px rgba(var(--black-rgb),.28), 0 2px 6px rgba(var(--black-rgb),.22); }
+  .demo .x svg { width: 8px; height: 8px; stroke: rgb(var(--white-rgb)); stroke-width: 1.6; stroke-linecap: round; }
   .demo .turn { padding-top: 12px; }
-  .demo .q { margin-left: auto; width: fit-content; max-width: 80%; padding: 9px 14px; border-radius: 16px 16px 5px 16px; background: rgba(255,255,255,.09);
-    box-shadow: inset 0 0 0 .5px rgba(255,255,255,.12); font-size: 13.5px; line-height: 1.45; color: #e5e5ea; }
-  .demo .q.live { font-size: 15px; color: #fff; }
-  .demo .q.live::after { content: ""; display: inline-block; width: 1.5px; height: 1em; margin-left: 2px; vertical-align: -2px; background: #fff; animation: blink 1s steps(1) infinite; }
+  .demo .q { margin-left: auto; width: fit-content; max-width: 80%; padding: 9px 14px; border-radius: 16px 16px 5px 16px; background: rgba(var(--white-rgb),.09);
+    box-shadow: inset 0 0 0 .5px rgba(var(--white-rgb),.12); font-size: 13.5px; line-height: 1.45; color: rgb(var(--gray-90-rgb)); }
+  .demo .q.live { font-size: 15px; color: rgb(var(--white-rgb)); }
+  .demo .q.live::after { content: ""; display: inline-block; width: 1.5px; height: 1em; margin-left: 2px; vertical-align: -2px; background: rgb(var(--white-rgb)); animation: blink 1s steps(1) infinite; }
   .demo .q.hear { color: var(--fg2); } .demo .q.hear::before { content: "Listening…"; }
   .demo .a { margin-top: 16px; font-size: 15px; line-height: 1.6; }
   .demo .elapsed { margin-top: 16px; font-size: 10.5px; line-height: 16px; color: var(--fg2); }
   .demo .pen { left: 0; top: 0; width: 640px; height: 300px; }
-  .demo .cursor { left: 0; top: 0; filter: drop-shadow(0 1px 1.5px rgba(0,0,0,.35)); }
+  .demo .cursor { left: 0; top: 0; filter: drop-shadow(0 1px 1.5px rgba(var(--black-rgb),.35)); }
   #showkeys { margin-top: 16px; gap: 8px; }
   #showkeys .key { height: 36px; min-width: 36px; padding: 0 10px; border-radius: 8px; font-size: 15px; } #showkeys .key.wide { min-width: 100px; font-size: 13px; }
   @keyframes in { from { opacity: 0; transform: translateY(5px); } }
@@ -210,12 +206,12 @@
   #done { padding: 8px 32px 16px; }
   #done-status { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 11px 0 5px; border-radius: 12px; font: 500 12px system-ui; color: var(--fg2);
     background: var(--card); box-shadow: inset 0 0 0 .5px var(--line); }
-  #done-status.warn { padding-left: 10px; color: #c93400; } #done-status.warn #done-check { display: none; }
-  #done-status.warn::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #ff9f0a; }
-  @media (prefers-color-scheme: dark) { #done-status.warn { color: #ff9f0a; } }
+  #done-status.warn { padding-left: 10px; color: rgb(var(--orange-deep-rgb)); } #done-status.warn #done-check { display: none; }
+  #done-status.warn::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: rgb(var(--orange-rgb)); }
+  @media (prefers-color-scheme: dark) { #done-status.warn { color: rgb(var(--orange-rgb)); } }
   #done-check { width: 16px; height: 16px; }
   #done-check circle { fill: var(--green); transform-origin: center; transform: scale(.3); opacity: 0; }
-  #done-check path { fill: none; stroke: #fff; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 14; stroke-dashoffset: 14; }
+  #done-check path { fill: none; stroke: rgb(var(--white-rgb)); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 14; stroke-dashoffset: 14; }
   #done.on #done-check circle { animation: pop var(--t-slow) .1s var(--spring) forwards; }
   #done.on #done-check path { animation: draw var(--t-slow) .15s var(--ease) forwards; }
   #ideas { position: relative; width: 100%; max-width: 576px; height: 294px; margin-top: 16px; flex: none; }
@@ -228,15 +224,15 @@
     transition: left var(--t-slow) var(--ease), top var(--t-slow) var(--ease), transform var(--t-slow) var(--ease), opacity var(--t-slow) var(--ease); transition-delay: calc(.15s + var(--i) * .045s); }
   #done.on .idea { left: var(--x); top: var(--y); opacity: 1; transform: translate(-50%, -50%); }
   .idea > span { display: flex; align-items: center; gap: 7px; height: 30px; box-sizing: border-box; padding: 0 12px 0 5px; border-radius: 15px; white-space: nowrap;
-    font: 12.5px system-ui; color: var(--fg); background: var(--card); box-shadow: inset 0 0 0 .5px var(--line), 0 1px 2px rgba(0,0,0,.04), 0 6px 18px rgba(0,0,0,.06);
+    font: 12.5px system-ui; color: var(--fg); background: var(--card); box-shadow: inset 0 0 0 .5px var(--line), 0 1px 2px rgba(var(--black-rgb),.04), 0 6px 18px rgba(var(--black-rgb),.06);
     animation: bob 7s ease-in-out infinite; animation-delay: calc(var(--i) * -.8s); transition: box-shadow var(--t-slow) var(--ease), translate var(--t-slow) var(--ease); }
   .idea.left > span { border-bottom-right-radius: 5px; } .idea.right > span { border-bottom-left-radius: 5px; }   /* the corner nearest the orb, like a message sent to it */
   .idea b { flex: none; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; background: var(--c); transition: transform var(--t-slow) var(--spring); }
-  .idea svg { width: 12px; height: 12px; fill: none; stroke: #fff; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+  .idea svg { width: 12px; height: 12px; fill: none; stroke: rgb(var(--white-rgb)); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
   .idea kbd { margin: 0 1px; padding: 1px 5px; border-radius: 4px; font: 500 11px system-ui; color: var(--fg);
     background: linear-gradient(var(--key-top), var(--key-bot)); box-shadow: 0 0 0 .5px var(--key-edge), 0 1px 0 var(--key-edge); }
-  .idea.hi > span, .idea > span:hover { translate: 0 -3px; background: var(--field); box-shadow: inset 0 0 0 .5px var(--line), 0 2px 4px rgba(0,0,0,.05), 0 12px 28px rgba(0,0,0,.12); }
-  @media (prefers-color-scheme: dark) { .idea.hi > span, .idea > span:hover { background: rgba(255,255,255,.13); box-shadow: inset 0 0 0 .5px rgba(255,255,255,.14), 0 12px 28px rgba(0,0,0,.35); } }
+  .idea.hi > span, .idea > span:hover { translate: 0 -3px; background: var(--field); box-shadow: inset 0 0 0 .5px var(--line), 0 2px 4px rgba(var(--black-rgb),.05), 0 12px 28px rgba(var(--black-rgb),.12); }
+  @media (prefers-color-scheme: dark) { .idea.hi > span, .idea > span:hover { background: rgba(var(--white-rgb),.13); box-shadow: inset 0 0 0 .5px rgba(var(--white-rgb),.14), 0 12px 28px rgba(var(--black-rgb),.35); } }
   .idea.hi b, .idea > span:hover b { transform: scale(1.12); }
   @keyframes bob { 50% { transform: translateY(-3px); } }
   #done h1 { margin: 14px 0 6px; font-size: 32px; } #done h1 span { color: var(--fg3); }
@@ -246,13 +242,13 @@
   .kicker { font: 600 11px system-ui; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin-bottom: 8px; }
   /* the tip page: one warm heart, then Leave a Tip beside Next */
   #tip-heart { width: 72px; height: 72px; margin-bottom: 20px; border-radius: 22px; display: grid; place-items: center;
-    background: linear-gradient(160deg, #ff7a8a, #ff375f); box-shadow: 0 10px 28px rgba(255,55,95,.32), inset 0 .5px 0 rgba(255,255,255,.35); }
-  #tip-heart svg { width: 36px; height: 36px; fill: #fff; }
+    background: linear-gradient(160deg, rgb(var(--pink-light-rgb)), rgb(var(--pink-rgb))); box-shadow: 0 10px 28px rgba(var(--pink-rgb),.32), inset 0 .5px 0 rgba(var(--white-rgb),.35); }
+  #tip-heart svg { width: 36px; height: 36px; fill: rgb(var(--white-rgb)); }
   #tip.on #tip-heart { animation: beat 1.6s .5s var(--ease) 2; }
   @keyframes beat { 0%, 100% { transform: none; } 15% { transform: scale(1.1); } 30% { transform: none; } 45% { transform: scale(1.06); } }
   #tip p.sub { max-width: 420px; }
-  #kofi { display: inline-flex; align-items: center; gap: 7px; background: #ff375f; }
-  #kofi svg { width: 15px; height: 15px; fill: #fff; }
+  #kofi { display: inline-flex; align-items: center; gap: 7px; background: rgb(var(--pink-rgb)); }
+  #kofi svg { width: 15px; height: 15px; fill: rgb(var(--white-rgb)); }
   #tip .done-note { margin-top: 18px; }
   @media (prefers-reduced-motion: reduce) { #tip.on #tip-heart { animation: none; } }
   .done-note { min-height: 18px; margin-top: 12px; font-size: 12.5px; color: var(--fg3); }
@@ -313,7 +309,7 @@
     <div id="srv-row"><div id="srv-note" aria-live="polite"></div><button class="btn" id="srv-use">Use This Server</button></div>
   </div>
   <div class="list r" id="ai-status"><div class="row" id="p-claude">
-    <div class="ic" style="background:#d97757"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"/></svg></div>
+    <div class="ic" style="background:rgb(var(--coral-rgb))"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"/></svg></div>
     <div class="txt"><b>AI Provider</b><span>Checking…</span></div>
     <button class="allow" data-id="claude">Allow</button>
     <svg class="check" viewBox="0 0 22 22"><circle cx="11" cy="11" r="11"/><path d="M6.5 11.3l3 3 6-6.3"/></svg>
@@ -421,11 +417,11 @@
   <h2 class="r">Help make Atticus better</h2>
   <p class="sub r">When a task fails, Atticus can tell its maker what went wrong, so the next version gets it right. Change it anytime in Settings.</p>
   <div class="list r">
-    <div class="row"><div class="ic" style="background:#0a84ff"><svg viewBox="0 0 24 24"><path d="M5 5h14v10H10l-5 4z"/></svg></div>
+    <div class="row"><div class="ic" style="background:rgb(var(--blue-rgb))"><svg viewBox="0 0 24 24"><path d="M5 5h14v10H10l-5 4z"/></svg></div>
       <div class="txt"><b>Only what failed</b><span>What you asked, the steps Atticus took, and why it didn’t work.</span></div></div>
-    <div class="row"><div class="ic" style="background:#30d158"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></div>
+    <div class="row"><div class="ic" style="background:rgb(var(--green-rgb))"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></div>
       <div class="txt"><b>Anonymous</b><span>A random ID. Never your name, your screen, your files or passwords.</span></div></div>
-    <div class="row"><div class="ic" style="background:#8e8e93"><svg viewBox="0 0 24 24"><path d="M3 3l18 18"/><path d="M10.6 6.1A9.8 9.8 0 0 1 12 6c5 0 9 6 9 6a15 15 0 0 1-2.7 3.2M6.6 7.6A15 15 0 0 0 3 12s4 6 9 6a9 9 0 0 0 3.4-.7"/></svg></div>
+    <div class="row"><div class="ic" style="background:rgb(var(--gray-56-rgb))"><svg viewBox="0 0 24 24"><path d="M3 3l18 18"/><path d="M10.6 6.1A9.8 9.8 0 0 1 12 6c5 0 9 6 9 6a15 15 0 0 1-2.7 3.2M6.6 7.6A15 15 0 0 0 3 12s4 6 9 6a9 9 0 0 0 3.4-.7"/></svg></div>
       <div class="txt"><b>Cleaned first</b><span>Emails, numbers, file paths and anything typed for you are removed before it leaves your Mac.</span></div></div>
   </div>
 </section>
@@ -442,21 +438,21 @@
   <div class="r" id="ideas">
     <div id="core" aria-hidden="true"><canvas id="orb-done"></canvas></div>
     <ul aria-label="Things to try">
-      <li class="idea left" style="--x:25%;--y:15px;--i:10;--c:#a2845e"><span><b><svg viewBox="0 0 24 24"><path d="M7 4h10v16l-5-3.5L7 20z"/></svg></b>“Remember I use Chrome”</span></li>
-      <li class="idea right" style="--x:70%;--y:15px;--i:11;--c:#ff453a"><span><b><svg viewBox="0 0 24 24"><path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg></b>“Tell me when the download finishes”</span></li>
-      <li class="idea left" style="--x:20%;--y:53px;--i:6;--c:#0a84ff"><span><b><svg viewBox="0 0 24 24"><rect x="3" y="5" width="8" height="14" rx="1.5"/><rect x="13" y="5" width="8" height="14" rx="1.5"/></svg></b>“Chrome left, Terminal right”</span></li>
-      <li class="idea right" style="--x:77%;--y:53px;--i:7;--c:#ff375f"><span><b><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg></b>“How do I export this as a PDF?”</span></li>
-      <li class="idea left" style="--x:22%;--y:91px;--i:0;--c:#30d158"><span><b><svg viewBox="0 0 24 24"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg></b>“Play my playlist”</span></li>
-      <li class="idea right" style="--x:79%;--y:91px;--i:1;--c:#636366"><span><b><svg viewBox="0 0 24 24"><path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10z"/></svg></b>“Turn on dark mode”</span></li>
-      <li class="idea left" style="--x:18%;--y:129px;--i:2;--c:#bf5af2"><span><b><svg viewBox="0 0 24 24"><path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.5"/></svg></b>“What’s on my screen?”</span></li>
-      <li class="idea right" id="idea-dict" style="--x:75%;--y:129px;--i:3;--c:#ff9f0a"><span><b><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></b>Hold<span id="idea-key"><kbd>fn</kbd></span>to dictate</span></li>
-      <li class="idea left" style="--x:22%;--y:167px;--i:4;--c:#30d158"><span><b><svg viewBox="0 0 24 24"><path d="M9 6v12M15 6v12"/></svg></b>“Pause the music”</span></li>
-      <li class="idea right" style="--x:79%;--y:167px;--i:5;--c:#ff375f"><span><b><svg viewBox="0 0 24 24"><path d="M4 20l4-1 11-11-3-3L5 16z"/></svg></b>“Explain this and draw it”</span></li>
-      <li class="idea left" style="--x:21%;--y:205px;--i:8;--c:#8e8e93"><span><b><svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg></b>“Read your answers aloud”</span></li>
-      <li class="idea right" style="--x:77%;--y:205px;--i:9;--c:#30b0c7"><span><b><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg></b>“Best headphones under $200?”</span></li>
-      <li class="idea left" style="--x:27%;--y:243px;--i:12;--c:#5e5ce6"><span><b><svg viewBox="0 0 24 24"><path d="M13 3L5 13.5h6L10 21l8-10.5h-6z"/></svg></b>“When I say work mode, open Notes”</span></li>
-      <li class="idea right" style="--x:75%;--y:243px;--i:13;--c:#d97757"><span><b><svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></svg></b>“Compare the top 3 laptops”</span></li>
-      <li class="idea right" style="--x:50%;--y:281px;--i:14;--c:#30b0c7"><span><b><svg viewBox="0 0 24 24"><path d="M4 7h15l-3-3M20 17H5l3 3"/></svg></b>“Convert this JPEG to PNG”</span></li>
+      <li class="idea left" style="--x:25%;--y:15px;--i:10;--c:rgb(var(--brown-rgb))"><span><b><svg viewBox="0 0 24 24"><path d="M7 4h10v16l-5-3.5L7 20z"/></svg></b>“Remember I use Chrome”</span></li>
+      <li class="idea right" style="--x:70%;--y:15px;--i:11;--c:rgb(var(--red-rgb))"><span><b><svg viewBox="0 0 24 24"><path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg></b>“Tell me when the download finishes”</span></li>
+      <li class="idea left" style="--x:20%;--y:53px;--i:6;--c:rgb(var(--blue-rgb))"><span><b><svg viewBox="0 0 24 24"><rect x="3" y="5" width="8" height="14" rx="1.5"/><rect x="13" y="5" width="8" height="14" rx="1.5"/></svg></b>“Chrome left, Terminal right”</span></li>
+      <li class="idea right" style="--x:77%;--y:53px;--i:7;--c:rgb(var(--pink-rgb))"><span><b><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg></b>“How do I export this as a PDF?”</span></li>
+      <li class="idea left" style="--x:22%;--y:91px;--i:0;--c:rgb(var(--green-rgb))"><span><b><svg viewBox="0 0 24 24"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg></b>“Play my playlist”</span></li>
+      <li class="idea right" style="--x:79%;--y:91px;--i:1;--c:rgb(var(--gray-39-rgb))"><span><b><svg viewBox="0 0 24 24"><path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10z"/></svg></b>“Turn on dark mode”</span></li>
+      <li class="idea left" style="--x:18%;--y:129px;--i:2;--c:rgb(var(--purple-rgb))"><span><b><svg viewBox="0 0 24 24"><path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.5"/></svg></b>“What’s on my screen?”</span></li>
+      <li class="idea right" id="idea-dict" style="--x:75%;--y:129px;--i:3;--c:rgb(var(--orange-rgb))"><span><b><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></b>Hold<span id="idea-key"><kbd>fn</kbd></span>to dictate</span></li>
+      <li class="idea left" style="--x:22%;--y:167px;--i:4;--c:rgb(var(--green-rgb))"><span><b><svg viewBox="0 0 24 24"><path d="M9 6v12M15 6v12"/></svg></b>“Pause the music”</span></li>
+      <li class="idea right" style="--x:79%;--y:167px;--i:5;--c:rgb(var(--pink-rgb))"><span><b><svg viewBox="0 0 24 24"><path d="M4 20l4-1 11-11-3-3L5 16z"/></svg></b>“Explain this and draw it”</span></li>
+      <li class="idea left" style="--x:21%;--y:205px;--i:8;--c:rgb(var(--gray-56-rgb))"><span><b><svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg></b>“Read your answers aloud”</span></li>
+      <li class="idea right" style="--x:77%;--y:205px;--i:9;--c:rgb(var(--teal-rgb))"><span><b><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg></b>“Best headphones under $200?”</span></li>
+      <li class="idea left" style="--x:27%;--y:243px;--i:12;--c:rgb(var(--indigo-rgb))"><span><b><svg viewBox="0 0 24 24"><path d="M13 3L5 13.5h6L10 21l8-10.5h-6z"/></svg></b>“When I say work mode, open Notes”</span></li>
+      <li class="idea right" style="--x:75%;--y:243px;--i:13;--c:rgb(var(--coral-rgb))"><span><b><svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></svg></b>“Compare the top 3 laptops”</span></li>
+      <li class="idea right" style="--x:50%;--y:281px;--i:14;--c:rgb(var(--teal-rgb))"><span><b><svg viewBox="0 0 24 24"><path d="M4 7h15l-3-3M20 17H5l3 3"/></svg></b>“Convert this JPEG to PNG”</span></li>
     </ul>
   </div>
   <h1 class="r">Go use Atticus. <span>Be great.</span></h1>
@@ -558,11 +554,11 @@
 
   // Permissions: icon color + glyph, why it's needed.
   const P = [
-    ['ax', 'Accessibility', 'Moves windows and clicks buttons for you.', '#0a84ff', '<circle cx="12" cy="4.5" r="1.6"/><path d="M5 8.5l7 1.5 7-1.5M12 10v4.5M12 14.5l-3 6M12 14.5l3 6"/>'],
-    ['mic', 'Microphone', 'Hears you while you hold the shortcut.', '#ff9f0a', '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>'],
-    ['speech', 'Speech Recognition', 'Turns your words into text.', '#8e8e93', '<path d="M4 10.5v3M8 7.5v9M12 4.5v15M16 7.5v9M20 10.5v3"/>'],
-    ['screen', 'Screen & System Audio Recording', 'Lets Atticus see your screen.', '#bf5af2', '<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>'],
-    ['auto', 'System Events', 'Controls your apps for you.', '#636366', '<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/>'],
+    ['ax', 'Accessibility', 'Moves windows and clicks buttons for you.', 'rgb(var(--blue-rgb))', '<circle cx="12" cy="4.5" r="1.6"/><path d="M5 8.5l7 1.5 7-1.5M12 10v4.5M12 14.5l-3 6M12 14.5l3 6"/>'],
+    ['mic', 'Microphone', 'Hears you while you hold the shortcut.', 'rgb(var(--orange-rgb))', '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>'],
+    ['speech', 'Speech Recognition', 'Turns your words into text.', 'rgb(var(--gray-56-rgb))', '<path d="M4 10.5v3M8 7.5v9M12 4.5v15M16 7.5v9M20 10.5v3"/>'],
+    ['screen', 'Screen & System Audio Recording', 'Lets Atticus see your screen.', 'rgb(var(--purple-rgb))', '<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>'],
+    ['auto', 'System Events', 'Controls your apps for you.', 'rgb(var(--gray-39-rgb))', '<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/>'],
   ];
   $('list').innerHTML = P.map(([id, name, why, color, svg]) => `
     <div class="row" id="p-${id}">

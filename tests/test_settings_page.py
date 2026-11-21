@@ -93,17 +93,16 @@ return [after,mode.tabIndex];
         cls.tmp.cleanup()
 
     def page(self, script, translated=False):
-        path = ROOT / 'ui/settings.html'
-        if translated:
-            path = Path(self.tmp.name) / 'settings.html'
-            path.write_text((ROOT / 'ui/settings.html').read_text().replace('/*I18N*/', (ROOT / 'ui/i18n.js').read_text()))
+        path = Path(self.tmp.name) / 'settings.html'
+        html = (ROOT / 'ui/settings.html').read_text().replace('/*TOKENS*/', (ROOT / 'ui/tokens.css').read_text())
+        path.write_text(html.replace('/*I18N*/', (ROOT / 'ui/i18n.js').read_text()) if translated else html)
         p = subprocess.run([str(self.binary), str(path), SETUP + script], capture_output=True, text=True,
                            timeout=30, env={**os.environ, 'ATTICUS_DIR': self.tmp.name})
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         return json.loads(p.stdout.strip().splitlines()[-1])
 
     def test_models_show_one_short_localized_line_for_the_selected_mode(self):
-        html = (ROOT / 'ui/settings.html').read_text().replace('/*I18N*/', (ROOT / 'ui/i18n.js').read_text())
+        html = (ROOT / 'ui/settings.html').read_text().replace('/*TOKENS*/', (ROOT / 'ui/tokens.css').read_text()).replace('/*I18N*/', (ROOT / 'ui/i18n.js').read_text())
         page = Path(self.tmp.name) / 'settings.html'
         page.write_text(html)
         script = SETUP + r"""

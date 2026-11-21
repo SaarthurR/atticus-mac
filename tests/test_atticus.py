@@ -252,7 +252,7 @@ print(json.dumps({{"type": "result", "is_error": True, "result": "Authentication
                             front=lambda: ('Fixture', 'Scratch'), osa=lambda *a: '', screens=lambda: [],
                             describe=lambda *a: '', selection_context=lambda: '', relevant_rules=lambda _: '',
                             recent=lambda: [], workflows=lambda *a: '', screen_for=lambda *a: None, wait_commit=lambda: True,
-                            run=brain, remember_turn=lambda *a: None, restore_focus=restored or (lambda *a: None),
+                            run=brain, remember_turn=lambda *a: None, restore_focus=restored or (lambda *a: None), APP='/nonexistent/native-helper',
                             remember_workflow=lambda task, reply, *a: (reply, False), learn=lambda *a: False, tip=tip or (lambda *a: None)), \
              patch.object(atticus, 'pref', side_effect=lambda k,d:prefs.get(k,d)), \
              patch.object(atticus, 'ask_user', side_effect=retry if callable(retry) else None, return_value=retry) as ask, \
@@ -749,7 +749,7 @@ print(json.dumps({{"type": "result", "is_error": True, "result": "Authentication
         self.assertIn("UI where/how asks, even if known: point, not tell;", atticus.DRAW_TOOL)   # Haiku answered "where do I click" from memory, unpointed; "how do I cook rice" is no screen ask
         self.assertIn("draw/explain on screen: diagram the idea, not marks.", atticus.DRAW_TOOL)   # "draw and explain cell wall vs membrane" got two rects around words
         self.assertIn("about the screen, even if known,", atticus.POINTER)
-        self.assertIn("use " + atticus.DRAW + " once on Request screen", atticus.DRAW_TOOL)
+        self.assertIn("use --draw once on Request screen", atticus.DRAW_TOOL)
         # Claude draws in its answer: the pictures already attached carry the coordinates, so no --look, --draw --help or JSON
         self.assertIn("draw in your answer like a teacher at a whiteboard, no tool", atticus.DRAWING)
         # "teach me how to use orca" got a markdown tour in a text card (Nov 13 22:03, Sonnet, 2 pictures attached); Plip draws it

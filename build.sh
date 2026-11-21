@@ -18,7 +18,7 @@ swiftc -O -target "$(uname -m)-apple-macos26.0" Atticus.swift -o "$STAGE/Atticus
 APP="$STAGE/Atticus.app"   # stage resources and signing before replacing the installed app
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/ui"
 cp atticus.py "$APP/Contents/Resources/"
-cp ui/*.html ui/*.js "$APP/Contents/Resources/ui/"
+cp ui/*.html ui/*.js ui/*.css "$APP/Contents/Resources/ui/"
 cp ui/AppIcon.icns "$APP/Contents/Resources/"
 cat > "$APP/Contents/Info.plist" <<P
 <?xml version="1.0" encoding="UTF-8"?>

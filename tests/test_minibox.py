@@ -109,7 +109,7 @@ class MinimizedBoxTests(unittest.TestCase):
     def test_minimized_panel_hugs_the_folded_row(self):
         with tempfile.TemporaryDirectory() as tmp:
             page, src, binary = Path(tmp) / 'ui.html', Path(tmp) / 'box.swift', Path(tmp) / 'box'
-            page.write_text((ROOT / 'ui/ui.html').read_text().replace('/*ORBS*/', (ROOT / 'ui/orbs.js').read_text()))
+            page.write_text((ROOT / 'ui/ui.html').read_text().replace('/*TOKENS*/', (ROOT / 'ui/tokens.css').read_text()).replace('/*ORBS*/', (ROOT / 'ui/orbs.js').read_text()))
             src.write_text(harness(SOURCE))
             built = subprocess.run(['swiftc', str(src), '-o', str(binary)], capture_output=True, text=True)
             self.assertEqual(built.returncode, 0, built.stderr)

@@ -2,12 +2,13 @@
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'">
 <style>
+/*TOKENS*/
 html,body { margin:0; background:transparent; overflow:hidden; }
 #text { display:inline-block; box-sizing:border-box; padding:3px; font-family:-apple-system,sans-serif; font-weight:500; line-height:1.4; overflow-wrap:anywhere; }
 p { margin:0; } math { font-size:1em; } math[display=block] { margin:0.25em 0; }
 .tex { white-space:pre-wrap; } a { color:inherit; text-decoration:none; }
 #text > * + * { margin-top:.6em; } ul, ol { margin:0; padding-left:1.4em; } li + li { margin-top:.35em; } strong { font-weight:700; }
-code, pre { font-family:ui-monospace,Menlo,monospace; font-size:.92em; border-radius:4px; background:rgba(128,128,128,.22); }
+code, pre { font-family:ui-monospace,Menlo,monospace; font-size:.92em; border-radius:4px; background:rgba(var(--gray-50-rgb),.22); }
 code { padding:0 .25em; } pre { margin:0; padding:.4em .6em; white-space:pre-wrap; } .h { font-weight:700; } hr { border:0; border-top:1px solid; opacity:.3; }
 </style>
 <div id="text"></div>

@@ -976,14 +976,15 @@ final class PageErrors: NSObject, WKScriptMessageHandler {
     func send(_ fields: [String]) { if sent.insert(fields).inserted { telemetry(["error", "js"] + fields) } }
 }
 
-// Load ui/<name> with orbs.js and i18n.js inlined at their markers; these pages have no base URL.
+// Load ui/<name> with tokens.css, orbs.js and i18n.js inlined at their markers; these pages have no base URL.
 func loadPage(_ web: WKWebView, _ name: String) {
     PageErrors.watch(web, (name as NSString).deletingPathExtension)
     let html = (try? String(contentsOfFile: dir + "/ui/" + name, encoding: .utf8)) ?? "missing " + name
+    let tokens = (try? String(contentsOfFile: dir + "/ui/tokens.css", encoding: .utf8)) ?? ""
     let orbs = (try? String(contentsOfFile: dir + "/ui/orbs.js", encoding: .utf8)) ?? ""
     let i18n = (try? String(contentsOfFile: dir + "/ui/i18n.js", encoding: .utf8)) ?? ""
     let language = "window.atticusLanguage = '\(Prefs.uiLanguage)'; window.atticusAutoLanguage = '\(Prefs.resolveUILanguage("auto"))';\n"
-    web.loadHTMLString(html.replacingOccurrences(of: "/*ORBS*/", with: orbs)
+    web.loadHTMLString(html.replacingOccurrences(of: "/*TOKENS*/", with: tokens).replacingOccurrences(of: "/*ORBS*/", with: orbs)
         .replacingOccurrences(of: "/*I18N*/", with: language + i18n), baseURL: nil)
 }
 
@@ -1724,6 +1725,8 @@ final class ScreenDrawing {
     var speechEnabled: () -> Bool = { false }
     var sayArguments: (String) -> [String] = { ["--", $0] }
     var active: Bool { request != nil }
+    var last: Data?   // the newest drawing, for the box's Play again
+    @discardableResult func replay() -> Bool { guard let last else { return false }; dismissedGuide = nil; manual = false; driven = false; return receive(last) }
     var hasInput: Bool { inputMode || !inputPath.isEmpty }
     var summary: [String:Any]? {   // what is on screen, for the next ask to build on
         guard let r = request, let data = try? JSONEncoder().encode(r.steps), var steps = try? JSONSerialization.jsonObject(with:data) as? [[String:Any]] else { return nil }
@@ -2106,7 +2109,7 @@ final class ScreenDrawing {
             if let path = r.receipt { try? "The target changed; read again.".write(toFile:path,atomically:true,encoding:.utf8) }
             return false
         }
-        clear(replacing:true); request = r; index = 0
+        clear(replacing:true); request = r; index = 0; last = data
         DrawingMath.changed = { [weak self] in
             guard let self, let request = self.request else { return }
             self.board = Self.board(request.steps,near:self.shapeBounds(request.steps.flatMap { $0.shapes.filter { $0.kind != "text" } }) ?? request.target.bounds,at:self.board?.frame.origin,avoiding:self.calloutLayout.map { [$0.card] } ?? [])
@@ -2151,7 +2154,7 @@ final class ScreenDrawing {
         func shown(_ r: DrawingRequest) -> Data? { try? encoder.encode(r.steps.prefix(index+1).map(\.shapes)) }
         func page() -> [CGRect] { board.flatMap { Self.boardPage($0,through:index) }.map { [$0.frame] + $0.lines.map(\.rect) } ?? [] }
         let before = page()
-        request = r
+        request = r; last = data
         board = Self.board(r.steps,near:shapeBounds(r.steps.flatMap { $0.shapes.filter { $0.kind != "text" } }) ?? r.target.bounds,at:board?.frame.origin,avoiding:calloutLayout.map { [$0.card] } ?? [])
         layoutBounds = r.steps.flatMap { Self.markBounds($0.shapes) } + (board.map { [$0.frame] } ?? [])
         // the shown marks are unchanged: only the card's caption and step count change, so their ink keeps drawing in
@@ -3717,7 +3720,8 @@ final class App: NSObject, WKScriptMessageHandler {
                 NSPasteboard.general.clearContents(); NSPasteboard.general.setString(a, forType: .string); js("copied")
             }
             if ["agentOpen","agentLater","agentConnect"].contains(where:{ b[$0] != nil }) { agentCard = ""; defaultKey(false) }
-            if b["agentGone"] != nil { agentCard = ""; escape() }   // the card left another way: Esc does its usual job
+            if b["agentGone"] != nil { agentCard = ""; escape() }
+            if b["replayDrawing"] != nil, drawing.replay() { leadToDrawing() }   // the card left another way: Esc does its usual job
             if let id = b["agentOpen"] as? String {
                 if let target = b["target"] as? String { agentsUI.open(id,target:target) }
                 else { agentsUI.openView(id) }   // the done card's Return action opens the report; its artifact buttons open artifacts
@@ -4271,7 +4275,8 @@ final class App: NSObject, WKScriptMessageHandler {
             await MainActor.run {
                 guard let self, self.whisperAsk == ask else { return }   // a final pass or a new listen took over
                 self.whisperBusy = false
-                if let r { self.speechPiece(r, final: false, segment: segment, listeningID: listeningID) }
+                // the audio only grows, so a pass far shorter than the words shown is Whisper echoing its prompt ("and", an app name)
+                if let r, r.count * 2 >= (self.speechText[segment]?.live.count ?? 0) { self.speechPiece(r, final: false, segment: segment, listeningID: listeningID) }
             }
         }
     }
@@ -4285,7 +4290,8 @@ final class App: NSObject, WKScriptMessageHandler {
             await MainActor.run {
                 guard let self, self.listenID == listeningID else { return }   // cancelled, hushed or timed out meanwhile
                 self.whisperQueued -= secs
-                let r = r.map { $0.isEmpty ? self.speechText[segment]?.live ?? "" : $0 }   // an empty last pass keeps the words already shown
+                let live = self.speechText[segment]?.live ?? ""
+                let r = r.map { $0.count * 2 < live.count ? live : $0 }   // an empty or prompt-echo last pass keeps the words already shown
                 if let r { self.speechPiece((self.speechText[segment]?.done.isEmpty ?? true) || r.isEmpty ? r : " " + r, final: true, segment: segment, listeningID: listeningID) }
                 else { self.speechFailed = true }
                 if r != nil && (!self.engine.isRunning || self.whisperReleasing) { self.speechTrace?.mark("final_text") }

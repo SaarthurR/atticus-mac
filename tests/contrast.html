@@ -8,7 +8,7 @@ try {
  // The box's glass with its tint, measured in the VM over white, mid grey and black (tests.shoot_boxlook test_measure_glass)
  const glass={0.9:{255:[49,49,53],128:[40,40,44],0:[30,30,34]},0.88:{255:[53,53,56],128:[41,42,46],0:[30,30,34]},0.85:{255:[57,59,61],128:[43,45,49],0:[30,31,34]},0.8:{255:[66,67,71],128:[49,50,53],0:[30,31,34]}}[tint];
  if(!glass)throw Error('The box tint changed: measure it with tests.shoot_boxlook and add it here');
- const html=await (await fetch('../ui/ui.html')).text(), orbs=await (await fetch('../ui/orbs.js')).text();
+ const tokens=await(await fetch('../ui/tokens.css')).text(),html=(await (await fetch('../ui/ui.html')).text()).replace('/*TOKENS*/',()=>tokens), orbs=await (await fetch('../ui/orbs.js')).text();
  const ready=new Promise(resolve=>window.addEventListener('message',e=>{if(e.source===frame.contentWindow&&e.data.ready)resolve()}));
  const bridge='<script>window.webkit={messageHandlers:{c:{postMessage:m=>parent.postMessage(m,"*")},h:{postMessage:()=>{}}}};<\/script>';
  frame.srcdoc=html.replace('<head>','<head>'+bridge).replace('/*ORBS*/',()=>orbs);

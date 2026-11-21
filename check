@@ -1,0 +1,87 @@
+#!/bin/bash
+# The one gate. Run once when done editing. Prints only failures, then one last line; the exit code is the verdict.
+# usage: ./check [--all | --vm | --install-hook | --selftest]
+#   default  syntax + host-safe test modules the change touches (vs main + uncommitted) + budget/ratchet tests
+#   --all    every host-safe module    --vm  default + the full suite in the VM (run.sh)
+cd "$(git rev-parse --show-toplevel)" || exit 1
+mode=${1#--}; mode=${mode:-changed}
+# native/screen tests take over the screen: VM only. Same list as CI (.github/workflows/checks.yml).
+SAFE=$(ls tests/test_*.py | grep -vE 'native|test_dictation_cleanup_eval|screen_draw|miniscreen|routing_native')
+FLAKY='test_live_worker_cancellation|test_capture_is_async_and_cancelled_or_stale|test_main_overlay_fixture|test_miniscreen_native'
+
+mods_for() {   # changed paths -> host-safe test files that cover them
+  for f; do
+    case $f in
+      atticus.py|Atticus.swift|ui/*|tests/__init__.py) echo "$SAFE"; return;;
+      check) continue;;
+    esac
+    grep -qx "$f" <<<"$SAFE" && echo "$f"
+    name=$(basename "$f"); [[ $f == *.py ]] && name=${name%.py}
+    grep -lwF -- "$name" $SAFE
+  done | sort -u
+}
+
+case $mode in
+  install-hook)
+    h=$(git rev-parse --git-common-dir)/hooks/pre-push
+    printf '#!/bin/sh\n# The one gate. Never --no-verify.\ncd "$(git rev-parse --show-toplevel)" || exit 1\n[ -x ./check ] || exit 0\nexec ./check\n' >"$h" &&
+      chmod +x "$h" && echo "installed $h"; exit;;
+  selftest)
+    s=$(mods_for tests/test_spoken.py)   # itself + test_stream (imports it), not test_night_fixes (test_spoken_fillers)
+    [ "$(mods_for Atticus.swift)" = "$(sort -u <<<"$SAFE")" ] && grep -qx tests/test_stream.py <<<"$s" && grep -qx tests/test_spoken.py <<<"$s" &&
+      ! grep -q test_night_fixes <<<"$s" && grep -qx tests/test_permissions.py <<<"$(mods_for tests/shoot_permissions.py)" &&
+      [ -z "$(mods_for check tests/test_native.py)" ] &&
+      echo "check: selftest PASS" || { echo "check: selftest FAIL"; exit 1; }; exit;;
+  changed|all|vm) ;;
+  *) sed -n 3,5p "$0"; exit 2;;
+esac
+
+gitdir=$(git rev-parse --git-dir); idx=$(mktemp); tmp=$(mktemp -d); trap 'rm -rf "$idx" "$tmp"' EXIT
+cp "$(git rev-parse --git-path index)" "$idx" 2>/dev/null
+tree=$(GIT_INDEX_FILE=$idx git add -A && GIT_INDEX_FILE=$idx git write-tree)
+ok=$mode; [ "$mode" = changed ] && ok='changed|all|vm'   # a wider pass covers a narrower one
+grep -qE "^$tree ($ok)$" "$gitdir/atticus-check-pass" 2>/dev/null && { echo "check: PASS (cached)"; exit 0; }
+
+fail=0
+show() { [ -n "$1" ] && { printf '%s\n' "$1"; fail=1; }; }
+trim() {   # unittest output -> failure blocks only
+  local b; b=$(sed -n '/^=\{70\}$/,$p' <<<"$1" | grep -vE '^ *[~^ ]+$|^-{70}$|^Ran |^$')
+  printf '%s\n' "${b:-$(tail -20 <<<"$1")}"
+}
+
+show "$(python3 -m py_compile *.py tests/*.py 2>&1)"
+show "$(for f in build.sh install.sh check; do bash -n "$f"; done 2>&1)"
+if command -v swiftc >/dev/null; then
+  o=$(swiftc -typecheck Atticus.swift 2>&1) || show "$(grep -A2 'error:' <<<"$o" | head -40)"
+else
+  echo "note: swiftc missing, Swift typecheck skipped"
+fi
+
+if [ "$mode" != all ]; then
+  base=main; [ "$(git rev-parse HEAD)" = "$(git rev-parse main 2>/dev/null)" ] && base=$(git rev-parse -q --verify '@{u}' || echo main)
+  files=$(mods_for $( { git diff --name-only "$base"...HEAD; git diff --name-only HEAD; git ls-files -o --exclude-standard; } 2>/dev/null | sort -u))
+else
+  files=$SAFE
+fi
+files=$(printf '%s\n' "$files" $(ls tests/test_*ratchet*.py 2>/dev/null) tests/test_step_budget.py | grep . | sort -u)
+run=$(sed 's|/|.|;s|\.py$||' <<<"$files")
+# prompt-budget tests always run, even when their module was not picked
+run+=" "$(awk '/^class /{c=$2; sub(/[(:].*/, "", c)} /^    def test_[a-z_]*budget/{m=$2; sub(/\(.*/, "", m); print FILENAME, c "." m}' $SAFE |
+  while read -r f id; do grep -qx "$f" <<<"$files" || echo "$(sed 's|/|.|;s|\.py$||' <<<"$f").$id"; done)
+set -- $run; n=$#
+res=$(env -u ATTICUS_VM -u ATTICUS_ALLOW_HOST_UI ATTICUS_DIR="$tmp" python3 -m unittest -b "$@" 2>&1) || show "$(trim "$res")"
+
+if [ "$mode" = vm ] && [ $fail = 0 ]; then
+  vm() { "$HOME/Projects/atticus/.agents/skills/atticus-vm-tests/run.sh" "$PWD" "$@" 2>&1; }
+  res=$(vm) || {
+    bad=$(grep -E '^(FAIL|ERROR): ' <<<"$res" | sed -E 's/.*\(([^ ]*)\)$/\1/' | sort -u)
+    flaky=$(grep -E "$FLAKY" <<<"$bad")
+    # known VM flakes (atticus-vm-tests SKILL.md) get one solo rerun; any other failure is real
+    if [ -z "$bad" ] || [ "$bad" != "$flaky" ]; then show "VM suite: $(trim "$res")"
+    else res=$(vm $flaky) || show "VM flake failed again alone: $(trim "$res")"; fi
+  }
+fi
+
+[ $fail = 0 ] || { echo "check: FAIL"; exit 1; }
+{ tail -n 19 "$gitdir/atticus-check-pass" 2>/dev/null; echo "$tree $mode"; } >"$tmp/pass" && mv "$tmp/pass" "$gitdir/atticus-check-pass"
+echo "check: PASS ($n modules, ${SECONDS}s)"

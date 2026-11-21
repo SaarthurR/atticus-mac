@@ -340,7 +340,7 @@ class DrawingTests(unittest.TestCase):
         print('Drawing review prompt chars:', {k:len(v.replace(atticus.ME,installed)) for k,v in
               [('cheapest',cheapest),('balanced',balanced),('drawing',drawing)]}, 'offer:',len(atticus.MODEL_OFFER))
         with patch.object(atticus,'client',return_value='pi'):   # Pi and Devin answers are read only at the end: they keep the tool
-            self.assertIn('use ' + atticus.DRAW + ' once on Request screen unless user names another',atticus.system_prompt(atticus.ASK_FIRST))
+            self.assertIn('use --draw once on Request screen unless user names another',atticus.system_prompt(atticus.ASK_FIRST))
         self.assertIn('draw',atticus.switches())
         self.assertFalse(atticus.replayable(atticus.DRAW + " '{}'"))
 

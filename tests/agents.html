@@ -3,7 +3,7 @@
 <h1>Agents</h1><p>Mock bridge only. Hover a chip; select an agent; try approvals, follow-ups and Reduce Motion.</p>
 <iframe id="shelf" title="Agent shelf"></iframe><iframe id="view" title="Agent view"></iframe><pre id="result"></pre><pre id="results"></pre>
 <script type="module">
-const html=await(await fetch('../ui/agents.html')).text(),orb=await(await fetch('../ui/orbs.js')).text(),events=[];
+const tokens=await(await fetch('../ui/tokens.css')).text(),html=(await(await fetch('../ui/agents.html')).text()).replace('/*TOKENS*/',()=>tokens),orb=await(await fetch('../ui/orbs.js')).text(),events=[];
 const named=[{name:'Researcher',brief:'Find reliable sources and write a short brief.',folder:'/tmp/reference',files:['/tmp/reference/style.md']}];
 const rows=[{id:'11111111111111111111111111111111',title:'Prepare report',brief:'Read the supplied material and create the report.',status:'running',step:'Reading the source material',steps:['Checking the brief','Reading the source material'],created:Date.now()/1000-85,sources:[{title:'Source material',url:'https://fixture.example/source',domain:'fixture.example'}],timeline:[{tool:'WebFetch',text:'Read the supplied material.'}],cost:.012},
 {id:'22222222222222222222222222222222',title:'Update document',brief:'Apply the requested changes.',status:'needs-you',step:'Waiting for you',created:Date.now()/1000-20,steps:['Found the document'],question:{q:'Allow this connector action?',cmd:'Change the selected document.',task:true},timeline:[]},
@@ -30,7 +30,7 @@ try{
  shelfApi.state({...rows[0],plan:['Read','Verify'],completed:1});await sleep(30);check(shelf.querySelector('progress').max===2&&shelf.querySelector('progress').value===1,'Only verified known steps show progress');
  const chip=shelf.querySelector('[data-id="'+rows[0].id+'"]');const views=events.filter(e=>e.action==='view').length;chip.click();await sleep(450);check(chip.classList.contains('expanded')&&events.filter(e=>e.action==='view').length===views,'A click expands in place');
  const rgba=document.getElementById('shelf').contentWindow.getComputedStyle(chip).backgroundColor.match(/[\d.]+/g).map(Number),fg2=document.getElementById('shelf').contentWindow.getComputedStyle(shelf.documentElement).getPropertyValue('--fg2').trim();
- const luminance=c=>c.map(x=>x/255).map(x=>x<=.04045?x/12.92:((x+.055)/1.055)**2.4).reduce((v,x,i)=>v+x*[.2126,.7152,.0722][i],0),foreground=luminance([1,3,5].map(i=>parseInt(fg2.slice(i,i+2),16)));
+ const luminance=c=>c.map(x=>x/255).map(x=>x<=.04045?x/12.92:((x+.055)/1.055)**2.4).reduce((v,x,i)=>v+x*[.2126,.7152,.0722][i],0),foreground=luminance(fg2.match(/[\d.]+/g).slice(0,3).map(Number));
  check([0,255].every(wall=>(foreground+.05)/(luminance(rgba.slice(0,3).map(x=>x*rgba[3]+wall*(1-rgba[3])))+.05)>=4.5),'Step text stays readable over light and dark wallpaper');
  check(chip.querySelector('.step').textContent===rows[0].step&&chip.querySelector('.source').textContent.includes('fixture.example'),'Non-window chip shows the live step and source');
  chip.querySelector('.head').click();await sleep(30);check(events.some(e=>e.action==='view'&&e.id===rows[0].id),'Click opens the selected agent');

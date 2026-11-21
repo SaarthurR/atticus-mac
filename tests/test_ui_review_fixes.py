@@ -136,22 +136,21 @@ if (away.frames || away.timers || !away.waiting) process.exit(3);
 ''')
 
     def test_settings_and_agents_text_colours_are_readable(self):
-        light = re.search(r':root \{(.*?)\}', self.settings, re.S).group(1)
-        dark = re.search(r'prefers-color-scheme: dark\) \{ :root \{(.*?)\}', self.settings, re.S).group(1)
-        var = lambda block, name: re.search(r'--' + name + r': (#[0-9a-f]{6})', block).group(1)
+        tokens = (ROOT / 'ui/tokens.css').read_text()   # Settings and setup share its light and dark text colours
+        light = re.search(r':root \{(.*?)\}', tokens, re.S).group(1)
+        dark = re.search(r'prefers-color-scheme: dark\) \{ :root \{(.*?)\}', tokens, re.S).group(1)
+        hexof = lambda name: '#' + ''.join('%02x' % int(c) for c in re.search(r'--' + name + r': ([\d,]+);', tokens).group(1).split(','))
+        var = lambda block, name: hexof(re.search(r'--' + name + r': ?rgb\(var\(--([\w-]+)\)\)', block).group(1))
         for name in ('fg3', 'warn', 'danger'):
             self.assertGreaterEqual(contrast(var(light, name), '#f5f5f7' if name == 'fg3' else '#ffffff'), 4.5, name)
         for name in ('fg3', 'warn'):
             self.assertGreaterEqual(contrast(var(dark, name), '#2a2a2c'), 4.5, 'dark ' + name)
         self.assertGreaterEqual(contrast(var(light, 'ok-text'), tint('#34c759', .13)), 4.5)
         self.assertGreaterEqual(contrast(var(light, 'warn'), tint('#ff9f0a', .14)), 4.5)
-        self.assertNotRegex(self.settings, r'\{[^}]*\bcolor: #ff(9f0a|453a)')   # text uses the tokens; fills may keep the bright colours
-        self.assertGreaterEqual(contrast(re.search(r'--fg3:(#[0-9a-f]{6})', self.agents).group(1), '#1e1e22'), 4.5)
-        setup_light = re.search(r':root \{(.*?)\}', self.onboarding, re.S).group(1)
-        setup_dark = re.search(r'prefers-color-scheme: dark\) \{ :root \{(.*?)\}', self.onboarding, re.S).group(1)
-        self.assertGreaterEqual(contrast(var(setup_light, 'fg3'), '#fbfbfd'), 4.5)
-        self.assertGreaterEqual(contrast(var(setup_dark, 'fg3'), '#2a2a2c'), 4.5)
-        self.assertGreaterEqual(contrast(re.search(r'--fg3:(#[0-9a-f]{6})', self.meeting).group(1), '#1e1e20'), 4.5)
+        self.assertNotRegex(self.settings, r'\{[^}]*\bcolor: rgb\(var\(--(orange|red)-rgb\)\)')   # text uses the tokens; fills may keep the bright colours
+        self.assertGreaterEqual(contrast(var(self.agents, 'fg3'), '#1e1e22'), 4.5)
+        self.assertGreaterEqual(contrast(var(light, 'fg3'), '#fbfbfd'), 4.5)
+        self.assertGreaterEqual(contrast(var(self.meeting, 'fg3'), '#1e1e20'), 4.5)
 
     def test_settings_exposes_the_current_page_and_app_list_choice(self):
         self.assertIn('class="on" aria-current="page"', self.settings)

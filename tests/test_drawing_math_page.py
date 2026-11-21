@@ -85,7 +85,7 @@ assert.deepEqual(posts,[{action:'ready'}]);
         self.assertEqual(run.returncode, 0, run.stderr)
 
     def test_measured_transparent_math_fragments(self):
-        page = (ROOT / 'ui/drawing-math.html').read_text().replace('/*ORBS*/', (ROOT / 'ui/orbs.js').read_text())
+        page = (ROOT / 'ui/drawing-math.html').read_text().replace('/*TOKENS*/', (ROOT / 'ui/tokens.css').read_text()).replace('/*ORBS*/', (ROOT / 'ui/orbs.js').read_text())
         script = r'''
 const results = [];
 for (const size of [22, 28, 32]) {
@@ -125,7 +125,8 @@ import WebKit
 func loadPage(_ web: WKWebView, _ name: String) {
     let ui = CommandLine.arguments[1] + "/ui/"
     let html = try! String(contentsOfFile: ui + name, encoding: .utf8), orbs = try! String(contentsOfFile: ui + "orbs.js", encoding: .utf8)
-    web.loadHTMLString(html.replacingOccurrences(of: "/*ORBS*/", with: orbs), baseURL: nil)
+    let tokens = try! String(contentsOfFile: ui + "tokens.css", encoding: .utf8)
+    web.loadHTMLString(html.replacingOccurrences(of: "/*TOKENS*/", with: tokens).replacingOccurrences(of: "/*ORBS*/", with: orbs), baseURL: nil)
 }
 final class PageErrors { static let shared = PageErrors(); func evaluated(_ call: String, _ error: Error?) {} }
 ''' + cls + r'''

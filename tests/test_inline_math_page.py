@@ -73,7 +73,7 @@ class InlineMathPageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             src,binary,html=[Path(tmp)/p for p in ('page.swift','page','page.html')]
             for surface,file in [('box','ui/ui.html'),('card','ui/ui.html'),('agent','ui/agents.html'),('drawing','ui/drawing-math.html')]:
-                page=(ROOT/file).read_text().replace('/*ORBS*/',orbs)
+                page=(ROOT/file).read_text().replace('/*TOKENS*/', (ROOT / 'ui/tokens.css').read_text()).replace('/*ORBS*/',orbs)
                 formatter=orbs[orbs.index('// TeX → MathML'):orbs.index('export { MML')]
                 page+='<script type="module">'+formatter+'\nwindow.fixtureMarkdown=markdown;</script>'
                 html.write_text(page)

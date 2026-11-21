@@ -148,7 +148,7 @@ class RealSetup(unittest.TestCase):
             app = tmp / 'Atticus.app' / 'Contents'
             (app / 'MacOS').mkdir(parents=True); (app / 'Resources' / 'ui').mkdir(parents=True)
             shutil.copy(ROOT / 'atticus.py', app / 'Resources')
-            for f in list((ROOT / 'ui').glob('*.html')) + list((ROOT / 'ui').glob('*.js')): shutil.copy(f, app / 'Resources' / 'ui')
+            for f in list((ROOT / 'ui').glob('*.html')) + list((ROOT / 'ui').glob('*.js')) + list((ROOT / 'ui').glob('*.css')): shutil.copy(f, app / 'Resources' / 'ui')
             shutil.copy(ROOT / 'ui/AppIcon.icns', app / 'Resources')
             (app / 'Info.plist').write_bytes(plistlib.dumps({
                 'CFBundleIdentifier': ident, 'CFBundleName': 'Atticus', 'CFBundleExecutable': 'Atticus', 'CFBundlePackageType': 'APPL',

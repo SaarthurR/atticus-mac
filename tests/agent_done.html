@@ -2,7 +2,7 @@
 <iframe id="preview"></iframe><pre id="results">Running…</pre>
 <script type="module">
 const frame=document.getElementById('preview'),results=document.getElementById('results'),messages=[];
-const html=await(await fetch('../ui/ui.html')).text(),orbs=await(await fetch('../ui/orbs.js')).text();
+const tokens=await(await fetch('../ui/tokens.css')).text(),html=(await(await fetch('../ui/ui.html')).text()).replace('/*TOKENS*/',()=>tokens),orbs=await(await fetch('../ui/orbs.js')).text();
 const ready=new Promise(resolve=>window.addEventListener('message',event=>{if(event.source!==frame.contentWindow)return;messages.push(event.data);if(event.data.ready)resolve();}));
 const bridge=`<script>window.webkit={messageHandlers:{c:{postMessage:m=>parent.postMessage(m,'*')},h:{postMessage(){}}}};<\/script>`;
 frame.srcdoc=html.replace('/*ORBS*/',()=>orbs).replace('<head>','<head>'+bridge);

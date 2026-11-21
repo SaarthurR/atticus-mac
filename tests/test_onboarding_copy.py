@@ -81,7 +81,8 @@ class OnboardingMatchesAppTests(unittest.TestCase):
         for value in ('padding: 14px 20px 18px', 'height: 44px', 'font-size: 12.5px; line-height: 22px', 'padding: 9px 14px; border-radius: 16px 16px 5px 16px',
                       'font-size: 13.5px; line-height: 1.45', 'font-size: 15px; line-height: 1.6', 'opacity: 0; transform: translateY(5px)'):
             self.assertIn(value, box); self.assertIn(value, self.page)   # the loop's box keeps the box's own sizes
-        self.assertIn('NSColor(calibratedRed:18/255,green:18/255,blue:20/255,alpha:0.85)', swift); self.assertIn('background: rgba(18,18,20,.85)', self.page)
+        self.assertIn('NSColor(calibratedRed:18/255,green:18/255,blue:20/255,alpha:0.85)', swift); self.assertIn('background: rgba(var(--gray-7-rgb),.85)', self.page)
+        self.assertIn('--gray-7-rgb: 18,18,20;', (ROOT / 'ui/tokens.css').read_text())
         self.assertIn('cornerRadius = 18', swift); self.assertIn('width: 340px; border-radius: 18px', self.page)
         self.assertIn('edges = strokes(.black,contrast ? 0.6 : 0.3,contrast ? 8.5 : 7.5)\n        bands = strokes(.white,0.95,6)', swift)
         self.assertIn("[['0,0,0', .3, 7.5], ['255,255,255', .95, 6]]", self.page)   # TalkPen's edge and ink

@@ -417,6 +417,7 @@ print("single delivery fallback ok")
         source = (ROOT / 'Atticus.swift').read_text()
         tick = source[source.index('    func whisperTick('):source.index('    func start(dictate: Bool')]
         self.assertIn('guard let self, self.whisperAsk == ask else { return }', tick)
+        self.assertIn('if let r, r.count * 2 >= (self.speechText[segment]?.live.count ?? 0)', tick)   # Nov 20: a short prompt echo ("and") never replaces the live words
         self.assertIn('guard let self, self.listenID == listeningID else { return }', tick)
         self.assertIn('await prev?.value', tick)   # final passes stay in order
         stop = source[source.index('    func stop()', source.index('final class App')):source.index('    func applyReplacement(')]
@@ -442,7 +443,7 @@ print("single delivery fallback ok")
     def test_whisper_empty_final_keeps_live_words(self):
         source = (ROOT / 'Atticus.swift').read_text()
         final = source[source.index('    func whisperFinal('):source.index('    func start(dictate: Bool')]
-        self.assertIn("let r = r.map { $0.isEmpty ? self.speechText[segment]?.live ?? \"\" : $0 }", final)  # empty final keeps shown words
+        self.assertIn("let r = r.map { $0.count * 2 < live.count ? live : $0 }", final)  # empty or prompt-echo final keeps shown words
         self.assertLess(final.index('let r = r.map'), final.index('self.speechPiece('))
 
     def test_whisper_settings_bridge(self):
@@ -707,8 +708,9 @@ const set = () => { const s = new Set(); return { add: (...c) => c.forEach(x => 
 const kids = [], thread = { children: kids, get firstElementChild() { return kids[0]; }, querySelectorAll: q => q === '.turn.dict' ? kids.filter(k => k.className.split(' ').includes('dict')) : [], append: d => kids.push(d) };
 const node = () => { const n = { classList: set(), className: '', remove: () => kids.splice(kids.indexOf(n), 1), prepend() {}, firstChild: { classList: set() } }; return n; };
 const document = { body: { classList: set() }, createElement: node }, card = { classList: set() };
-const $ = id => id === 'thread' ? thread : id === 'card' ? card : { children: [], value: '' };
-const foldBox = () => {}, miniClear = () => {}, clockStop = () => {}, comp = () => {}, markShot = () => '', setState = () => {}, status = () => {}, fit = () => {}, pill = () => {};
+const $ = id => id === 'thread' ? thread : id === 'card' ? card : { children: [], value: '', style: {} };
+let shown = [];
+const foldBox = () => {}, miniClear = () => {}, clockStop = () => {}, comp = () => {}, markShot = () => '', setState = s => shown.push(s), status = () => {}, fit = () => {}, pill = () => {};
 let hover, listening, working, boost, atBottom, drawingThisTurn;
 ''' + helper + r'''
 const ui = {
@@ -717,6 +719,8 @@ const answer = node(); kids.push(answer);
 ui.dictate(true); ui.listen('dict'); ui.dictate(false);
 if (kids.length !== 1 || kids[0] !== answer) process.exit(console.error('the dictation turn stayed in the box') || 1);
 if (answer.classList.contains('old')) process.exit(console.error('a dictation greyed out the last answer') || 1);
+// Nov 20, 2026: Esc on a dictation that heard nothing left the box's orb on "Listening…"
+if (listening || shown.at(-1) !== 'breathing') process.exit(console.error('a cancelled dictation left the box listening') || 1);
 ui.listen();
 if (!answer.classList.contains('old')) process.exit(console.error('a real ask no longer marks the last answer old') || 1);
 '''
@@ -741,7 +745,7 @@ if (!answer.classList.contains('old')) process.exit(console.error('a real ask no
         self.assertIn('opacity: 0', ring)
         self.assertIn('transition: opacity', ring)
         self.assertIn('pointer-events: none', ring)
-        self.assertIn('255,159,10', ring)   # the overlay's orange (Full access, attention)
+        self.assertIn('var(--orange-rgb)', ring)   # the overlay's orange (Full access, attention)
         self.assertIn('body.dictate.locked::after { opacity: 1; }', page)
         self.assertIn("locked(on) { document.body.classList.toggle('locked', !!on); fit(false); }", page)   # the pill makes room for the lock
         reduce = page[page.index('@media (prefers-reduced-motion: reduce)'):page.index('</style>')]

@@ -40,7 +40,7 @@ let box=NSPanel(contentRect:NSRect(x:screen.visibleFrame.minX+14,y:screen.visibl
 box.isOpaque=false;box.backgroundColor = .clear;box.hasShadow=true;box.level = .floating
 let glass=NSVisualEffectView(frame:NSRect(x:0,y:0,width:340,height:120));glass.material = .hudWindow;glass.state = .active;glass.appearance=NSAppearance(named:.darkAqua);glass.wantsLayer=true;glass.layer?.cornerRadius=18;glass.layer?.masksToBounds=true;glass.autoresizingMask=[.width,.height]
 let web=WKWebView(frame:glass.bounds,configuration:boxCfg);web.setValue(false,forKey:"drawsBackground");web.autoresizingMask=[.width,.height];glass.addSubview(web);box.contentView=glass
-web.loadHTMLString((try! String(contentsOfFile:dir+"/ui/ui.html",encoding:.utf8)).replacingOccurrences(of:"/*ORBS*/",with:(try! String(contentsOfFile:dir+"/ui/orbs.js",encoding:.utf8))),baseURL:nil)
+web.loadHTMLString((try! String(contentsOfFile:dir+"/ui/ui.html",encoding:.utf8)).replacingOccurrences(of:"/*TOKENS*/",with:(try? String(contentsOfFile:dir+"/ui/tokens.css",encoding:.utf8)) ?? "").replacingOccurrences(of:"/*ORBS*/",with:(try! String(contentsOfFile:dir+"/ui/orbs.js",encoding:.utf8))),baseURL:nil)
 sink.onH={h in guard h>0 else{return};var f=box.frame;f.origin.y=f.maxY-h;f.size.height=h;guard f != box.frame else{return}
  RESIZE}
 func boxJS(_ s:String){web.evaluateJavaScript(s){_,e in if let e{print("box js error \(e)")}}}
@@ -54,7 +54,7 @@ func page(_ file:String,_ size:NSSize,_ handler:String,_ x:CGFloat)->(NSWindow,W
  let bg=NSVisualEffectView(frame:w.contentRect(forFrameRect:w.frame));bg.material = .underWindowBackground;bg.blendingMode = .behindWindow;bg.state = .active
  let cfg=WKWebViewConfiguration();cfg.userContentController.add(sink,name:handler)
  let v=WKWebView(frame:NSRect(x:0,y:0,width:size.width,height:size.height-28),configuration:cfg);v.setValue(false,forKey:"drawsBackground");v.autoresizingMask=[.width,.height]
- v.loadHTMLString((try! String(contentsOfFile:dir+"/ui/"+file,encoding:.utf8)).replacingOccurrences(of:"/*ORBS*/",with:(try? String(contentsOfFile:dir+"/ui/orbs.js",encoding:.utf8)) ?? ""),baseURL:nil)
+ v.loadHTMLString((try! String(contentsOfFile:dir+"/ui/"+file,encoding:.utf8)).replacingOccurrences(of:"/*TOKENS*/",with:(try? String(contentsOfFile:dir+"/ui/tokens.css",encoding:.utf8)) ?? "").replacingOccurrences(of:"/*ORBS*/",with:(try? String(contentsOfFile:dir+"/ui/orbs.js",encoding:.utf8)) ?? ""),baseURL:nil)
  bg.addSubview(v);w.contentView=bg;return (w,v)}
 let (sw,sv)=page("settings.html",NSSize(width:780,height:560),"st",60)
 let (ow,ov)=page("onboarding.html",NSSize(width:640,height:640),"ob",60)

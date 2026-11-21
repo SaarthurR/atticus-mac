@@ -221,7 +221,7 @@ return {count,streaming,askedEarly,clocks,text:d.textContent,fits:r.left>=0&&r.r
 '''
         with tempfile.TemporaryDirectory() as tmp:
             src, binary, html = [Path(tmp, p) for p in ('page.swift', 'page', 'page.html')]
-            html.write_text((ROOT/'ui/ui.html').read_text().replace('/*ORBS*/', (ROOT/'ui/orbs.js').read_text()))
+            html.write_text((ROOT/'ui/ui.html').read_text().replace('/*TOKENS*/', (ROOT / 'ui/tokens.css').read_text()).replace('/*ORBS*/', (ROOT/'ui/orbs.js').read_text()))
             harness = HARNESS.replace('width: 260, height: 400', 'width: 420, height: 600')
             harness = harness.replace('cfg.userContentController.add(h, name: "agents")', 'cfg.userContentController.add(h, name: "c"); cfg.userContentController.add(h, name: "h")')
             harness = harness.replace('?["action"] as? String == "ready"', '?["ready"] != nil')

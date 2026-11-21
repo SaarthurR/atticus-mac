@@ -13,7 +13,7 @@ const frame = document.getElementById('preview'), results = document.getElementB
 const assert = (condition, name) => { if (!condition) throw Error(name); checks.push('✓ ' + name); };
 window.addEventListener('message', e => { if (e.source === frame.contentWindow) messages.push(e.data); });
 try {
-  const html = await (await fetch('../ui/settings.html')).text(), i18n = await (await fetch('../ui/i18n.js')).text();
+  const tokens=await(await fetch('../ui/tokens.css')).text(),html=(await (await fetch('../ui/settings.html')).text()).replace('/*TOKENS*/',()=>tokens), i18n = await (await fetch('../ui/i18n.js')).text();
   const loaded = new Promise(resolve => frame.onload = resolve);
   frame.srcdoc = html.replace('/*I18N*/', () => i18n).replace('<head>', `<head><script>window.webkit = {messageHandlers: {st: {postMessage: m => parent.postMessage(m, '*')}}};<\/script>`);
   await loaded;

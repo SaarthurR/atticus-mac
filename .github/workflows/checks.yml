@@ -7,7 +7,5 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Offline brain and UI syntax regressions
-        run: python3 -m unittest discover -s tests -v
-      - name: Installer syntax
-        run: bash -n build.sh install.sh
+      - name: The one gate, same host-safe list as local ./check (no swiftc on Linux, so that step is skipped)
+        run: ./check --all
