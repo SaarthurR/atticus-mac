@@ -51,10 +51,10 @@ trim() {   # unittest output -> failure blocks only
 
 show "$(python3 -m py_compile *.py tests/*.py 2>&1)"
 show "$(for f in build.sh install.sh check; do bash -n "$f"; done 2>&1)"
-if command -v swiftc >/dev/null; then
+if [ "$(uname)" = Darwin ] && command -v swiftc >/dev/null; then   # Linux swiftc has no Cocoa
   o=$(swiftc -typecheck Atticus.swift 2>&1) || show "$(grep -A2 'error:' <<<"$o" | head -40)"
 else
-  echo "note: swiftc missing, Swift typecheck skipped"
+  echo "note: not macOS or no swiftc, Swift typecheck skipped"
 fi
 
 if [ "$mode" != all ]; then
