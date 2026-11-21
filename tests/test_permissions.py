@@ -1,6 +1,7 @@
 """Production permission flow against fake TCC states; no real permissions or AI."""
 from pathlib import Path
 import re
+import sys
 import unittest
 from tests import run_swift
 
@@ -323,6 +324,7 @@ h.voicePermissionPending = false; h.outsideClick()
 precondition(h.closed == 1, "normal click-away stopped closing the box")
 ''')
 
+    @unittest.skipUnless(sys.platform == 'darwin', 'macOS WebKit page check')
     def test_missing_permission_box_webkit_light_and_dark(self):
         from tests.shoot_permissions import PermissionShots
         PermissionShots.test_missing_line_light_dark(self)

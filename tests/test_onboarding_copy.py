@@ -233,6 +233,7 @@ for (const [saved, page] of want) if (pick(saved) !== page) { console.error(save
         self.assertLess(check.index('checkingPlan = true'), check.index('Onboarding.plan'))
         self.assertIn('self?.checkingPlan = false', check)
 
+    @unittest.skipUnless(shutil.which('zsh'), 'runs the sign-in command in zsh, like the app')
     def test_signin_clears_failure_only_after_success(self):
         swift = (ROOT / 'Atticus.swift').read_text()
         fix = swift.split('    func fixPlan() {', 1)[1].split('    func tried()', 1)[0]
