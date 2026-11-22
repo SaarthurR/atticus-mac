@@ -73,9 +73,39 @@ NSApplication.shared.run()
 '''
 
 
+TINY = r'''
+box.ready = { DispatchQueue.global().async {
+    var out: [String: Any] = [:]
+    func js(_ s: String) { _ = eval(s + "; 1") }
+    func state() -> [String: Any] { ["w": main { Double(box.panel.frame.width) }, "h": panelH(), "card": card(), "folded": eval("document.body.classList.contains('folded')") as? Bool ?? false] }
+    js("ui.autoMinimize(true); ui.visible(true); ui.tiny(true)"); wait(0.6)
+    js("ui.listen(); ui.words('First question'); ui.think(); ui.line('✓ First answer.'); ui.finished()"); wait(0.7)
+    js("ui.listen(); ui.words('Second question'); ui.think()"); wait(0.7)
+    out["tiny"] = state()
+    js("ui.tiny(false)"); wait(0.7); out["off"] = state()
+    js("ui.tiny(true)"); wait(0.7); out["on"] = state()
+    js("ui.line('✓ Second answer.'); ui.finished()"); wait(0.8); out["open"] = state()
+    print(String(data: try! JSONSerialization.data(withJSONObject: out), encoding: .utf8)!); exit(0)
+} }
+box.web.loadHTMLString(try! String(contentsOfFile: CommandLine.arguments[1], encoding: .utf8), baseURL: nil)
+DispatchQueue.main.asyncAfter(deadline: .now() + 45) { print("timeout"); exit(1) }
+NSApplication.shared.run()
+'''
+
+
 @unittest.skipUnless(os.environ.get('ATTICUS_VM'), 'real panel: VM only')
 class FoldLifecycleTests(unittest.TestCase):
-    def render(self, reduced=False):
+    def test_tiny_switch_reshapes_a_minimized_box_now(self):
+        # Nov 21, 2026: turning Tiny off while minimized left a 36 px window with the orb low in it until the next ask
+        got = self.render(driver=TINY)
+        self.assertEqual((got['tiny']['w'], got['tiny']['h'], got['tiny']['folded']), (36, 36, True), got['tiny'])
+        self.assertEqual(got['off']['w'], 400, got['off']); self.assertTrue(got['off']['folded'])
+        self.assertAlmostEqual(got['off']['h'], got['off']['card'], delta=1, msg=got['off'])
+        self.assertEqual((got['on']['w'], got['on']['h'], got['on']['folded']), (36, 36, True), got['on'])
+        self.assertEqual(got['open']['w'], 400, got['open']); self.assertFalse(got['open']['folded'])
+        self.assertAlmostEqual(got['open']['h'], got['open']['card'], delta=1, msg=got['open'])
+
+    def render(self, reduced=False, driver=DRIVER):
         with tempfile.TemporaryDirectory() as tmp:
             page, src, binary = [Path(tmp) / name for name in ('ui.html', 'fold.swift', 'fold')]
             html = (ROOT / 'ui/ui.html').read_text().replace('/*TOKENS*/', (ROOT / 'ui/tokens.css').read_text()).replace('/*ORBS*/', (ROOT / 'ui/orbs.js').read_text())
@@ -84,7 +114,7 @@ class FoldLifecycleTests(unittest.TestCase):
                 html = html.replace("matchMedia('(prefers-reduced-motion: reduce)')", "({matches:true,addEventListener(){}})")
                 native = native.replace('NSWorkspace.shared.accessibilityDisplayShouldReduceMotion', 'true')
             page.write_text(html)
-            src.write_text(native + DRIVER)
+            src.write_text(native + driver)
             built = subprocess.run(['swiftc', str(src), '-o', str(binary)], capture_output=True, text=True)
             self.assertEqual(built.returncode, 0, built.stderr)
             run = subprocess.run([str(binary), str(page), '{}', 'dark'], capture_output=True, text=True, timeout=60)
@@ -93,6 +123,7 @@ class FoldLifecycleTests(unittest.TestCase):
             if not reduced and line.startswith('FOLD_FRAME '):
                 print(line, flush=True)
         got = json.loads(run.stdout.strip().splitlines()[-1])
+        if driver is TINY: return got
         print('FOLD_STATES', json.dumps(got), flush=True)
         for name, state in got.items():
             if name in ('fold', 'unfold', 'replayed'):

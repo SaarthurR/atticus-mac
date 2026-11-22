@@ -65,10 +65,10 @@ class OnboardingMatchesAppTests(unittest.TestCase):
                    'Press the shortcut, speak, press again to send. Your Mac does the rest.', '“Convert this JPEG to PNG”',
                    'Allow Atticus to hear you, see your screen and control your Mac.', 'Hears you while you hold the shortcut.', 'Turns your words into text.', 'Controls your apps for you.',
                    'Try', '“Hey Atticus, what’s up?”', 'Show me how', 'Hold the shortcut, circle something with your mouse, and ask.', 'What is this?', 'A flat white, with a latte-art heart on top.',
-                   'When a task fails, Atticus can tell its maker what went wrong, so the next version gets it right. Change it anytime in Settings.',
+                   'When a task fails, Atticus can tell its maker what went wrong, so the next version gets it right.', 'You can change this anytime.',
                    'What you asked, the steps Atticus took, and why it didn’t work.', 'A random ID. Never your name, your screen, your files or passwords.',
                    'Emails, numbers, file paths and anything typed for you are removed before it leaves your Mac.',
-                   'Pick a work model', 'Atticus uses it for bigger asks. Change it anytime in Settings.', 'Asked', '“Teach me the Pythagorean theorem.”',
+                   'Pick a work model', 'Atticus uses it for bigger asks.', 'Asked', '“Teach me the Pythagorean theorem.”',
                    'Quick, clear answers.', 'More detail, more steps.', 'Lighter on your plan', 'About 2× more of your plan',
                    'The two small squares add up to the big one.', '✎ Draws the triangle', '✎ Draws all three squares',
                    '9 + 16 = 25: the squares on the short sides fill the one on the long side.']

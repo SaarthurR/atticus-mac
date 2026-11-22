@@ -72,6 +72,17 @@
   #agentsnav .out { margin-left: 0; color: var(--fg3); } #agentsnav .count { margin-left: auto; color: var(--fg3); font-size: 11.5px; } #agentsnav .count:empty + .out { margin-left: auto; }
   #feedbacknav { color: rgb(var(--link-rgb)); } @media (prefers-color-scheme: dark) { #feedbacknav { color: var(--accent); } }   /* reads as a link: easy to miss as plain text */
   nav .ver { color: var(--fg3); font-size: 11px; padding: 0 8px; }
+  /* search: a quiet icon beside the name; it opens into the field over the name row, so nothing below moves */
+  .me { position: relative; } .me > img, .me > div { transition: opacity var(--t-fast); will-change: opacity; }   /* will-change: else WebKit can leave the faded name painted around the open field */
+  #setq { position: absolute; top: 9px; left: 8px; right: 8px; box-sizing: border-box; opacity: 0; visibility: hidden; clip-path: inset(0 0 0 calc(100% - 28px) round 7px);
+    transition: clip-path var(--t-base) var(--ease), opacity var(--t-fast), visibility 0s var(--t-base); }
+  #findbtn { all: unset; position: absolute; top: 9px; right: 8px; width: 28px; height: 28px; border-radius: 7px; display: grid; place-items: center;
+    color: var(--fg2); transition: background var(--t-fast), opacity var(--t-fast); }
+  #findbtn:hover { background: color-mix(in srgb, var(--sel) 70%, transparent); } #findbtn:focus-visible { outline: 2px solid rgba(var(--blue-rgb),.5); }
+  #findbtn svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+  .me.finding > img, .me.finding > div, .me.finding > #findbtn { opacity: 0; visibility: hidden; transition: opacity var(--t-fast), visibility 0s var(--t-fast); }
+  .me.finding > #setq { opacity: 1; visibility: visible; clip-path: inset(-3px round 10px); transition: clip-path var(--t-base) var(--ease), opacity var(--t-fast); }
+  #find h3:first-child { margin-top: 0; } #find .row { cursor: pointer; } #find .row:is(:hover, :focus-visible) { background: var(--hover); outline: none; }
 
   /* content */
   main { position: relative; flex: 1; overflow-y: auto; padding: 40px 36px; box-sizing: border-box; background: var(--bg); box-shadow: inset .5px 0 0 var(--line); }
@@ -288,19 +299,23 @@
 </style></head><body>
 
 <nav>
-  <div class="me"><img id="icon" alt=""><div><b>Atticus</b><span>Just ask.</span></div></div>
+  <div class="me"><img id="icon" alt=""><div><b>Atticus</b><span>Just ask.</span></div>
+    <input type="search" id="setq" class="search" placeholder="Search settings" aria-label="Search settings" autocomplete="off" spellcheck="false" tabindex="-1">
+    <button id="findbtn" aria-label="Search settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5"/></svg></button></div>
   <i id="navsel" aria-hidden="true"></i>
   <button id="agentsnav" aria-label="Open Agents"><i class="ni" style="background:rgb(var(--teal-rgb))"><svg viewBox="0 0 24 24"><rect x="4" y="8" width="13" height="12" rx="2.5"/><path d="M8 4.5h9.5A2.5 2.5 0 0 1 20 7v9"/></svg></i>Agents<span class="count" id="agentcount"></span><svg class="out" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 16 16 8M9.5 8H16v6.5"/></svg></button>
   <button data-s="general" class="on" aria-current="page"><i class="ni" style="background:rgb(var(--gray-56-rgb))"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg></i>General</button>
-  <button data-s="brain"><i class="ni" style="background:rgb(var(--coral-rgb))"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"/></svg></i>Intelligence</button>
-  <button data-s="dictation"><i class="ni" style="background:rgb(var(--pink-rgb))"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11v1a6 6 0 0 0 12 0v-1M12 18v3M8 21h8"/></svg></i>Dictation</button>
-  <button data-s="meetings"><i class="ni" style="background:rgb(var(--indigo-rgb))"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4M16 3v4M4 10h16M8 14h3M8 17h7"/></svg></i>Meetings</button>
+  <button data-s="voice"><i class="ni" style="background:rgb(var(--pink-rgb))"><svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg></i>Voice &amp; Sound</button>
+  <button data-s="box"><i class="ni" style="background:rgb(var(--blue-rgb))"><svg viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="12" rx="2.5"/><path d="M9 20h6M12 16.5V20"/></svg></i>Box &amp; Display</button>
+  <button data-s="brain"><i class="ni" style="background:rgb(var(--purple-rgb))"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"/></svg></i>Intelligence</button>
+  <button data-s="dictation"><i class="ni" style="background:rgb(var(--orange-rgb))"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11v1a6 6 0 0 0 12 0v-1M12 18v3M8 21h8"/></svg></i>Dictation</button>
+  <button data-s="meetings"><i class="ni" style="background:rgb(var(--green-rgb))"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4M16 3v4M4 10h16M8 14h3M8 17h7"/></svg></i>Meetings</button>
   <div class="grp">You</div>
-  <button data-s="memory"><i class="ni" style="background:rgb(var(--orange-rgb))"><svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-4-6 4z"/></svg></i>Memory</button>
-  <button data-s="usage"><i class="ni" style="background:rgb(var(--green-rgb))"><svg viewBox="0 0 24 24"><path d="M5 19V11M12 19V5M19 19v-6"/></svg></i>Usage</button>
+  <button data-s="memory"><i class="ni" style="background:rgb(var(--red-rgb))"><svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-4-6 4z"/></svg></i>Memory</button>
+  <button data-s="usage"><i class="ni" style="background:rgb(var(--indigo-rgb))"><svg viewBox="0 0 24 24"><path d="M5 19V11M12 19V5M19 19v-6"/></svg></i>Usage</button>
   <div class="grp">Atticus</div>
-  <button data-s="account"><i class="ni" style="background:rgb(var(--blue-rgb))"><svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg></i>Account &amp; Access</button>
-  <button data-s="about"><i class="ni" style="background:rgb(var(--purple-rgb))"><svg viewBox="0 0 24 24"><path d="M12 4v10M8 10l4 4 4-4M5 19h14"/></svg></i>About &amp; Updates</button>
+  <button data-s="account"><i class="ni" style="background:rgb(var(--teal-rgb))"><svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg></i>Account &amp; Access</button>
+  <button data-s="about"><i class="ni" style="background:rgb(var(--coral-rgb))"><svg viewBox="0 0 24 24"><path d="M12 4v10M8 10l4 4 4-4M5 19h14"/></svg></i>About &amp; Updates</button>
   <div class="spacer"></div>
   <button data-s="feedback" id="feedbacknav">Report feedback<svg class="out" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 16 16 8M9.5 8H16v6.5"/></svg></button>
   <div class="ver" id="ver"></div>
@@ -319,7 +334,7 @@
     <h3>Dictate anywhere</h3>
     <div class="group">
       <div class="row"><div class="t"><b id="dictatelabel">Dictation shortcut</b><span id="dictatehint"></span></div><div class="keyfield"><button class="kf" id="dictatechange" aria-labelledby="dictatelabel" aria-describedby="dictatehint"></button><button class="x" id="dictateclear" aria-label="Clear dictation shortcut">×</button></div></div>
-      <div class="row" id="globefix" hidden><div class="t"><b>Set Press 🌐 key to Do Nothing</b></div><button class="btn" data-do="globeKey">Open Keyboard Settings</button></div>
+      <div class="row" id="globefix" hidden><div class="t"><b>Set Press 🌐 key to Do Nothing</b><span>So 🌐 only starts dictation.</span></div><button class="btn" data-do="globeKey">Open Keyboard Settings</button></div>
       <div class="row"><div class="t"><b>Dictated text</b><span id="dictatemodehint">Clean up drops fillers, fixes misheard words.</span></div><div class="seg" data-k="dictateMode"><button data-v="verbatim">Verbatim</button><button data-v="cleanup">Clean up</button></div></div>
     </div>
     <h3>Dictionary</h3>
@@ -345,11 +360,25 @@
     <div class="group">
       <div class="row"><div class="t"><b id="talklabel">Shortcut behavior</b><span id="talkhint">Esc cancels.</span></div><div class="seg" data-k="talkMode" role="group" aria-labelledby="talklabel"><button data-v="hold">Hold to talk</button><button data-v="toggle">Press to toggle</button></div></div>
       <div class="row"><div class="t"><b>Type right away</b><span>Start typing after the shortcut to ask in words.</span></div><label class="sw"><input type="checkbox" data-k="typeRight" aria-label="Type right away"></label></div>
-      <div class="row"><div class="t"><b>Wake word</b><span>Listen on this Mac. Close the box to end hands-free chat.</span></div><input class="field" style="flex:0 0 110px" data-k="wakeWordName" maxlength="40" placeholder="Atticus" spellcheck="false" aria-label="Wake word to say"><label class="sw"><input type="checkbox" data-k="wakeWord"></label></div>
     </div>
+    <h3>Scheduled routines</h3>
+    <div class="group" id="routines"></div>
+    <h3>Atticus</h3>
+    <div class="group">
+      <div class="row"><div class="t"><b>Open at login</b></div><label class="sw"><input type="checkbox" data-k="login"></label></div>
+      <div class="row"><div class="t"><b>Show in menu bar</b><span>Hidden? Open it from Spotlight.</span></div><label class="sw"><input type="checkbox" data-k="menuIcon"></label></div>
+      <div class="row"><div class="t"><b>Interface language</b></div><select data-k="uiLanguage"><option value="auto">Automatic</option><option value="en">English</option><option value="it">Italiano</option><option value="es">Español</option><option value="fr">Français</option><option value="de">Deutsch</option></select></div>
+      <div class="row"><div class="t"><b>Pause Atticus</b></div><label class="sw"><input type="checkbox" data-k="paused"></label></div>
+      <div class="row"><div class="t"><b>Quit Atticus</b></div><button class="btn red" data-do="quit">Quit</button></div>
+    </div>
+  </section>
+  <section id="voice">
+    <h1>Voice &amp; Sound</h1>
+    <p class="lede">How Atticus hears you and talks back.</p>
     <h3>Listening</h3>
     <div class="group">
       <div class="row"><div class="t"><b>Microphone</b></div><select data-k="microphone"></select></div>
+      <div class="row"><div class="t"><b>Wake word</b><span>Listen on this Mac. Close the box to end hands-free chat.</span></div><input class="field" style="flex:0 0 110px" data-k="wakeWordName" maxlength="40" placeholder="Atticus" spellcheck="false" aria-label="Wake word to say"><label class="sw"><input type="checkbox" data-k="wakeWord"></label></div>
       <div class="row"><div class="t"><b>Speech model</b><span>Speech is best for most people. All stay on this Mac. <i class="info" title="Pick a language under Interface language to use it for Speech and Dictation when supported. Automatic keeps speech in English (US). Whisper supports automatic language detection on this Mac.">i</i></span></div><div class="seg" data-k="speechModel"><button data-v="speech">Speech</button><button data-v="dictation">Dictation</button><button data-v="whisper">Whisper</button></div></div>
       <div class="row" data-w hidden><div class="t"><b>Whisper model <i class="info" title="Turbo: fast, very close to Large. Large v3: most accurate, slower. Small: lightest, least accurate. Downloaded once, then runs offline.">i</i></b></div><select data-k="whisperModel" aria-label="Whisper model"><option value="turbo">Turbo · 574 MB</option><option value="large">Large v3 · 1.1 GB</option><option value="small">Small · 190 MB</option></select></div>
       <div class="row" data-w hidden><div class="t"><b>Language</b></div><select data-k="whisperLanguage"><option value="auto">Auto-detect</option><option value="en">English</option><option value="id">Indonesian</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="pt">Portuguese</option><option value="it">Italian</option><option value="nl">Dutch</option><option value="ja">Japanese</option><option value="ko">Korean</option><option value="zh">Chinese</option><option value="hi">Hindi</option><option value="ar">Arabic</option><option value="ru">Russian</option><option value="tr">Turkish</option><option value="vi">Vietnamese</option><option value="th">Thai</option><option value="pl">Polish</option><option value="sv">Swedish</option><option value="uk">Ukrainian</option></select></div>
@@ -362,21 +391,22 @@
       <div class="row"><div class="t"><b>Voice speed</b></div><input type="range" min="120" max="300" step="4" data-k="voiceRate"><span class="val" id="ratev"></span></div>
       <div class="row"><div class="t"><b>Sound volume</b></div><input type="range" min="0" max="0.6" step="0.02" data-k="volume"><span class="val" id="volv"></span></div>
     </div>
+  </section>
+  <section id="box">
+    <h1>Box &amp; Display</h1>
+    <p class="lede">Your answer box. Your screen.</p>
     <h3>Answer box</h3>
     <div class="group">
-      <div class="row"><div class="t"><b>Automatically minimize the box</b></div><label class="sw"><input type="checkbox" data-k="autoMinimize" aria-label="Automatically minimize the box"></label></div>
+      <div class="row"><div class="t"><b>Automatically minimize the box</b><span>Shrinks while working, opens when done.</span></div><label class="sw"><input type="checkbox" data-k="autoMinimize" aria-label="Automatically minimize the box"></label></div>
+      <div class="row"><div class="t"><b>Show preview window</b><span>A small live view of the app Atticus is working in.</span></div><label class="sw"><input type="checkbox" data-k="miniScreen" aria-label="Show preview window"></label></div>
+      <div class="row"><div class="t"><b>Tiny when minimized</b><span>A minimized box becomes a small circle. Click it to open.</span></div><label class="sw"><input type="checkbox" data-k="tinyFold" aria-label="Tiny when minimized"></label></div>
       <div class="row"><div class="t"><b>Show answers</b></div><div class="seg" data-k="showAnswers"><button data-v="stream">As they arrive</button><button data-v="once">All at once</button></div></div>
-      <div class="row"><div class="t"><b>Draw on screen to show you</b><span>Esc clears. To mark a spot yourself, use Point at your screen.</span></div><label class="sw"><input type="checkbox" data-k="draw" aria-label="Draw on screen to show you"></label></div>
     </div>
-    <h3>Scheduled routines</h3>
-    <div class="group" id="routines"></div>
-    <h3>Atticus</h3>
+    <h3>Screen</h3>
     <div class="group">
-      <div class="row"><div class="t"><b>Open at login</b></div><label class="sw"><input type="checkbox" data-k="login"></label></div>
-      <div class="row"><div class="t"><b>Show in menu bar</b><span>Hidden? Open it from Spotlight.</span></div><label class="sw"><input type="checkbox" data-k="menuIcon"></label></div>
-      <div class="row"><div class="t"><b>Interface language</b></div><select data-k="uiLanguage"><option value="auto">Automatic</option><option value="en">English</option><option value="it">Italiano</option><option value="es">Español</option><option value="fr">Français</option><option value="de">Deutsch</option></select></div>
-      <div class="row"><div class="t"><b>Pause Atticus</b></div><label class="sw"><input type="checkbox" data-k="paused"></label></div>
-      <div class="row"><div class="t"><b>Quit Atticus</b></div><button class="btn red" data-do="quit">Quit</button></div>
+      <div class="row"><div class="t"><b>Look at my screen</b><span>Only when you mean it, like “this”. <i class="info" title="The picture goes with that one ask.">i</i></span></div><div class="seg" data-k="screen"><button data-v="auto">Automatic</button><button data-v="never">Never</button></div></div>
+      <div class="row"><div class="t"><b>Draw on screen to show you</b><span>Esc clears. To mark a spot yourself, use Point at your screen.</span></div><label class="sw"><input type="checkbox" data-k="draw" aria-label="Draw on screen to show you"></label></div>
+      <div class="row"><div class="t"><b>Hide from screen sharing</b><span>Others won’t see Atticus when you share.</span></div><label class="sw"><input type="checkbox" data-k="hideWhenSharing"></label></div>
     </div>
   </section>
 
@@ -391,8 +421,8 @@
       <div class="row"><div class="t"><b>Intelligence</b></div><div class="seg" data-k="routing"><button data-v="cheapest">Cheapest</button><button data-v="balanced">Balanced</button><button data-v="capable">Most capable</button></div>
         <span id="routingwhy" aria-live="polite"></span></div>
       <div class="row"><div class="t"><b>Work model</b><span>Opus is stronger, uses more.</span></div><div class="seg" data-k="model"><button data-v="sonnet">Sonnet</button><button data-v="opus">Opus</button></div></div>
-      <div class="row"><div class="t"><b>Explanations and drawings</b></div><div class="seg" data-k="drawModel"><button data-v="sonnet">Sonnet</button><button data-v="opus">Opus</button></div></div>
-      <div class="row"><div class="t"><b>Suggest a stronger model</b></div><label class="sw"><input type="checkbox" data-k="modelSuggestions" aria-label="Suggest a stronger model"></label></div>
+      <div class="row"><div class="t"><b>Explanations and drawings</b><span>Used when Atticus explains or draws.</span></div><div class="seg" data-k="drawModel"><button data-v="sonnet">Sonnet</button><button data-v="opus">Opus</button></div></div>
+      <div class="row"><div class="t"><b>Suggest a stronger model</b><span>Offers a retry with a stronger model.</span></div><label class="sw"><input type="checkbox" data-k="modelSuggestions" aria-label="Suggest a stronger model"></label></div>
     </div>
     <h3 id="serverheading">Custom server</h3>
     <div class="group" id="server">
@@ -400,7 +430,7 @@
       <div class="row"><div class="t"><b>Address</b><span>Ollama, LM Studio, DeepSeek or any Claude-style API.</span></div><input class="field" id="apiBase" placeholder="https://api.deepseek.com/anthropic" spellcheck="false" aria-label="Custom server address"></div>
       <div class="row"><div class="t"><b>Key</b></div><input class="field" id="apiKey" type="password" placeholder="Not needed for local servers" aria-label="Custom server key"></div>
       <div class="row"><div class="t"><b>Model</b><span id="srvnote" role="status">Needs vision for screen tasks.</span></div><input class="field" id="apiModel" list="apimodels" placeholder="deepseek-flash" spellcheck="false" aria-label="Custom server model"><datalist id="apimodels"></datalist></div>
-      <div class="row" id="agentServerModel" hidden><div class="t"><b>Agent model</b></div><input class="field" id="agentApiModel" list="apimodels" placeholder="Same as main model" spellcheck="false" aria-label="Custom server agent model"></div>
+      <div class="row" id="agentServerModel" hidden><div class="t"><b>Agent model</b><span>The model agents use.</span></div><input class="field" id="agentApiModel" list="apimodels" placeholder="Same as main model" spellcheck="false" aria-label="Custom server agent model"></div>
     </div>
   </section>
 
@@ -460,11 +490,11 @@
       <div class="row"><div class="t"><b>Screen Recording</b><span>Looks at your screen when you say “this”.</span></div><span class="pill ok">Allowed</span><button class="btn" data-g="screen">Allow</button></div>
       <div class="row"><div class="t"><b>Chrome Pages</b><span>Reads and clicks web pages in Chrome, in the background.</span></div><span class="pill ok">On</span><button class="btn" data-g="chrome">Turn On</button></div>
       <div class="row"><div class="t"><b>Automation</b><span>Lets agents script your apps.</span></div><span class="pill ok">Allowed</span><button class="btn" data-g="auto">Allow</button></div>
-      <div class="row"><div class="t"><b>Apps</b></div><button class="btn" onclick="st.tab('apps')">Choose</button></div>
+      <div class="row"><div class="t"><b>Apps</b><span>Which apps Atticus can control.</span></div><button class="btn" onclick="st.tab('apps')">Choose</button></div>
     </div>
     <h3>Agents</h3>
     <div class="group" id="agentsetup">
-      <div class="row"><div class="t"><b>Set up agents</b></div><button class="btn blue" id="enableAll">Enable All</button></div>
+      <div class="row"><div class="t"><b>Set up agents</b><span>Turns on everything agents need, one by one.</span></div><button class="btn blue" id="enableAll">Enable All</button></div>
       <div class="row"><div class="t"><b>Calendar</b><span>When you ask.</span></div><span class="pill ok">Allowed</span><button class="btn" data-g="calendar">Allow</button></div>
       <div class="row"><div class="t"><b>Claude connectors</b><span id="conntext">Checking your Claude account…</span></div><button class="btn" data-do="connectors">Connect in Claude</button></div>
       <div class="row" id="agentsettings"><div class="t"><b>Use my Claude Code tools</b><span>MCP servers, skills and plugins.</span></div><label class="sw"><input type="checkbox" data-k="agentUserTools"></label></div>
@@ -475,8 +505,6 @@
     </div>
     <h3>Privacy</h3>
     <div class="group">
-      <div class="row"><div class="t"><b>Look at my screen</b><span>Only when you mean it, like “this”. <i class="info" title="The picture goes with that one ask.">i</i></span></div><div class="seg" data-k="screen"><button data-v="auto">Automatic</button><button data-v="never">Never</button></div></div>
-      <div class="row"><div class="t"><b>Hide from screen sharing</b></div><label class="sw"><input type="checkbox" data-k="hideWhenSharing"></label></div>
       <div class="row"><div class="t"><b>Count me as a user</b><span>Anonymous feature, timing and error counts. <i class="info" title="A random ID, with no task text, dictated words, files or screen content.">i</i></span></div><label class="sw"><input type="checkbox" data-k="stats"></label></div>
       <div class="row"><div class="t"><b>Help improve Atticus</b><span>If something breaks, send an anonymous report. <i class="info" title="Sends what you asked, the steps it took and why. Emails, numbers, file paths and anything typed for you are removed first.">i</i></span></div><label class="sw"><input type="checkbox" data-k="improve"></label></div>
     </div>
@@ -490,7 +518,7 @@
       <div class="row"><div class="t"><b>Meeting Copilot</b><span>The call and your mic, in a private panel. <i class="info" title="On supported calls, listening ends two seconds after the app releases the mic.">i</i></span></div><label class="sw"><input type="checkbox" data-k="meeting" aria-label="Meeting Copilot"></label></div>
       <div class="row"><div class="t"><b>Save meeting transcripts</b><span>On this Mac. <i class="info" title="Transcripts, notes and answers. At the end, choose Save or Don’t save. Turning off offers to keep or delete past meetings.">i</i></span></div><label class="sw"><input type="checkbox" data-k="meetingSave" aria-label="Save meeting transcripts"></label></div>
       <div class="row"><div class="t"><b>AI meeting summaries</b><span>Claude reads the transcript once. <i class="info" title="For a recap and action items. With Devin or Pi, meetings stay on this Mac. Off: a local recap, and prep won’t search connected email or documents.">i</i></span></div><label class="sw"><input type="checkbox" data-k="meetingSummary" aria-label="AI meeting summaries"></label></div>
-      <div class="row"><div class="t"><b>Prep in a Claude chat</b></div><button class="btn" data-do="meetingPrepPrompt" id="meetingPrepPrompt">Copy Prompt</button></div>
+      <div class="row"><div class="t"><b>Prep in a Claude chat</b><span>Copies a prompt that drafts a meeting brief.</span></div><button class="btn" data-do="meetingPrepPrompt" id="meetingPrepPrompt">Copy Prompt</button></div>
       </div>
       </details>
       <h3>Saved meetings</h3>
@@ -522,8 +550,8 @@
     <div class="group">
       <div class="row"><div class="t"><b>Source code</b></div><button class="btn" data-do="github">Open</button></div>
       <div class="row"><div class="t"><b>Support Atticus</b></div><button class="btn" data-do="kofi">Leave a Tip</button></div>
-      <div class="row"><div class="t"><b>Tip reminders</b></div><label class="sw"><input type="checkbox" data-k="support"></label></div>
-      <div class="row"><div class="t"><b>Ideas when I’m away</b></div><label class="sw"><input type="checkbox" data-k="comeBack"></label></div>
+      <div class="row"><div class="t"><b>Tip reminders</b><span>Sometimes asks for a tip after an answer.</span></div><label class="sw"><input type="checkbox" data-k="support"></label></div>
+      <div class="row"><div class="t"><b>Ideas when I’m away</b><span>After a day unused, suggests something to ask.</span></div><label class="sw"><input type="checkbox" data-k="comeBack"></label></div>
     </div>
   </section>
   <section id="feedback">
@@ -534,6 +562,7 @@
     <button class="btn blue" id="feedbackopen" disabled>Open GitHub issue ↗</button>
     <p class="note">Only the text above goes in. Nothing is sent until you submit on GitHub.</p>
   </section>
+  <section id="find" aria-label="Search results"></section>
 </main>
 <div id="notice" role="status" aria-live="polite" hidden><span id="noticetext"></span><button class="btn" id="noticebtn" hidden></button></div>
 
@@ -621,7 +650,7 @@
   const still = () => document.body.classList.contains('reduce') || matchMedia('(prefers-reduced-motion: reduce)').matches;
   const landed = e => { e.classList.remove('leaving'); e.style.top = e.style.left = e.style.width = ''; };
   function openSection(s, clicked) {
-    cancelRecord();
+    cancelRecord(); $('setq').value = ''; foldFind();
     document.querySelectorAll('section.leaving').forEach(landed);
     const old = document.querySelector('section.on'), main = document.querySelector('main');
     if (clicked && old && old.id !== s && !still()) {   // the page you leave stays where it was while it blurs out
@@ -639,6 +668,46 @@
     if (s === 'brain') probe();
   }
   document.querySelectorAll('nav button[data-s]').forEach(b => b.onclick = () => openSection(b.dataset.s, true));
+  // Settings search: matching rows from every page, under the page's name. Matches the English (read before i18n runs) and the words on screen.
+  const FIND = [...document.querySelectorAll('section .row')].filter(r => r.querySelector(':scope > .t > b') && !r.closest('#apps,#routines,#rules,#skills,#asklist,#dictationhistory,#dictationwords,#profileCategories'))
+    .map(r => ({ r, s: r.closest('section').id, en: r.querySelector('.t').textContent }));
+  let findFrom = 'general';
+  function find() {
+    const q = $('setq').value.trim().toLocaleLowerCase(), list = $('find');
+    if (!q) { if (list.classList.contains('on')) openSection(findFrom); return; }
+    if (!list.classList.contains('on')) {
+      findFrom = document.querySelector('section.on')?.id || 'general';
+      document.querySelectorAll('nav button, section').forEach(e => e.classList.remove('on')); $('navsel').style.opacity = 0;
+      list.classList.add('on'); document.querySelector('main').scrollTop = 0;
+    }
+    const hits = FIND.filter(f => !f.r.closest('[hidden]') && (f.en + '\n' + f.r.querySelector('.t').textContent).toLocaleLowerCase().includes(q));
+    list.replaceChildren();
+    for (const s of new Set(hits.map(f => f.s))) {
+      const title = document.createElement('h3'), group = document.createElement('div'); group.className = 'group';
+      title.textContent = document.querySelector(`nav button[data-s="${s}"]`)?.textContent || $(s).querySelector('h1').textContent;
+      for (const f of hits.filter(f => f.s === s)) {
+        const row = document.createElement('div'), t = f.r.querySelector('.t').cloneNode(true);
+        row.className = 'row'; row.tabIndex = 0; row.setAttribute('role', 'button');
+        t.querySelectorAll('.info').forEach(e => e.remove()); t.querySelectorAll('[id]').forEach(e => e.removeAttribute('id'));
+        row.append(t);
+        row.onclick = () => { $('setq').blur(); openSection(f.s, true); const fold = f.r.closest('details'); if (fold) fold.open = true; f.r.scrollIntoView({ block: 'center', behavior: still() ? 'auto' : 'smooth' }); f.r.classList.remove('flash'); void f.r.offsetWidth; f.r.classList.add('flash'); };
+        row.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); row.click(); } };
+        group.append(row);
+      }
+      list.append(title, group);
+    }
+    if (!hits.length) list.innerHTML = '<div class="group"><div class="empty">No results. Try a shorter word.</div></div>';
+  }
+  const openFind = () => { $('setq').parentNode.classList.add('finding'); $('setq').focus(); $('setq').select(); };
+  function foldFind() { if (!$('setq').value && document.activeElement !== $('setq')) $('setq').parentNode.classList.remove('finding'); }
+  $('findbtn').onclick = openFind;
+  $('setq').onblur = foldFind;
+  $('setq').oninput = find;
+  $('setq').onkeydown = e => {
+    if (e.key === 'Enter') $('find').querySelector('.row')?.click();
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); if (!$('setq').value) $('setq').blur(); $('setq').value = ''; find(); }
+  };
+  document.addEventListener('keydown', e => { if (e.metaKey && e.key.toLowerCase() === 'f' && !$('meetings').classList.contains('on')) { e.preventDefault(); openFind(); } });   // Meetings keeps ⌘F for its own search
   const thumb = seg => {
     const b = seg.querySelector('button.on');
     if (!b || !seg.offsetWidth) { if (seg.classList.contains('placed')) seg.classList.remove('placed'); return; }   // hidden: placed again, without sliding, when it shows

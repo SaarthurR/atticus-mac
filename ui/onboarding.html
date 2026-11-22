@@ -29,6 +29,7 @@
   h2 { font: 600 24px/1.15 system-ui; letter-spacing: -.02em; margin: 0 0 8px; }
   p.sub { font-size: 14px; line-height: 1.5; color: var(--fg2); margin: 0; max-width: 420px; text-wrap: balance; }
   .note { margin-top: 12px; font-size: 12px; color: var(--fg3); }
+  p.anytime { margin: 6px 0 0; }
   .note button, .alt { padding: 0; border: 0; background: none; cursor: pointer; font: 500 12px system-ui; color: var(--accent); }
   .note button:hover, .alt:hover { text-decoration: underline; }
 
@@ -131,7 +132,12 @@
   .mc[aria-checked="true"] .use i { background: var(--accent); }
   .mc .uses { font: 500 11.5px system-ui; color: var(--fg2); }
   .mc .eg { margin-top: 4px; padding-top: 10px; box-shadow: inset 0 .5px 0 var(--line); font-size: 12px; line-height: 1.45; color: var(--fg2); }
+  .mc .eg { flex: 1; display: flex; flex-direction: column; }
   .mc .eg em { display: block; margin-top: 4px; font-style: normal; color: var(--fg3); }
+  /* the drawing as Atticus inks it on screen: red 3 pt round strokes at .85, names in Noteworthy */
+  .mc .eg svg { display: block; height: 80px; margin: auto auto 0; padding-top: 10px; pointer-events: none; overflow: visible;
+    fill: none; stroke: rgb(var(--red-rgb)); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; stroke-opacity: .85; }
+  .mc .eg svg text { stroke: none; fill: var(--fg); font: 700 11px Noteworthy, "Marker Felt", system-ui; text-anchor: middle; dominant-baseline: central; }
 
   /* try it: the real keys, big, and one line that follows the app */
   .stage { width: 100%; max-width: 480px; margin-top: 18px; padding: 26px 20px 22px; box-sizing: border-box; border-radius: 16px;
@@ -294,6 +300,7 @@
 <section class="page" id="ai">
   <h2 class="r" id="ai-h">Pick an AI</h2>
   <p class="sub r">Use an AI plan you already have.</p>
+  <p class="note anytime r">You can change this anytime.</p>
   <div class="list r" role="radiogroup" aria-labelledby="ai-h">
     <button class="opt" role="radio" data-p="claude"><span class="dot"></span><div class="txt"><b>Claude</b><span>Your Claude Pro or Max plan.</span></div></button>
     <button class="opt" role="radio" data-p="devin"><span class="dot"></span><div class="txt"><b>Devin</b><span>Your Devin plan.</span></div></button>
@@ -318,15 +325,20 @@
 
 <section class="page" id="model">
   <h2 class="r" id="model-h">Pick a work model</h2>
-  <p class="sub r">Atticus uses it for bigger asks. Change it anytime in Settings.</p>
+  <p class="sub r">Atticus uses it for bigger asks.</p>
+  <p class="note anytime r">You can change this anytime.</p>
   <div class="says r"><span>Asked</span><i>“Teach me the Pythagorean theorem.”</i></div>
   <div class="mcards r" role="radiogroup" aria-labelledby="model-h">
     <button class="mc" role="radio" data-m="sonnet"><span class="head"><span class="dot"></span>Sonnet</span><span class="why">Quick, clear answers.</span>
       <span class="use" aria-hidden="true"><i style="--w:50%"></i></span><span class="uses">Lighter on your plan</span>
-      <span class="eg">The two small squares add up to the big one.<em>✎ Draws the triangle</em></span></button>
+      <span class="eg">The two small squares add up to the big one.
+        <svg viewBox="0 0 84 74" aria-hidden="true"><path d="M14 10V52H70Z"/><path d="M14 45h7v7" stroke-width="1.6"/><text x="6" y="31">3</text><text x="42" y="64">4</text><text x="48" y="24">5</text></svg>
+        <em>✎ Draws the triangle</em></span></button>
     <button class="mc" role="radio" data-m="opus"><span class="head"><span class="dot"></span>Opus</span><span class="why">More detail, more steps.</span>
       <span class="use" aria-hidden="true"><i style="--w:100%"></i></span><span class="uses">About 2× more of your plan</span>
-      <span class="eg">9 + 16 = 25: the squares on the short sides fill the one on the long side.<em>✎ Draws all three squares</em></span></button>
+      <span class="eg">9 + 16 = 25: the squares on the short sides fill the one on the long side.
+        <svg viewBox="0 0 76 83" aria-hidden="true"><path d="M24 31V52H52Z"/><path d="M24 31H3V52H24"/><path d="M24 52V80H52V52"/><path d="M24 31L45 3L73 24L52 52"/><text x="13.5" y="41.5">9</text><text x="38" y="66">16</text><text x="48.5" y="27.5">25</text></svg>
+        <em>✎ Draws all three squares</em></span></button>
   </div>
 </section>
 
@@ -415,7 +427,8 @@
 <section class="page" id="improve">
   <div class="kicker r">Optional</div>
   <h2 class="r">Help make Atticus better</h2>
-  <p class="sub r">When a task fails, Atticus can tell its maker what went wrong, so the next version gets it right. Change it anytime in Settings.</p>
+  <p class="sub r">When a task fails, Atticus can tell its maker what went wrong, so the next version gets it right.</p>
+  <p class="note anytime r">You can change this anytime.</p>
   <div class="list r">
     <div class="row"><div class="ic" style="background:rgb(var(--blue-rgb))"><svg viewBox="0 0 24 24"><path d="M5 5h14v10H10l-5 4z"/></svg></div>
       <div class="txt"><b>Only what failed</b><span>What you asked, the steps Atticus took, and why it didn’t work.</span></div></div>

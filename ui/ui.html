@@ -42,6 +42,10 @@
   body.folded #fold { opacity: 0; pointer-events: none; }
   body.folded:is(:hover,.hot) #fold, body.folded #fold:focus-visible { opacity: 1; pointer-events: auto; }
   body.folded #status span:empty::before { content: 'Done'; }
+  body.tiny.folded:not(.fold-morph) #card { width: 36px; height: 36px; padding: 4px; cursor: pointer; }   /* Tiny when minimized: only the orb; click it to expand */
+  body.tiny.folded:not(.fold-morph) #head { height: 28px; } body.tiny.folded:not(.fold-morph) #head > :not(#orb) { display: none !important; }
+  body.tiny.folded:not(.fold-morph) #orb { width: 28px; height: 28px; margin: 0; }
+  body.tiny.folded:not(.fold-morph) #orb { transition: transform var(--t-base) var(--ease); } body.tiny.folded:not(.fold-morph):is(:hover,.hot) #orb { transform: translateY(-1.5px) scale(1.04); }   /* a small lift says: click to open */
 
   #head { display: flex; align-items: center; gap: 7px; height: 44px; flex: none; }
   canvas { width: 44px; height: 44px; flex: none; margin-left: -4px; transition: transform var(--t-slow) var(--ease); }
@@ -545,7 +549,7 @@
     clearTimeout(foldTimer);
     document.body.classList.remove('fold-morph', 'fold-away');
     $('card').getAnimations().forEach(a => a instanceof CSSTransition && a.finish());   // a padding ease still in flight would size the box to its first frame
-    foldBody(on);
+    foldBody(on); $('card').style.width = '';
     if (!on) $('thread').scrollTop = foldedScroll;
     fit(false);
     const done = foldDone; foldDone = null; done?.();
@@ -564,15 +568,17 @@
     const ease = () => { card.style.padding = padding; void card.offsetHeight; document.body.classList.add('fold-morph'); card.style.padding = ''; };
     if (on) {
       ease(); document.body.classList.add('fold-away');
-      post({ fold: id, h }); foldTimer = setTimeout(() => window.ui.foldSettled(id), FOLD_MS + 80);   // no rAF: a hidden box never paints, so it would never settle
+      const tiny = tinyFold && !document.body.classList.contains('dictate'); if (tiny) wideW = innerWidth;
+      post({ fold: id, h, tiny }); foldTimer = setTimeout(() => window.ui.foldSettled(id), FOLD_MS + 80);   // no rAF: a hidden box never paints, so it would never settle
     } else {
       document.body.classList.remove('folded', 'fold-away', 'fold-morph');
+      if (innerWidth < 100 && wideW) $('card').style.width = wideW + 'px';   // the tiny window is 36 px wide: measure the answer at the width it opens to
       const h = $('card').offsetHeight;
       ease();
-      post({ fold: id, h }); foldTimer = setTimeout(() => window.ui.foldSettled(id), FOLD_MS + 80);
+      post({ fold: id, h, tiny: false }); foldTimer = setTimeout(() => window.ui.foldSettled(id), FOLD_MS + 80);
     }
   };
-  let autoMinimize = true, drawingActive = false, drawingThisTurn = false;
+  let tinyFold = false, wideW = 0, autoMinimize = true, drawingActive = false, drawingThisTurn = false;
   const foldedOrFolding = () => document.body.classList.contains('fold-away') || folded && !document.body.classList.contains('fold-morph');
   const manualFold = on => {
     if (working || drawingActive) { autoMinimize = on; post({ autoMinimize: on }); }
@@ -902,6 +908,15 @@
   window.ui = {
     updated(version) { $('updated').hidden = !version; $('updated').querySelector('span').textContent = version ? 'Updated to ' + version : ''; fit(false); },
     autoMinimize(on) { autoMinimize = !!on; },
+    tiny(on) {
+      if (tinyFold === !!on) return;
+      tinyFold = !!on; document.body.classList.toggle('tiny', tinyFold);
+      if (!folded || document.body.classList.contains('fold-morph') || document.body.classList.contains('dictate')) return;
+      // switched while minimized: take the new minimized shape now, not after the next ask
+      if (tinyFold) wideW = innerWidth; else if (innerWidth < 100 && wideW) $('card').style.width = wideW + 'px';
+      clearTimeout(foldTimer); document.body.classList.add('fold-away');   // fold-away: foldSettled keeps it minimized
+      const id = ++foldSeq; post({ fold: id, h: $('card').offsetHeight, tiny: tinyFold }); foldTimer = setTimeout(() => window.ui.foldSettled(id), FOLD_MS + 80);
+    },
     drawing(on) {
       const started = on && !drawingActive; drawingActive = drawingThisTurn = !!on;
       if (started && autoMinimize && !listening) foldBox(true);
@@ -912,7 +927,7 @@
         turn().append(b); fit();
       }
     },
-    foldSettled(id) { if (id === foldSeq) finishFold(document.body.classList.contains('fold-away')); },
+    foldSettled(id) { if (id === foldSeq) finishFold(foldedOrFolding()); },   // twice per fold (page timer, native done): the second keeps what the first settled
     agentDefaultAction(){defaultButton()?.click();},
     movePending(){turn()?.querySelectorAll('.pk,.ok:not(.agent-card)').forEach(e=>e.remove());status('Moving to an agent…',true);fit();},   // a waiting pick or Allow goes with the ask
     moveSource(){const r=$('orb').getBoundingClientRect();return [r.x,r.y,r.width,r.height];},

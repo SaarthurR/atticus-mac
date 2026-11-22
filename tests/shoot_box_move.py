@@ -35,7 +35,7 @@ struct Message { let body: Any }
 final class Box {
     let panel = NSPanel(contentRect: NSRect(x:0,y:0,width:360,height:120), styleMask:[.borderless,.nonactivatingPanel], backing:.buffered, defer:false)
     let drawing = Drawing()
-    var dragging = false, hovering = false, stuck = false, pillOn = false, fromTop = false, compH: CGFloat = 0
+    var dragging = false, hovering = false, stuck = false, pillOn = false, tiny = false, fromTop = false, compH: CGFloat = 0
     func js(_ name: String, _ data: Any? = nil) {}
     func hide(after: Double) {}
 ''' + resize + settle + placement + '''

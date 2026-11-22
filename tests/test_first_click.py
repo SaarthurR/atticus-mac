@@ -96,7 +96,7 @@ SCENES['ui'].update({name: BOX_TURN + action for name, action in {
 class FirstClickTests(unittest.TestCase):
     def test_each_visible_control_receives_one_click_while_unfocused(self):
         source = (ROOT / 'Atticus.swift').read_text()
-        match = re.search(r'(?:final )?class ClickWebView: WKWebView \{[^}]+\}[^\n]*\n\}', source)
+        match = re.search(r'(?:final )?class ClickWebView: WKWebView \{.*?\n\}\n', source, re.S)
         web_class = match.group(0) if match else ''
         with tempfile.TemporaryDirectory() as tmp:
             src, binary = Path(tmp) / 'click.swift', Path(tmp) / 'click'

@@ -4,7 +4,7 @@ Every feature in detail. Start with the [README](../README.md).
 
 ## Hands-free
 
-Turn on **Wake word** in Settings → General (off by default). The word is "Atticus" unless you type your own beside the switch. Say it, with or without "hey" first, wait for Listening…, then ask. Speech is recognized on your Mac only. After each answer it listens again quietly, with a small "Listening..." beside the timer; start talking and your words fill the bubble. Clicking other apps never closes a hands-free chat, so you can keep working while it does things for you. ✕ or Esc ends it, and a chat nobody talks to fades after about 90 seconds unless you moved or resized the box. The hotkey always takes over. While the wake word is on, macOS shows the orange mic dot.
+Turn on **Wake word** in Settings → Voice & Sound (off by default). The word is "Atticus" unless you type your own beside the switch. Say it, with or without "hey" first, wait for Listening…, then ask. Speech is recognized on your Mac only. After each answer it listens again quietly, with a small "Listening..." beside the timer; start talking and your words fill the bubble. Clicking other apps never closes a hands-free chat, so you can keep working while it does things for you. ✕ or Esc ends it, and a chat nobody talks to fades after about 90 seconds unless you moved or resized the box. The hotkey always takes over. While the wake word is on, macOS shows the orange mic dot.
 
 While Atticus works, the line next to ✕ minimizes the box to a small bar with its live steps. Hover and click the line to bring it back.
 
@@ -32,7 +32,7 @@ Hold fn to talk. Double-tap to lock. In any text field, hold the fn (🌐) key, 
 
 **Interface language.** Pick English, Italian, Spanish, French or German in Settings → General. Apple's speech then listens in that language too, if your Mac supports it.
 
-**Other languages.** Otherwise Atticus runs Apple's speech in English (US). For other languages, speech that mixes languages, or more accurate English, pick **Whisper** in Settings → General → Speech model. It runs [whisper.cpp](https://github.com/ggml-org/whisper.cpp) on your Mac, so audio still never leaves it. Settings installs whisper.cpp with Homebrew (`brew install whisper.cpp`) and downloads the model you choose: **Turbo** (574 MB, the default), **Large v3** (1.1 GB, the most accurate) or **Small** (190 MB). Language is detected automatically, or you can pick one. Words show up while you talk, a little behind Apple's. Downloaded models live in `~/.config/atticus/whisper/`. Meeting Copilot still uses Apple's English model.
+**Other languages.** Otherwise Atticus runs Apple's speech in English (US). For other languages, speech that mixes languages, or more accurate English, pick **Whisper** in Settings → Voice & Sound → Speech model. It runs [whisper.cpp](https://github.com/ggml-org/whisper.cpp) on your Mac, so audio still never leaves it. Settings installs whisper.cpp with Homebrew (`brew install whisper.cpp`) and downloads the model you choose: **Turbo** (574 MB, the default), **Large v3** (1.1 GB, the most accurate) or **Small** (190 MB). Language is detected automatically, or you can pick one. Words show up while you talk, a little behind Apple's. Downloaded models live in `~/.config/atticus/whisper/`. Meeting Copilot still uses Apple's English model.
 
 ## Point at your screen
 
@@ -44,7 +44,7 @@ Ask where to click or how to do something and Atticus shows you instead of only 
 
 Ask it to explain something and draw it ("explain the Pythagorean theorem and draw it on my screen") and the drawing builds up like a whiteboard: each step adds to the last, and a card in the opposite corner keeps every caption so far. It moves through the steps by itself. It works from what you have open: with a video, page or problem on screen, it marks up that figure and uses its numbers, unless you ask for a fresh example. Math shows as real fractions, roots and powers, objects get smooth curved outlines, and labels stay clear of the arrows. Drawings go on the screen where you asked (the one with the Atticus box) unless you name another. Worked examples and practice problems are written line by line in large text on one panel, readable from your chair on a laptop or a monitor.
 
-The drawing stays while you keep asking about it, and Atticus can add to it; it changes only when an answer draws something new. Click any mark (a box, an arrow, a label, a line of text) to select it, then ask "how does this work?": like Point at your screen, the question carries that mark and a picture of it. While a drawing is up, the Atticus box moves out of its way and comes back when it's gone. Close the card or press Esc to clear it. Steps are spoken only when Read answers aloud is on. The drawings never take focus, and clicks pass through everywhere except on a mark. Turn it off in Settings → General → Draw on screen to show you.
+The drawing stays while you keep asking about it, and Atticus can add to it; it changes only when an answer draws something new. Click any mark (a box, an arrow, a label, a line of text) to select it, then ask "how does this work?": like Point at your screen, the question carries that mark and a picture of it. While a drawing is up, the Atticus box moves out of its way and comes back when it's gone. Close the card or press Esc to clear it. Steps are spoken only when Read answers aloud is on. The drawings never take focus, and clicks pass through everywhere except on a mark. Turn it off in Settings → Box & Display → Draw on screen to show you.
 
 ## Model choice
 
@@ -109,7 +109,7 @@ You need:
 - **macOS 26** or later (Atticus uses Apple's new on-device speech)
 - **An AI client:** a paid Claude plan (Pro or Max) and [Claude Code](https://claude.com/claude-code), the [Devin CLI](https://docs.devin.ai/cli) signed in to a Devin plan, [Pi](https://pi.dev) with your chosen provider/model, or a custom server through Claude Code with no Claude account. Pick one in setup's AI step or Settings → Intelligence.
 - Apple's command line tools: `xcode-select --install`
-- Optional, for languages other than English: [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (`brew install whisper.cpp`, or `whisper-cpp` from nixpkgs). Settings → General can install it for you.
+- Optional, for languages other than English: [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (`brew install whisper.cpp`, or `whisper-cpp` from nixpkgs). Settings → Voice & Sound can install it for you.
 - Accessibility permission enables native clicks, scrolling, menus, keys, dragging and field typing.
 
 Paste this in Terminal:

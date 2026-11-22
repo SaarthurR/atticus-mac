@@ -18,13 +18,14 @@ def harness(source):
     fold = app[app.index('            if let id = b["fold"] as? Int'):app.index('            if let h = b["comp"] as? NSNumber')]
     settle = app[app.index('    var easing = NSRect.zero'):app.index('    var followTimer: Timer?')]
     return 'import Cocoa\nimport WebKit\n' + swift_motion(source) + r'''
-enum Prefs { static func str(_ k: String) -> String { "top-left" } }
+enum Prefs { static func str(_ k: String) -> String { "top-left" }; static func num(_ k: String) -> Double { 400 } }
+func boxWidth(_ saved: Double, _ bounds: NSRect) -> CGFloat { CGFloat(saved) }
 struct Drawing { var active = false }
 final class KeyPanel: NSPanel { override var canBecomeKey: Bool { true } }
 final class Box: NSObject, WKScriptMessageHandler {
     let panel = KeyPanel(contentRect: NSRect(x: 100, y: 500, width: 400, height: 76), styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: false)
     var web: WKWebView!
-    var fromTop = false, pillOn = false, dragging = false, stuck = false, drawing = Drawing()
+    var fromTop = false, pillOn = false, tiny = false, dragging = false, stuck = false, drawing = Drawing()
     func avoidDrawing() {}
     func glide(_ f: NSRect, done: (() -> Void)? = nil) { frame(f); done?() }
     func frame(_ f: NSRect, on: NSScreen? = nil, animate: Bool = false) { (animate ? panel.animator() : panel).setFrame(f, display: true) }

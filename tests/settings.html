@@ -83,7 +83,7 @@ try {
   await new Promise(r=>setTimeout(r,330));assert(messages.some(m=>m.do==='feedbackInvalidate')&&messages.at(-1).text==='Edited feedback','Native draft is invalidated and current text is requested');
   w.st.feedback({revision:revision(),include:true,body:'Edited feedback'});assert(!d.getElementById('feedbackopen').disabled,'Only the current text preview enables opening');
   w.st.tab('feedback');assert(!d.getElementById('feedbackinclude').checked,'Every feedback visit resets ask inclusion');
-  assert(!d.getElementById('screen')&&!d.getElementById('sound')&&d.getElementById('account').querySelector('[data-k=screen]')&&d.getElementById('account').querySelector('[data-k=hideWhenSharing]'),'Screen privacy lives in Account & Access; no Screen or Sound pages');
+  assert(!d.getElementById('screen')&&!d.getElementById('sound')&&d.getElementById('box').querySelector('[data-k=screen]')&&d.getElementById('box').querySelector('[data-k=hideWhenSharing]'),'Screen settings live in Box & Display; no Screen or Sound pages');
   assert(d.getElementById('meetings').innerHTML.includes('two seconds after the app releases the mic'),'Settings disclose supported call auto-end');
 
   const prefs = {hotkeyLabel: '⌃⌥Space', input: 'voice', talkMode: 'hold', volume: .16, model: 'haiku', meeting: false, login: true, menuIcon: true, safe: true, soundDone: 'Glass'};

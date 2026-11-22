@@ -34,8 +34,7 @@ print("ok")
         self.assertIn('"comeBack": true', defaults)
         page = (ROOT / 'ui/settings.html').read_text()
         tips = page.index('data-k="support"')
-        self.assertIn('<b>Ideas when I’m away</b></div><label class="sw"><input type="checkbox" data-k="comeBack">',
-                      page[tips:tips + 300])
+        self.assertRegex(page[tips:tips + 300], r'<b>Ideas when I’m away</b>(<span>[^<]*</span>)?</div><label class="sw"><input type="checkbox" data-k="comeBack">')
         self.assertEqual(atticus.switches()['comeBack'], 'Ideas when I’m away')   # by voice too
 
     def test_telemetry_counts_the_index_never_the_text(self):

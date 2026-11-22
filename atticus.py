@@ -1764,11 +1764,58 @@ def remembered(name):
     return hits[0] if len(hits) == 1 else None
 
 
+WIKI_AGENT = 'Atticus/1.0 (https://github.com/SaarthurR/atticus-mac)'   # Wikimedia rate-limits clients that pose as a browser
+
+
+def catalog_item(name, credited=False):
+    """(uri, title) from Wikidata, which keeps Spotify's ids for artists, songs and albums, with Apple's catalog spelling
+    the song and artist that were said; None if neither knows it. No web search: those answer bots with a challenge or 429."""
+    plain = lambda t: ' '.join(re.findall(r'\w+', re.sub(r"['’]", '', t.casefold())))
+    said = plain(name)
+    within = lambda part, whole: bool(part) and re.search(rf'(?<!\w){re.escape(part)}(?!\w)', whole) is not None
+    def apple(entity, *keys):   # Apple's names in its top hit, each kept only if it was said
+        try:
+            hit = (json.loads(get('https://itunes.apple.com/search?' + urllib.parse.urlencode({'term': name, 'entity': entity, 'limit': 1}), 5)).get('results') or [{}])[0]
+        except (OSError, ValueError, AttributeError, IndexError):
+            hit = {}
+        return [f if within(f := plain(str(hit.get(k) or '')), said) else '' for k in keys]
+    song, artist = apple('song', 'trackName', 'artistName')
+    artist = artist or apple('musicArtist', 'artistName')[0]
+    # what is left once the artist is taken out names the song ("gods plan by drake"); only filler left means the artist
+    rest = ' '.join(w for w in re.sub(rf'(?<!\w){re.escape(artist)}(?!\w)', ' ', said).split() if w not in ('by', 'some', 'from', 'songs', 'music')) if artist else said
+    song = song or (rest if artist else '')
+    tries = ([(artist, '')] if artist and not rest and not credited else []) + ([(song, artist)] if song and artist else [])
+    if not credited: tries += ([(song, '')] if song else []) + [(said, '')]
+    for want, by in dict.fromkeys(tries):
+        try:
+            found = json.loads(get('https://www.wikidata.org/w/api.php?' + urllib.parse.urlencode(
+                {'action': 'wbsearchentities', 'search': want, 'language': 'en', 'format': 'json', 'limit': 7, 'type': 'item'}), 5, WIKI_AGENT))
+            hits = {h['id']: plain(h.get('description') or '') for h in found.get('search', []) if re.fullmatch(r'Q\d+', str(h.get('id')))
+                    and want in (plain(h.get('label') or ''), plain((h.get('match') or {}).get('text') or ''))}
+            if not hits: continue
+            query = ('SELECT ?item ?artist ?track ?album ?by WHERE { VALUES ?item { ' + ' '.join('wd:' + i for i in hits) + ' } '
+                     'OPTIONAL { ?item wdt:P1902 ?artist } OPTIONAL { ?item wdt:P2207 ?track } OPTIONAL { ?item wdt:P2205 ?album } '
+                     'OPTIONAL { ?item wdt:P175 ?p . ?p rdfs:label ?by FILTER(lang(?by) = "en") } }')
+            rows = json.loads(get('https://query.wikidata.org/sparql?' + urllib.parse.urlencode({'query': query, 'format': 'json'}), 5, WIKI_AGENT))['results']['bindings']
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        for ident, about in hits.items():   # Wikidata's own order: the best-known thing by that name first
+            mine = [r for r in rows if str((r.get('item') or {}).get('value', '')).rsplit('/', 1)[-1] == ident]
+            # a same-named song by someone else: the artist must be its performer or in its description ("2019 single by The Weeknd")
+            if by and not within(by, about) and not any(plain(str((r.get('by') or {}).get('value', ''))) == by for r in mine): continue
+            for kind in ('track', 'album', 'artist'):
+                uri = next((str(r[kind]['value']) for r in mine if re.fullmatch(r'[A-Za-z0-9]{22}', str((r.get(kind) or {}).get('value', '')))), '')
+                if uri: return f'spotify:{kind}:{uri}', (f'{want} by {by}' if by and kind != 'artist' else want).title()
+    return None
+
+
 def spotify_item(name, anything=True, exact=False, credited=False):
-    """Resolve a cached user playlist or an item a verified play started, then a relevant indexed Spotify result.
+    """Resolve a cached user playlist or an item a verified play started, then Wikidata's Spotify id, then a relevant indexed Spotify result.
     credited: the words must name more than a title (its artist, say), as "play X" alone may mean a video or a game."""
     p = playlist(name) or remembered(name)
     if p or not anything:
+        return p
+    if not exact and (p := catalog_item(name, credited)):
         return p
     errors = []
     metadata_used = False
@@ -2583,7 +2630,17 @@ def fast(text):
                 return None
             fast.cmds = ['open ' + shlex.quote(site if site.startswith(('https://', 'http://')) else 'https://' + site)]
             return f'Opened {target}.'
-        app = app_named(target) or app_heard(target)
+        app = app_named(target)
+        known = None if app else SITES.get(re.sub(r'^(?:the|my)\s+|\s+(?:website|site)$', '', target))
+        if known:   # an installed app of that name wins ("open chatgpt" with the ChatGPT app); a fuzzy app guess never beats a known site ("hacker news" is not News)
+            if not asks_front(text): free_focus(user=True)
+            try:
+                if subprocess.run(['open', 'https://' + known]).returncode: return None
+            except OSError:
+                return None
+            fast.cmds = ['open ' + shlex.quote('https://' + known)]
+            return f'Opened {known}.'
+        app = app or app_heard(target)
         if not app:
             return None
         if pref('openOn', 'here') == 'other':
@@ -2614,6 +2671,14 @@ def fast(text):
 
 
 OPEN = r'(?:open(?: up)?|launch|start|pull up|bring up|focus(?: on)?|switch to|go to)'
+# Well-known sites by spoken name: "open gmail" opens with no AI, like an app. Only names that mean one site everywhere.
+SITES = {'gmail': 'mail.google.com', 'google mail': 'mail.google.com', 'google calendar': 'calendar.google.com', 'google drive': 'drive.google.com',
+         'google docs': 'docs.google.com', 'google sheets': 'sheets.google.com', 'google slides': 'slides.google.com', 'google meet': 'meet.google.com',
+         'google maps': 'maps.google.com', 'google classroom': 'classroom.google.com', 'google': 'google.com', 'youtube': 'youtube.com',
+         'youtube music': 'music.youtube.com', 'github': 'github.com', 'reddit': 'reddit.com', 'twitter': 'x.com', 'x': 'x.com',
+         'netflix': 'netflix.com', 'amazon': 'amazon.com', 'linkedin': 'linkedin.com', 'facebook': 'facebook.com', 'instagram': 'instagram.com',
+         'wikipedia': 'wikipedia.org', 'chatgpt': 'chatgpt.com', 'claude': 'claude.ai', 'hacker news': 'news.ycombinator.com',
+         'stack overflow': 'stackoverflow.com', 'twitch': 'twitch.tv', 'ebay': 'ebay.com', 'outlook': 'outlook.live.com', 'canvas': 'canvas.instructure.com'}
 # Ways to say a screen or a size, in any order: "full screen chrome on my big screen", "move chrome to the external display and maximize it"
 MOVE_WORDS = [(r'\bfull ?screen\b', 'fullscreen'), (r'\bmaximi[sz]ed?\b', 'full'),
               (r'\b(?:(?:big|bigger|large|larger|external|second) (?:screen|monitor|display)|external|monitor|display)\b', 'monitor'),
@@ -3027,8 +3092,8 @@ def look(cleanup=True, window=None, pointer=None):
     return shots
 
 
-def get(url, timeout=10):
-    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Macintosh) AppleWebKit/605 Safari/605'})
+def get(url, timeout=10, agent='Mozilla/5.0 (Macintosh) AppleWebKit/605 Safari/605'):
+    req = urllib.request.Request(url, headers={'User-Agent': agent})
     try:
         response = urllib.request.urlopen(req, timeout=timeout)
     except urllib.error.HTTPError as error:

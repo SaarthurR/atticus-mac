@@ -344,6 +344,43 @@ NSApplication.shared.run()
         self.assertTrue(all(int(r[5]) > 0 for r in out['reports'] if r[3] != 'muted'), out['reports'])
         self.assertNotIn('private', json.dumps(out))
 
+    def test_calls_made_while_a_page_loads_wait_for_it(self):
+        source = Path(atticus.ME).with_name('Atticus.swift').read_text()
+        shared = source[source.index('// Call a page function with JSON arguments'):source.index('// The system arrow as window.obCursor')]
+        click = source[source.index('// The box can take typing'):source.index('final class KeyPanel')]
+        out = json.loads(run_swift(self, r'''import Cocoa
+import WebKit
+let dir = "''' + str(Path(atticus.ME).parent) + r'''"
+enum Prefs { static let uiLanguage = "en"; static func resolveUILanguage(_ s: String) -> String { "en" } }
+var reports: [[String]] = [], clean: [[String]] = [], seen: [String: Any] = [:], webs: [WKWebView] = []
+func telemetry(_ args: [String]) { reports.append(args) }
+''' + shared + click + r'''
+final class Sink: NSObject, WKScriptMessageHandler { func userContentController(_ c: WKUserContentController, didReceive m: WKScriptMessage) {} }
+let sink = Sink()
+let runs: [(String, String, String, String)] = [("click", "onboarding.html", "ob", "keys"), ("click", "ui.html", "ui", "hover"), ("plain", "onboarding.html", "ob", "keys")]
+func open(_ i: Int) {
+    guard i < runs.count else { print(String(data: try! JSONSerialization.data(withJSONObject: ["seen": seen, "clean": clean, "reports": reports]), encoding: .utf8)!); exit(0) }
+    let (kind, page, object, call) = runs[i], cfg = WKWebViewConfiguration()
+    if kind == "plain" { clean = reports }
+    for n in ["ob", "h", "c"] { cfg.userContentController.add(sink, name: n) }
+    let frame = NSRect(x: 0, y: 0, width: 640, height: 600)
+    let web = kind == "click" ? ClickWebView(frame: frame, configuration: cfg) : WKWebView(frame: frame, configuration: cfg); webs.append(web)
+    loadPage(web, page)
+    callJS(web, object + "." + call, [true])
+    web.evaluateJavaScript(object == "ob" ? "ob.mode(true)" : "ui.size(200)")
+    web.evaluateJavaScript("window." + object + " ? 'object' : 'undefined'") { r, _ in seen[kind + " " + page] = r ?? "nil" }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { open(i + 1) }
+}
+NSApplication.shared.setActivationPolicy(.prohibited)
+open(0)
+DispatchQueue.main.asyncAfter(deadline: .now() + 30) { print("timeout"); exit(1) }
+NSApplication.shared.run()
+''', timeout=60).strip().splitlines()[-1])
+        self.assertEqual(out['seen'], {'click onboarding.html': 'object', 'click ui.html': 'object', 'plain onboarding.html': 'undefined'})
+        self.assertEqual(out['clean'], [])   # no ReferenceError, and no "muted" window echo of one
+        # the same calls on a plain web view fail the way PostHog saw it: ReferenceError at 1:3, from an evaluateJavaScript string
+        self.assertIn(['error', 'js', 'ob', 'ReferenceError', 'eval', '1', '3'], out['reports'])
+
     def test_page_error_bridge_sends_only_names_and_numbers(self):
         with patch.object(atticus, 'report_error') as sent:
             for fields in (['ui', 'TypeError', 'about:blank', '12', '7'], ['ui', 'my private words', 'x y', 'twelve', '-1']):

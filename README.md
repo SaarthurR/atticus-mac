@@ -56,7 +56,7 @@ Needs **macOS 26** and an AI client: Claude Code on a Claude plan, Devin, Pi or 
 | You say | Atticus |
 |---|---|
 | *"Code on my big screen, Chrome and Terminal on the laptop."* | Arranges three windows across two displays. |
-| *"Open Spotify."* · *"Terminal on the left."* | Runs instantly, with no AI at all. |
+| *"Open Spotify."* · *"Open Gmail."* · *"Terminal on the left."* | Runs instantly, with no AI at all. |
 | *"Play Blinding Lights by The Weeknd."* | Starts it in Spotify in about a second. |
 | *"Find my notes about the Tokyo trip."* | Searches your files by what's inside them. |
 | *"What's wrong with this code?"* | Looks at your screen and answers in a line. |

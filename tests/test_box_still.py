@@ -40,7 +40,7 @@ final class Drawing {
 }
 final class Harness {
     let panel = Panel(), drawing = Drawing()
-    var dragging = false, hovering = false, stuck = false, pillOn = false, moves = 0
+    var dragging = false, hovering = false, stuck = false, pillOn = false, tiny = false, moves = 0
     var compH: CGFloat = 50, easing = CGRect.zero, glideTo: CGRect?
     func glide(_ frame: CGRect) { moves += 1; panel.frame = frame }
     func js(_ name: String, _ data: Any) {}

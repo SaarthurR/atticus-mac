@@ -417,7 +417,7 @@ print("single delivery fallback ok")
         source = (ROOT / 'Atticus.swift').read_text()
         tick = source[source.index('    func whisperTick('):source.index('    func start(dictate: Bool')]
         self.assertIn('guard let self, self.whisperAsk == ask else { return }', tick)
-        self.assertIn('if let r, r.count * 2 >= (self.speechText[segment]?.live.count ?? 0)', tick)   # Nov 20: a short prompt echo ("and") never replaces the live words
+        self.assertIn('if let r, !Whisper.echo(r, prompt: prompt), r.count * 2 >= (self.speechText[segment]?.live.count ?? 0)', tick)   # Nov 20: a short prompt echo ("and") never replaces the live words
         self.assertIn('guard let self, self.listenID == listeningID else { return }', tick)
         self.assertIn('await prev?.value', tick)   # final passes stay in order
         stop = source[source.index('    func stop()', source.index('final class App')):source.index('    func applyReplacement(')]
@@ -443,8 +443,26 @@ print("single delivery fallback ok")
     def test_whisper_empty_final_keeps_live_words(self):
         source = (ROOT / 'Atticus.swift').read_text()
         final = source[source.index('    func whisperFinal('):source.index('    func start(dictate: Bool')]
-        self.assertIn("let r = r.map { $0.count * 2 < live.count ? live : $0 }", final)  # empty or prompt-echo final keeps shown words
+        self.assertIn("let r = r.map { $0.count * 2 < live.count || $0.contains(\",\") && Whisper.echo($0, prompt: prompt) ? live : $0 }", final)  # empty or prompt-echo final keeps shown words
         self.assertLess(final.index('let r = r.map'), final.index('self.speechPiece('))
+
+    def test_whisper_prompt_echo_is_caught(self):
+        # Nov 21, 2026: the first live words were "App, open" (the hint prompt said back), or an old dictated word
+        import shutil, subprocess, tempfile
+        if not shutil.which('swift'): self.skipTest('no swift')
+        source = (ROOT / 'Atticus.swift').read_text()
+        fn = source[source.index('    static func echo('):source.index('    static func wav(')]
+        code = 'enum Whisper {\n' + fn + '}\n' + '''
+let p = "Atticus, Saarth, AppCleaner, App Store, Apps, Open Ledger, Safari"
+assert(Whisper.echo("App, open.", prompt: p))
+assert(Whisper.echo("Safari", prompt: p))
+assert(!Whisper.echo("open Safari and find tabs", prompt: p))
+assert(!Whisper.echo("", prompt: p))
+print("ok")
+'''
+        with tempfile.NamedTemporaryFile('w', suffix='.swift', delete=False) as f: f.write(code)
+        out = subprocess.run(['swift', f.name], capture_output=True, text=True, timeout=120)
+        self.assertEqual(out.stdout.strip(), 'ok', out.stderr)
 
     def test_whisper_settings_bridge(self):
         source = (ROOT / 'Atticus.swift').read_text()

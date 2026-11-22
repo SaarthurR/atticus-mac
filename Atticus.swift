@@ -197,10 +197,10 @@ enum Prefs {
         "selection": true, "ahead": true, "aheadDelay": 0.7, "live": true, "screen": "auto", "openOn": "here", "workIn": "back", "miniScreen": true, "draw": true, "guideSteps": "auto", "pageJS": false,
         "speak": true, "showAnswers": "stream", "autoCopy": false, "hideWhenSharing": true, "menuIcon": true, "autoUpdate": true,
         "learn": true, "safe": true, "pointer": false, "meeting": false, "meetingSave": true, "meetingAuto": "sure", "meetingNudge": false, "meetingDetect": true, "learnMe": true, "saveChats": true, "stats": true, "tips": true, "support": true, "comeBack": true, "askMe": true, "meetingSummary": true, "typeRight": true, "talkMode": "hold", "uiLanguage": "auto", "speechModel": "speech", "whisperModel": "turbo", "whisperLanguage": "auto", "improve": false, "improveAsked": false, "draftInsert": "ask",
-        "dictateHotkeyCode": -1, "dictateHotkeyMods": 0, "dictateHotkeyLabel": "", "dictateMode": "cleanup", "dictateHistory": true, "dictateLearn": true, "dictateWords": [], "dictateFixes": [String: String](), "boxW": 500, "boxH": 420, "autoMinimize": true,
+        "dictateHotkeyCode": -1, "dictateHotkeyMods": 0, "dictateHotkeyLabel": "", "dictateMode": "cleanup", "dictateHistory": true, "dictateLearn": true, "dictateWords": [], "dictateFixes": [String: String](), "boxW": 500, "boxH": 420, "autoMinimize": true, "tinyFold": false,
         "voiceRate": 196]   // say's words a minute; its own 175 dragged through spoken steps
     static let retiredKeys = ["quietAudio", "quietLevel", "autoCopy", "askMe", "corner", "linger", "soundStart", "soundRelease", "soundDone", "soundStop",
-        "instant", "live", "ahead", "aheadDelay", "learn", "selection", "guideSteps", "workIn", "openOn", "miniScreen", "draftInsert",
+        "instant", "live", "ahead", "aheadDelay", "learn", "selection", "guideSteps", "workIn", "openOn", "draftInsert",
         "meetingNudge", "meetingDetect", "meetingAuto", "fixSetup", "dictateLearn"]
     static var d: [String: Any] = {
         let saved = (try? JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: path)))) as? [String: Any] ?? [:]
@@ -574,6 +574,12 @@ final class Whisper: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
         let text = segments.isEmpty ? json["text"] as? String ?? ""
             : segments.filter { ($0["no_speech_prob"] as? Double ?? 0) < 0.6 }.compactMap { $0["text"] as? String }.joined()
         return text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+    // Whisper on short or quiet audio says its prompt back ("App, Open", an old dictated word): every word it heard is a prompt word
+    static func echo(_ text: String, prompt: String) -> Bool {
+        func words(_ s: String) -> [Substring] { s.lowercased().split { !$0.isLetter && !$0.isNumber } }
+        let heard = words(text), known = Set(words(prompt))
+        return !heard.isEmpty && heard.allSatisfy(known.contains)
     }
     static func wav(_ pcm: [Float]) -> Data {   // 16 kHz mono 16-bit PCM
         var d = Data(capacity: 44 + pcm.count * 2)
@@ -2447,8 +2453,30 @@ final class ScreenDrawing {
 }
 
 // The box can take typing (canBecomeKey) without pulling Atticus forward (nonactivating): the user's app stays in front.
+// A call waits, in order, until the page has defined the object it calls (ui, ob, st): a call before that is a ReferenceError,
+// and neither isLoading nor the load event says so (a module's top-level await runs past both). After 5 s it runs anyway.
 final class ClickWebView: WKWebView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    private var waiting: [(String, (@MainActor (Any?, Error?) -> Void)?)] = [], defined = Set<String>(), probes = 0
+    override func evaluateJavaScript(_ script: String, completionHandler: (@MainActor (Any?, Error?) -> Void)? = nil) {
+        waiting.append((script, completionHandler))
+        if waiting.count == 1 { drain() }
+    }
+    private func drain() {
+        while let (script, done) = waiting.first {
+            let object = String(script.prefix { $0.isLetter || $0.isNumber || $0 == "_" })
+            guard object.isEmpty || defined.contains(object) else {
+                return super.evaluateJavaScript("'\(object)' in window") { [weak self] found, _ in
+                    guard let self else { return }
+                    probes += 1
+                    if found as? Bool != false || probes > 100 { defined.insert(object); drain() }
+                    else { DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in self?.drain() } }
+                }
+            }
+            waiting.removeFirst()
+            super.evaluateJavaScript(script, completionHandler: done)
+        }
+    }
 }
 
 final class KeyPanel: NSPanel { var keyable = true; override var canBecomeKey: Bool { keyable } }
@@ -3170,6 +3198,7 @@ final class App: NSObject, WKScriptMessageHandler {
     var retryOffer = false, offerText: String?   // answering a choices or failure card preserves its original request
     var upgradeFile = "", upgradeKeep = ""
     var picking: Bool { retryOffer && askNeed["pick"] != nil }   // a choices card waits: the shortcut hides it while the user says the answer
+    var tiny = false   // minimized to the orb alone (Tiny when minimized)
     var hovering = false, pinned = false, stuck = false, lastDone = Date.distantPast   // pinned: the user clicked the box, so only Esc / click-out / ✕ close it; stuck: the user dragged it, so only ✕
     var screenFrames = NSScreen.screens.map(\.frame)   // last display layout; a change in it makes an on-screen drawing stale
     var selection: TextSelection?, replacement: String?, mode = "replace", warmSel = ""   // mode: replace · delete · draft
@@ -3209,7 +3238,7 @@ final class App: NSObject, WKScriptMessageHandler {
         let bounds = screen.visibleFrame.insetBy(dx: 8, dy: 8)
         var f = requested
         // A temporary screen clamp is not a resize: restore the preferred width when space returns.
-        if !pillOn && !dragging {
+        if !pillOn && !tiny && !dragging {
             let w = boxWidth(Prefs.num("boxW"), screen.visibleFrame)
             if Prefs.str("corner") == "top-right" { f.origin.x = f.maxX - w }
             f.size.width = w
@@ -3228,7 +3257,7 @@ final class App: NSObject, WKScriptMessageHandler {
         let b = p.y < 6 || (p.y < c && (p.x < c || p.x > w - c)), t = p.y > h - 6 || (p.y > h - c && (p.x < c || p.x > w - c))
         return l || r || t || b ? (l, r, t, b) : nil
     }
-    func overX(_ p: NSPoint) -> Bool { !pillOn && p.x > panel.frame.width - 42 && p.y > panel.frame.height - 42 }   // the pill has no ✕ corner: its own buttons sit there
+    func overX(_ p: NSPoint) -> Bool { !pillOn && !tiny && p.x > panel.frame.width - 42 && p.y > panel.frame.height - 42 }   // the pill has no ✕ corner: its own buttons sit there
     // Words the recognizer should expect: the user's app names plus a few of the user's own (free, on-device).
     var hints: [String] {
         let config = (Prefs.path as NSString).deletingLastPathComponent
@@ -3676,6 +3705,8 @@ final class App: NSObject, WKScriptMessageHandler {
             if b["miniClear"] != nil { mini.reset() }
             if let id = b["fold"] as? Int, let h = b["h"] as? NSNumber {
                 folding = id; easing = .zero
+                tiny = b["tiny"] as? Bool == true
+                let width: CGFloat = tiny ? 36 : boxWidth(Prefs.num("boxW"), (panel.screen ?? NSScreen.main)?.visibleFrame ?? panel.frame)   // Tiny when minimized: a 36 px circle, like the dictation dot
                 Motion.run(0) { panel.animator().setFrame(panel.frame, display: true) }
                 let done = { [weak self] in
                     guard let self, folding == id else { return }
@@ -3683,6 +3714,7 @@ final class App: NSObject, WKScriptMessageHandler {
                 }
                 if var f = glideTo {
                     f.origin.y = f.maxY - CGFloat(h.doubleValue); f.size.height = CGFloat(h.doubleValue)
+                    if Prefs.str("corner") == "top-right" { f.origin.x = f.maxX - width }; f.size.width = width
                     glide(f, done: done)
                     if drawing.active && !stuck && !dragging { avoidDrawing() }
                     return
@@ -3690,6 +3722,7 @@ final class App: NSObject, WKScriptMessageHandler {
                 var f = panel.frame
                 if !fromTop { f.origin.y = f.maxY - CGFloat(h.doubleValue) }
                 f.size.height = CGFloat(h.doubleValue)
+                if Prefs.str("corner") == "top-right" { f.origin.x = f.maxX - width }; f.size.width = width
                 guard f != panel.frame else { done(); return }
                 if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
                     frame(f); done()
@@ -3758,7 +3791,7 @@ final class App: NSObject, WKScriptMessageHandler {
             if b["pointCoached"] != nil { Prefs.set("pointCoached", true) }
             if b["mic"] != nil && (!busy || retryOffer) && (!engine.isRunning || quietFollowUp) { if quietFollowUp { hush() }; clickMicrophone() }
             if let on = b["autoMinimize"] as? Bool { Atticus.settings.apply("autoMinimize", on); Atticus.settings.push() }
-            if b["ready"] != nil { js("autoMinimize", Prefs.bool("autoMinimize")); pageReady = true; if panel.isVisible && !pillOn { js("updated", Updater.takeNotice()) }; js("size", Prefs.num("boxH")); if Prefs.bool("tips") && !Prefs.bool("pointCoached") { js("pointCoach") } }
+            if b["ready"] != nil { js("autoMinimize", Prefs.bool("autoMinimize")); js("tiny", Prefs.bool("tinyFold")); pageReady = true; if panel.isVisible && !pillOn { js("updated", Updater.takeNotice()) }; js("size", Prefs.num("boxH")); if Prefs.bool("tips") && !Prefs.bool("pointCoached") { js("pointCoach") } }
             if b["safe"] != nil { Prefs.set("safe", true); js("mode", true); Atticus.settings.push() }
             if let m = b["model"] as? String {   // picked in the box: the same setting Settings shows; a worker warmed on the old model goes
                 Atticus.settings.apply(Prefs.str("apiBase").isEmpty ? "routing" : "apiModel", m); Atticus.settings.push()
@@ -4276,7 +4309,7 @@ final class App: NSObject, WKScriptMessageHandler {
                 guard let self, self.whisperAsk == ask else { return }   // a final pass or a new listen took over
                 self.whisperBusy = false
                 // the audio only grows, so a pass far shorter than the words shown is Whisper echoing its prompt ("and", an app name)
-                if let r, r.count * 2 >= (self.speechText[segment]?.live.count ?? 0) { self.speechPiece(r, final: false, segment: segment, listeningID: listeningID) }
+                if let r, !Whisper.echo(r, prompt: prompt), r.count * 2 >= (self.speechText[segment]?.live.count ?? 0) { self.speechPiece(r, final: false, segment: segment, listeningID: listeningID) }
             }
         }
     }
@@ -4291,7 +4324,7 @@ final class App: NSObject, WKScriptMessageHandler {
                 guard let self, self.listenID == listeningID else { return }   // cancelled, hushed or timed out meanwhile
                 self.whisperQueued -= secs
                 let live = self.speechText[segment]?.live ?? ""
-                let r = r.map { $0.count * 2 < live.count ? live : $0 }   // an empty or prompt-echo last pass keeps the words already shown
+                let r = r.map { $0.count * 2 < live.count || $0.contains(",") && Whisper.echo($0, prompt: prompt) ? live : $0 }   // an empty or prompt-echo last pass keeps the words already shown; a lone app name said on purpose stays
                 if let r { self.speechPiece((self.speechText[segment]?.done.isEmpty ?? true) || r.isEmpty ? r : " " + r, final: true, segment: segment, listeningID: listeningID) }
                 else { self.speechFailed = true }
                 if r != nil && (!self.engine.isRunning || self.whisperReleasing) { self.speechTrace?.mark("final_text") }
@@ -4400,8 +4433,8 @@ final class App: NSObject, WKScriptMessageHandler {
         }
         let whisper = Prefs.str("speechModel") == "whisper"   // runs on this Mac outside Apple's speech service: no Speech Recognition permission
         guard !whisper || Whisper.shared.ready else {
-            if replying { stopOfferInput() } else { hush() }; js("msg", "Whisper isn’t set up yet. Open Settings → General to download a model."); hide(after: 6)
-            Atticus.settings.open(tab: "general"); return
+            if replying { stopOfferInput() } else { hush() }; js("msg", "Whisper isn’t set up yet. Open Settings → Voice & Sound to download a model."); hide(after: 6)
+            Atticus.settings.open(tab: "voice"); return
         }
         guard let device = listenMic().flatMap({ AVCaptureDevice(uniqueID: $0.uid) }) ?? AVCaptureDevice.default(for: .audio) else {
             if replying { stopOfferInput() } else { hush() }; js("msg", "No microphone is available. Connect one and try again."); hide(after: 6); return
@@ -7064,6 +7097,7 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
         if k == "menuIcon" { bar.item.isVisible = v as? Bool == true }
         if k == "paused" { if v as? Bool == true { meeting.stop(paused: true); app.close(clear: false); agentsUI.stopAll() }; bar.paint() }
         if k == "autoMinimize" { app.js("autoMinimize", Prefs.bool("autoMinimize")) }
+        if k == "tinyFold" { app.js("tiny", Prefs.bool("tinyFold")) }
         if k == "safe" { app.js("mode", v as? Bool == true) }
         if k == "login" {   // the LaunchAgent build.sh installed: enabled = starts at login
             if ProcessInfo.processInfo.environment["ATTICUS_DIR"] != nil { Prefs.set("login",false); push(); return }

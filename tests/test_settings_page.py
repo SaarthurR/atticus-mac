@@ -156,7 +156,7 @@ return {lines,translated,fits};
         out = self.page("""const wake=document.querySelector('[data-k=wakeWord]');
             const before=wake.checked; wake.click(); await tick(20);
             st.load({prefs:{hotkeyLabel:'⌃⌥Space',wakeWord:false}});
-            return [before,wake.checked,wake.closest('.group') === document.querySelector('[data-k=talkMode]').closest('.group'),wake.closest('.row') === wake.closest('.group').lastElementChild];""")
+            return [before,wake.checked,wake.closest('section').id === 'voice',wake.closest('.row').previousElementSibling === document.querySelector('[data-k=microphone]').closest('.row')];""")
         self.assertEqual(out['result'], [False, False, True, True])
         self.assertIn({'do': 'set', 'k': 'wakeWord', 'v': True}, out['posts'])
 
@@ -246,7 +246,7 @@ return {lines,translated,fits};
             self.assertIn(m, out['posts'])
 
     def test_whisper_install_button_posts_install(self):
-        out = self.page("""set('speechModel','whisper'); st.whisper({server:false,models:[]}); $('winstall').click();
+        out = self.page("""st.tab('voice'); set('speechModel','whisper'); st.whisper({server:false,models:[]}); $('winstall').click();
             const sel=document.querySelector('[data-k=whisperModel]'); sel.focus(); st.whisper({server:true,models:[]}); st.whisper({server:true,models:[]});
             return [document.activeElement===sel,$('wtext').textContent];""")
         self.assertEqual(out['result'], [True, 'Model not downloaded.'])
@@ -342,7 +342,7 @@ return {lines,translated,fits};
                 self.assertNotIn(f'data-k="{key}"', page)
                 self.assertNotIn(key, atticus.switches())
                 self.assertNotIn(key, atticus.picks())
-        self.assertEqual(len(page.split('<nav>')[1].split('</nav>')[0].split('data-s=')) - 1, 9)   # 8 pages and Report feedback
+        self.assertEqual(len(page.split('<nav>')[1].split('</nav>')[0].split('data-s=')) - 1, 11)   # 10 pages and Report feedback
 
     def test_pages_wear_their_sidebar_color_and_row_actions_show_on_focus(self):
         out = self.page("""document.body.classList.add('reduce');
@@ -353,9 +353,26 @@ return {lines,translated,fits};
             return [new Set(nav).size===nav.length,titled,getComputedStyle(x).opacity,reveal.includes('.row:focus-within > .x'),!!$('general').querySelector('[data-do=quit]'),!!$('account').querySelector('[data-do=quit]')];""")
         distinct, titled, hidden, keyboard, quit_general, quit_account = out['result']
         self.assertTrue(distinct)
-        self.assertEqual(titled, [True] * 7 + [False])   # About has its own big icon
+        self.assertEqual(titled, [True] * 9 + [False])   # About has its own big icon
         self.assertEqual((hidden, keyboard), ('0', True))
         self.assertEqual((quit_general, quit_account), (True, False))
+
+    def test_search_finds_rows_on_every_page_and_opens_the_one_clicked(self):
+        out = self.page("""const q=$('setq'), find=text=>{q.value=text;q.oninput();return [...$('find').querySelectorAll('h3')].map(h=>h.textContent);};
+            const voice=find('VOICE'), none=find('zzqx'), empty=$('find').textContent;
+            $('findbtn').click(); const open=q.parentNode.classList.contains('finding');
+            find('preview window'); $('find').querySelector('.row').click(); await tick(20);
+            const opened=[document.querySelector('section.on').id,document.querySelector('nav button.on').dataset.s,q.value,document.querySelector('[data-k=miniScreen]').closest('.row').classList.contains('flash'),open,q.parentNode.classList.contains('finding')];
+            find('speech'); q.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})); const back=document.querySelector('section.on').id;
+            st.load({prefs:{hotkeyLabel:'⌃⌥Space',uiLanguage:'it'}}); const it=find('microfono');
+            return [voice,none,empty,opened,back,it,$('find').querySelectorAll('[id]').length];""", translated=True)
+        voice, none, empty, opened, back, it, ids = out['result']
+        self.assertEqual(voice[0], 'Voice & Sound')
+        self.assertEqual(none, []); self.assertIn('No results', empty)
+        self.assertEqual(opened, ['box', 'box', '', True, True, False])   # the icon opens the field; a picked result folds it back
+        self.assertEqual(back, 'box')
+        self.assertIn('Voce e suono', it)
+        self.assertEqual(ids, 0)
 
     def test_long_asks_always_move_so_there_is_no_choice(self):
         sys.path.insert(0, str(ROOT)); import atticus

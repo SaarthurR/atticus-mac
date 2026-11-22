@@ -230,7 +230,8 @@ class OpenAppsAndSitesTests(Ask):
 
     def test_a_near_name_that_is_not_an_app_goes_to_the_model(self):
         said, pill, model = self.ask('open gmail', 'Opened Gmail.', [f'{atticus.SHOW} "https://mail.google.com"'])
-        self.assertTrue(model)   # one letter from Mail, but another first sound: never opens Mail
+        self.assertFalse(model)   # Nov 21, 2026: a known site, opened with no AI
+        self.assertIn(['open', 'https://mail.google.com'], [c.args[0] for c in self.shell.call_args_list])
         self.assertNotIn(['open', '-a', 'Mail'], [c.args[0] for c in self.shell.call_args_list])
         self.assertIsNone(atticus.app_heard('open my homework folder now'))
 

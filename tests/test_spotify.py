@@ -36,6 +36,7 @@ class SpotifyTests(unittest.TestCase):
         self.addCleanup(lambda: os.path.exists(played.name) and os.unlink(played.name))
         patcher = patch.object(atticus, 'PLAYED', played.name); patcher.start(); self.addCleanup(patcher.stop)
         patcher = patch.object(atticus.time, 'sleep'); patcher.start(); self.addCleanup(patcher.stop)
+        patcher = patch.object(atticus, 'catalog_item', return_value=None); patcher.start(); self.addCleanup(patcher.stop)   # web-search tests; CatalogTests covers it
 
     def fast_play(self, request, responses, script='playing\tfalse\tspotify:track:' + 'T' * 22 + '\tFixture Anthem\tThe Brightn'):
         """fast() on a play ask with faked search pages and AppleScript: (reply, get mock, run mock, keep_behind mock)."""
@@ -430,3 +431,34 @@ class SpotifyTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class CatalogTests(unittest.TestCase):
+    """Nov 21, 2026: DuckDuckGo's bot check and Brave's 429 stopped every play; Wikidata keeps Spotify's ids, Apple spells the names."""
+    def lookup(self, said, apple, wiki, rows, credited=False):
+        def get(url, timeout=10, agent=''):
+            if 'itunes' in url: return json.dumps({'results': [apple] if 'entity=song' in url else []})
+            self.assertIn('Atticus/', agent)   # Wikimedia rate-limits clients posing as a browser
+            return json.dumps({'search': wiki} if 'wbsearchentities' in url else {'results': {'bindings': rows}})
+        with patch.object(atticus, 'get', side_effect=get):
+            return atticus.catalog_item(said, credited)
+
+    def row(self, q, kind, ident, by=''):
+        return {'item': {'value': 'http://www.wikidata.org/entity/' + q}, kind: {'value': ident}, **({'by': {'value': by}} if by else {})}
+
+    def test_artist_from_filler_words(self):
+        got = self.lookup('some drake', {'trackName': 'One Dance', 'artistName': 'Drake'},
+                          [{'id': 'Q1', 'label': 'Drake', 'description': 'Canadian rapper'}], [self.row('Q1', 'artist', 'A' * 22)])
+        self.assertEqual(got, ('spotify:artist:' + 'A' * 22, 'Drake'))
+
+    def test_song_by_artist_skips_a_same_named_song_by_someone_else(self):
+        wiki = [{'id': 'Q2', 'label': "God's Plan", 'description': '2002 album by 50 Cent'},
+                {'id': 'Q3', 'label': "God's Plan", 'description': '2018 single by Drake'}]
+        rows = [self.row('Q2', 'album', 'F' * 22), self.row('Q3', 'track', 'D' * 22)]
+        got = self.lookup('gods plan by drake', {'trackName': "God's Plan", 'artistName': 'Drake'}, wiki, rows, credited=True)
+        self.assertEqual(got, ('spotify:track:' + 'D' * 22, 'Gods Plan By Drake'))
+        self.assertIsNone(self.lookup('gods plan by drake', {'trackName': "God's Plan", 'artistName': 'Drake'}, wiki[:1], rows[:1], credited=True))
+
+    def test_credited_bare_name_and_unknown_song_find_nothing(self):
+        self.assertIsNone(self.lookup('minecraft', {}, [{'id': 'Q4', 'label': 'Minecraft'}], [self.row('Q4', 'album', 'M' * 22)], credited=True))
+        self.assertIsNone(self.lookup('janice stfu by drake', {'trackName': 'Janice STFU', 'artistName': 'Drake'}, [{'id': 'Q5', 'label': 'Janice STFU'}], [], credited=True))

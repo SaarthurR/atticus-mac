@@ -279,6 +279,10 @@ class UniversalTests(unittest.TestCase):
             self.assertEqual(run.call_args.args[0], ['open', 'https://unfamiliar.com'])
             self.assertEqual(atticus.fast('Um, could you please open up Fixture for me?'), 'Opened Fixture.')
             self.assertEqual(run.call_args.args[0], ['open', '-a', 'Fixture'])
+            for ask, url in (('Hey, can you open Gmail please?', 'https://mail.google.com'), ('go to hacker news', 'https://news.ycombinator.com'),
+                             ('pull up google calendar', 'https://calendar.google.com'), ('open the youtube website', 'https://youtube.com')):
+                self.assertTrue(atticus.fast(ask).startswith('Opened '), ask)   # Nov 21, 2026: a known site by name opens with no AI, as in Plip
+                self.assertEqual(run.call_args.args[0], ['open', url], ask)
             run.reset_mock()
             for ask in ('open homework', 'open unfamiliar', 'Can you open up Unfamiliar?', 'Um, search Unfamiliar for e-bikes and find me the cheapest one.',
                         'What am I looking at?', 'open downloads', 'open it', 'Can you open up?', 'open my unfamiliar homework', 'open unfamiliar and play music'):
