@@ -347,22 +347,6 @@
     display: grid; place-items: center; font: 500 13px var(--mono); }
   .pitem p { margin: var(--s1) 0 0 48px; font-size: var(--t-small); color: var(--mute); line-height: 1.5; }
 
-  /* 11. faq */
-  .faq { padding: var(--s6) 0 var(--s16); }
-  .qa { max-width: 816px; margin: var(--s8) auto 0; background: #fff; border-radius: var(--r4); padding: var(--s2); display: grid;
-    grid-template-columns: 384px 1fr; gap: var(--s2); box-shadow: 0 0 0 1px var(--line); }
-  .qs { background: var(--ink); color: #f5f5f7; border-radius: var(--r3); padding: var(--s3) 12px var(--s2); }
-  .qa h3 { font-size: 21px; margin: 0 0 var(--s2) var(--s2); }
-  .qs button { display: block; width: 100%; text-align: left; font: 15px/1.35 var(--sans); color: rgba(245,245,247,.8); background: none; border: 0;
-    border-radius: 12px; padding: 14px var(--s2); cursor: pointer; transition: background .25s var(--ease), color .25s; }
-  .qs button[aria-selected="true"] { background: rgba(255,255,255,.12); color: #fff; }
-  @media (hover: hover) { .qs button:hover { color: #fff; } }
-  .ans { padding: var(--s3) var(--s1) var(--s2); }
-  .ans .ask { text-align: right; color: var(--mute); font-size: 15px; margin: 0 0 var(--s2) auto; max-width: 30ch; }
-  .bubble { background: var(--bg); border-radius: var(--r2); padding: var(--s2); font-size: 15px; line-height: 1.5; }
-  .ans .logo { margin-top: 12px; width: 28px; height: 28px; }
-  .ans .ask, .bubble { transition: opacity .3s var(--ease); }
-  .ans.swap .ask, .ans.swap .bubble { opacity: 0; transition-duration: .15s; }
 
   /* 12. final cta */
   .cta { position: relative; overflow: hidden; border-radius: var(--r4); color: #fff; text-align: center; padding: var(--s20) var(--s3) 200px; isolation: isolate; }
@@ -412,7 +396,6 @@
     .badges { justify-content: flex-start; }
     .plan { grid-template-columns: 1fr; gap: 0; padding: var(--s16) 0 var(--s12); }
     .plan .lead { margin-bottom: var(--s3); }
-    .qa { grid-template-columns: 1fr; border-radius: var(--r3); }
     .cols { grid-template-columns: 1fr 1fr; }
   }
   @media (max-width: 700px) {
@@ -455,7 +438,7 @@
 <div class="navwrap">
   <nav class="nav" aria-label="Main">
     <a class="brand" href="#top"><canvas class="logo" data-orb="breathing" aria-hidden="true"></canvas>Atticus</a>
-    <div class="links"><a href="#how">How it works</a><a href="#features">Features</a><a href="#privacy">Privacy</a><a href="#faq">FAQ</a><a href="https://ko-fi.com/saarthr">☕ Tip</a><a href="https://github.com/SaarthurR/atticus-mac">★<span id="stars"></span></a></div>
+    <div class="links"><a href="#how">How it works</a><a href="#features">Features</a><a href="#privacy">Privacy</a><a href="https://ko-fi.com/saarthr">☕ Tip</a><a href="https://github.com/SaarthurR/atticus-mac">★<span id="stars"></span></a></div>
     <a class="btn" href="#install">Download for macOS</a>
   </nav>
 </div>
@@ -658,20 +641,6 @@ Changes not staged for commit:
   </div>
 </section>
 
-<section class="faq wrap" id="faq">
-  <p class="label center">FAQ</p>
-  <h2 class="h2 center rv">Good <em>questions.</em></h2>
-  <div class="qa">
-    <div class="qs" role="tablist" aria-label="Questions" id="qs"><h3>Questions</h3></div>
-    <div class="ans" id="ans" aria-live="polite">
-      <h3>Answer</h3>
-      <p class="ask" id="ask"></p>
-      <div class="bubble" id="bubble"></div>
-      <canvas class="logo" data-orb="breathing" aria-hidden="true"></canvas>
-    </div>
-  </div>
-</section>
-
 <section class="cta" id="install">
   <div class="bg"></div>
   <h2>One line<br><em>to install.</em></h2>
@@ -684,7 +653,7 @@ Changes not staged for commit:
 
 <footer class="wrap">
   <div class="cols">
-    <div><h4>Atticus</h4><a href="#how">How it works</a><a href="#features">Features</a><a href="#privacy">Privacy</a><a href="#faq">FAQ</a><a href="#install">Install</a></div>
+    <div><h4>Atticus</h4><a href="#how">How it works</a><a href="#features">Features</a><a href="#privacy">Privacy</a><a href="#install">Install</a></div>
     <div><h4>Resources</h4><a href="https://github.com/SaarthurR/atticus-mac/blob/main/docs/GUIDE.md">Guide</a><a href="https://github.com/SaarthurR/atticus-mac/releases">What's new</a><a href="https://github.com/SaarthurR/atticus-mac/issues">Report a bug</a></div>
     <div><h4>Code</h4><a href="https://github.com/SaarthurR/atticus-mac">GitHub</a><a href="https://github.com/SaarthurR/atticus-mac/blob/main/LICENSE">MIT license</a></div>
   </div>
@@ -843,29 +812,6 @@ Changes not staged for commit:
     hsteps.forEach((el, j) => el.classList.toggle('on', i === j));
     clips.forEach(sync); restart(hsteps[i]);
   };
-
-  /* ---------- faq ---------- */
-  const QA = [
-    ['What do I need?', 'A Mac on macOS 26 or later and a paid Claude plan (Pro or Max) with Claude Code. Atticus uses your plan, so there is no API key to set up.'],
-    ['How much does it cost?', 'Atticus is free and open source. Each ask runs on your Claude plan and costs about 0.18¢ on average. Simple commands skip the AI entirely and cost nothing.'],
-    ['Does my voice leave my Mac?', 'No. Apple\'s on-device speech turns your voice into text, and audio never leaves your Mac.'],
-    ['Can a misheard word do damage?', 'Safe mode runs commands in Claude Code\'s sandbox. Before anything deletes, sends, buys or changes a file, Atticus asks you first. rm, sudo, disk tools and shutdown are always blocked.'],
-    ['Does it work in other languages?', 'Pick English, Italian, Spanish, French or German in Settings. For other languages, choose Whisper as the speech model. It runs on your Mac too.'],
-    ['Can I type instead of talking?', 'Yes. Press the shortcut and start typing. Your words go in the box, Return sends and Esc cancels.'],
-    ['How do I install it?', 'Paste one line in Terminal. Atticus builds itself, opens, and keeps itself up to date.'],
-  ];
-  const qs = $('qs'), ans = $('ans');
-  const showQ = (i, fade) => {
-    qs.querySelectorAll('button').forEach((b, j) => b.setAttribute('aria-selected', i === j));
-    const put = () => { $('ask').textContent = QA[i][0]; $('bubble').textContent = QA[i][1]; ans.classList.remove('swap'); };
-    if (!fade || still) return put();
-    ans.classList.add('swap'); setTimeout(put, 160);
-  };
-  QA.forEach(([q], i) => {
-    const b = Object.assign(document.createElement('button'), { type: 'button', textContent: q });
-    b.setAttribute('role', 'tab'); b.onclick = () => showQ(i, true); qs.append(b);
-  });
-  showQ(0);
 
   /* ---------- copy ---------- */
   document.querySelector('.copy').onclick = async e => {
