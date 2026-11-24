@@ -345,13 +345,12 @@
 
 
   /* 12. final cta */
-  .cta { position: relative; overflow: hidden; border-radius: var(--r4); color: #fff; text-align: center; padding: var(--s20) var(--s3) 200px; isolation: isolate; }
-  .cta .bg { position: absolute; inset: -80px; z-index: -1; background: url(assets/still-65.jpg) center / cover; filter: blur(46px) saturate(110%); }
-  .cta::after { content: ""; position: absolute; inset: 0; z-index: -1; background: rgba(20,20,24,.5); }
+  .cta { margin-inline: var(--s2); border-radius: var(--r4); background: var(--ink); color: #fff; text-align: center; padding: var(--s16) var(--s3); }
+  .cta .logo { width: 120px; height: 120px; margin: 0 auto var(--s4); display: block; }
   .cta h2 { font-size: clamp(52px, 7vw, 104px); line-height: 1; }
   .cta .lede { color: rgba(255,255,255,.9); }
   .install { display: inline-flex; align-items: center; gap: var(--s2); margin-top: var(--s6); padding: var(--s1) var(--s1) var(--s1) var(--s3); border-radius: var(--pill);
-    background: rgba(20,20,24,.6); border: 1px solid rgba(255,255,255,.14); font: 14px var(--mono); max-width: 100%;
+    background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14); font: 14px var(--mono); max-width: 100%;
     backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
   .install code { overflow-x: auto; white-space: nowrap; scrollbar-width: none; text-align: left; }
   .install code::-webkit-scrollbar { display: none; }
@@ -556,7 +555,7 @@ Changes not staged for commit:
 <section class="faster" id="faster">
   <div class="wrap center">
     <h2 class="h2 rv">Faster <em>than clicking.</em></h2>
-    <p class="lede rv">Three asks, done before you finish talking. Here is the same work by hand, on the same clock.</p>
+    <p class="lede rv">Three asks, done before you finish talking.</p>
   </div>
   <div class="race">
     <div class="lane hand">
@@ -586,7 +585,6 @@ Changes not staged for commit:
       <div class="screen"><video class="clip" id="raceVid" src="assets/clips/B.mp4" poster="assets/clips/B.jpg" muted playsinline loop preload="auto" aria-label="Atticus opens Spotify, moves it to the big screen and opens GitHub, each in under half a second"></video></div>
     </div>
   </div>
-  <p class="note">Atticus times are the ones on screen in the film. Both clocks run on the video's own time and restart when it loops.</p>
 </section>
 
 <section class="how" id="how">
@@ -598,15 +596,15 @@ Changes not staged for commit:
     <ol class="steps" id="steps"><li class="on">Say it</li><li>Point at it</li><li>Hand it the whole job</li></ol>
     <div class="hiw-step on" data-pick>
       <div class="hiw-card screen" style="aspect-ratio:800/434"><video class="clip" src="assets/clips/arrange.mp4" poster="assets/clips/arrange.jpg" muted playsinline loop preload="metadata" aria-label="Atticus putting Spotify on the left and Chrome on the right"></video></div>
-      <div class="hiw-txt"><h3>Hold ⌃ ⌥ Space and say it</h3><p>Talk while you hold the keys. Let go and it happens. Or skip the voice and type.</p><q>Spotify on the left, Chrome on the right.</q></div>
+      <div class="hiw-txt"><h3>Hold ⌃ ⌥ Space and say it</h3><p>Talk while you hold the keys. Let go and it happens. Or skip the voice and type.</p></div>
     </div>
     <div class="hiw-step" data-pick>
       <div class="hiw-card screen" style="aspect-ratio:800/450"><video class="clip" src="assets/clips/circle.mp4" poster="assets/clips/circle.jpg" muted playsinline loop preload="metadata" aria-label="Circling the Sydney Opera House and asking what it is"></video></div>
-      <div class="hiw-txt"><h3>Point at what you mean</h3><p>Circle it with your mouse while you talk. Atticus looks there and explains, step by step, on your screen.</p><q>What is this?</q></div>
+      <div class="hiw-txt"><h3>Point at what you mean</h3><p>Circle it with your mouse while you talk. Atticus looks there and explains, step by step, on your screen.</p></div>
     </div>
     <div class="hiw-step" data-pick>
       <div class="hiw-card screen" style="aspect-ratio:800/520"><video class="clip" src="assets/clips/pdf.mp4" poster="assets/clips/pdf.jpg" muted playsinline loop preload="metadata" aria-label="Atticus combining three photos into one PDF in Finder"></video></div>
-      <div class="hiw-txt"><h3>Hand it the whole job</h3><p>Ask for the result, not the clicks. It works out the steps and leaves the file where you are.</p><q>Turn these photos into one PDF.</q></div>
+      <div class="hiw-txt"><h3>Hand it the whole job</h3><p>Ask for the result, not the clicks. It works out the steps and leaves the file where you are.</p></div>
     </div>
   </div>
 </section>
@@ -615,7 +613,7 @@ Changes not staged for commit:
   <div class="priv rv" id="privacy">
     <h2>Your voice<br><em>stays yours.</em></h2>
     <div>
-      <p>Apple's on-device speech turns your voice into text. Audio never leaves your Mac, and rm, sudo and shutdown are always blocked.</p>
+      <p>Your audio never leaves your Mac. Risky commands are always blocked.</p>
       <a class="more" href="https://github.com/SaarthurR/atticus-mac/blob/main/docs/GUIDE.md#safe-by-default">Read the guide</a>
     </div>
     <div class="badges"><div class="badge">Open<br>source<br>MIT</div><div class="badge">On-device<br>speech</div><div class="badge">No<br>API key</div></div>
@@ -625,22 +623,22 @@ Changes not staged for commit:
     <div>
       <p class="label rv">What you need</p>
       <h2 class="rv">Runs on<br><em>the Claude plan you have.</em></h2>
-      <p class="lead rv">Atticus works through Claude Code on your Pro or Max plan, so there's no API key to set up.</p>
+      <p class="lead rv">No API key. It runs through Claude Code.</p>
       <a class="more rv" href="https://github.com/SaarthurR/atticus-mac/blob/main/docs/GUIDE.md#install">Install guide</a>
     </div>
     <div class="pitems">
-      <div class="pitem rv"><h3><span>$0</span>Free</h3><p>Open source under MIT. Tips keep it going.</p></div>
-      <div class="pitem rv"><h3><span>Pro</span>Claude Pro or Max</h3><p>Your plan does the thinking.</p></div>
-      <div class="pitem rv"><h3><span>¢</span>About 0.18¢ per ask</h3><p>On average, so around 550 asks for $1. Simple commands skip the AI and cost nothing.</p></div>
-      <div class="pitem rv"><h3><span>26</span>macOS 26 or later</h3><p>Atticus uses Apple's new on-device speech.</p></div>
+      <div class="pitem rv"><h3><span>$0</span>Free</h3></div>
+      <div class="pitem rv"><h3><span>Pro</span>Claude Pro or Max</h3></div>
+      <div class="pitem rv"><h3><span>¢</span>About 0.18¢ per ask</h3></div>
+      <div class="pitem rv"><h3><span>26</span>macOS 26 or later</h3></div>
     </div>
   </div>
 </section>
 
 <section class="cta" id="install">
-  <div class="bg"></div>
+  <canvas class="logo" data-orb="breathing" data-dark aria-hidden="true"></canvas>
   <h2>One line<br><em>to install.</em></h2>
-  <p class="lede">Paste it in Terminal. Atticus builds itself, opens, and keeps itself up to date.</p>
+  <p class="lede">Paste it in Terminal. It updates itself.</p>
   <div class="install">
     <code><i>$</i> curl -fsSL https://raw.githubusercontent.com/SaarthurR/atticus-mac/main/install.sh | bash</code>
     <button class="btn light copy" type="button">Copy</button>
@@ -852,7 +850,7 @@ Changes not staged for commit:
   const orbs = [...document.querySelectorAll('canvas[data-orb]')].map(cv => {
     const S = 64, k = Math.ceil(cv.getBoundingClientRect().width / S * devicePixelRatio) || 2;
     cv.width = cv.height = S * k;
-    return { cv, ctx: cv.getContext('2d'), k, S, t: Math.random() * 9, dark: false, preset: E.r(cv.dataset.orb, S) };
+    return { cv, ctx: cv.getContext('2d'), k, S, t: Math.random() * 9, dark: cv.hasAttribute('data-dark'), preset: E.r(cv.dataset.orb, S) };
   });
   let prev = performance.now();
   (function frame(now) {
