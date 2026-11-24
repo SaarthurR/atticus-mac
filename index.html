@@ -3,865 +3,532 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<script>if (matchMedia('(max-width: 700px)').matches) location.replace('m.html' + location.hash)</script>
-<title>Atticus: your whole Mac, one sentence away</title>
-<meta name="description" content="Hold control, option, space. Say what you need. Atticus runs your Mac. free and open source, on the Claude plan you already have.">
+<title>Atticus — your whole Mac, one sentence away</title>
+<meta name="description" content="A fast, free voice assistant for your Mac. No API key: it runs on the Claude plan you already have. It remembers you and learns your shortcuts. Open source.">
 <meta property="og:title" content="Atticus">
-<meta property="og:description" content="Your whole Mac, one sentence away.">
-<meta property="og:image" content="assets/banner.png">
-<link rel="icon" href="assets/icon.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400;1,500&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<meta property="og:description" content="Fast. No API key. Remembers you. Your whole Mac, one sentence away.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta property="og:image" content="https://saarthurr.github.io/atticus-mac/docs/banner.png">
 <style>
   :root {
-    --bg: #f5f5f7; --ink: #1d1d1f; --ink2: #3a3a3c; --mute: #6e6e73; --faint: #a1a1a6; --white: #fff;
-    --line: rgba(29,29,31,.12); --line-d: rgba(255,255,255,.14);
-    /* spacing: 8px scale */
-    --s1: 8px; --s2: 16px; --s3: 24px; --s4: 32px; --s6: 48px; --s8: 64px; --s12: 96px; --s16: 128px; --s20: 160px;
-    /* radius scale */
-    --r1: 8px; --r2: 16px; --r3: 24px; --r4: 40px; --pill: 999px;
-    /* type, from the Wispr shots at 1440 */
-    --t-h1: clamp(56px, 6.4vw, 92px); --t-h2: clamp(44px, 5vw, 72px); --t-h3: clamp(30px, 2.8vw, 40px);
-    --t-lede: 20px; --t-body: 16px; --t-small: 14px; --t-label: 13px;
-    --serif: "EB Garamond", Garamond, Georgia, serif;
-    --sans: "Figtree", -apple-system, system-ui, sans-serif;
+    --bg: #f5f5f7; --ink: #1d1d1f; --mute: #6e6e73; --faint: #a1a1a6; --line: rgba(0,0,0,.07);
+    --ease: cubic-bezier(.2,.8,.2,1);   /* the app's own curve: one ease for the whole site */
     --mono: ui-monospace, "SF Mono", Menlo, monospace;
-    --ease: cubic-bezier(.22,1,.36,1);
-    --wrap: 1240px;
   }
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; }
-  body { margin: 0; background: var(--bg); color: var(--ink); overflow-x: clip;
-    font: var(--t-body)/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
-  a { color: inherit; text-decoration: none; }
-  img, video { display: block; max-width: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); overflow-x: hidden;
+    font: 17px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased; }
+  a { color: inherit; }
   ::selection { background: var(--ink); color: #fff; }
-  .wrap { width: min(var(--wrap), 100% - var(--s6)); margin-inline: auto; }
-  h1, h2, h3 { font-family: var(--serif); font-weight: 400; margin: 0; letter-spacing: -.02em; }
-  h1 em, h2 em, h3 em { font-style: italic; }
-  .label { font: 500 var(--t-label)/1 var(--sans); letter-spacing: .12em; text-transform: uppercase; color: var(--mute); margin: 0 0 var(--s3); }
-  .center { text-align: center; }
 
-  .btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--s1); height: 48px; padding: 0 var(--s3);
-    border: 1px solid var(--ink); border-radius: var(--pill); background: var(--ink); color: #fff;
-    font: 500 var(--t-body) var(--sans); cursor: pointer; white-space: nowrap; transition: background .25s var(--ease), color .25s var(--ease); }
-  .btn.ghost { background: transparent; color: var(--ink); }
-  .btn.light { background: #fff; border-color: #fff; color: var(--ink); }
-  @media (hover: hover) {
-    .btn:hover { background: var(--ink2); }
-    .btn.ghost:hover { background: var(--ink); color: #fff; }
-    .btn.light:hover { background: #e8e8ed; }
-  }
-  .btns { display: flex; gap: var(--s1); justify-content: center; flex-wrap: wrap; }
-  .more { display: inline-flex; gap: var(--s1); align-items: center; font-weight: 500; font-size: 15px; }
-  .more::after { content: "›"; font-size: 20px; line-height: 1; transition: transform .3s var(--ease); }
-  @media (hover: hover) { .more:hover::after { transform: translateX(3px); } }
+  /* ambient layer: two soft lights drifting slowly behind everything */
+  .glow { position: fixed; inset: -20%; z-index: -1; pointer-events: none;
+    background: radial-gradient(40% 35% at 20% 85%, rgba(170,190,255,.22), transparent 70%),
+                radial-gradient(35% 30% at 85% 75%, rgba(220,190,255,.18), transparent 70%);
+    animation: drift 24s ease-in-out infinite alternate; }
+  @keyframes drift { to { transform: translate3d(-4%, -3%, 0) scale(1.05); } }
 
-  /* the Mac screen: every clip sits in one of these, at its own aspect, never cropped */
-  .screen { position: relative; border-radius: var(--r2); overflow: hidden; background: #e9e9ec;
-    box-shadow: 0 0 0 1px rgba(29,29,31,.18), 0 30px 70px -20px rgba(29,29,31,.42), 0 12px 24px -12px rgba(29,29,31,.16); }
-  .screen::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
-    box-shadow: inset 0 0 0 1px rgba(255,255,255,.55); }
-  .screen video { width: 100%; height: 100%; object-fit: contain; }
-  .dark .screen { box-shadow: 0 0 0 1px rgba(255,255,255,.16), 0 30px 70px -20px rgba(0,0,0,.7), 0 12px 24px -12px rgba(0,0,0,.4); }
+  nav { position: fixed; top: 0; inset-inline: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between;
+    padding: 14px clamp(20px, 5vw, 48px); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px);
+    background: rgba(245,245,247,.72); border-bottom: .5px solid var(--line); }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: -.01em; text-decoration: none; }
+  .brand canvas { width: 26px; height: 26px; }
+  .gh { font-size: 14px; text-decoration: none; color: var(--mute); transition: color .2s; }
+  .gh:hover { color: var(--ink); }
+  .gh { padding: 6px 12px; border: 1px solid #d2d2d7; border-radius: 999px; font-variant-numeric: tabular-nums; }
 
-  /* logo: the real Atticus orb, drawn live by assets/orbs.js like the real site */
-  .logo { flex: none; width: 30px; height: 30px; }
+  section { padding: clamp(80px, 12vw, 160px) clamp(20px, 5vw, 48px); max-width: 1120px; margin: 0 auto; }
 
-  /* 2. pill nav */
-  .navwrap { position: sticky; top: var(--s2); z-index: 50; margin-top: var(--s3); padding-inline: var(--s3); }
-  .nav { max-width: 912px; margin: 0 auto; height: 64px; padding: 0 var(--s1) 0 var(--s2); display: flex; align-items: center; gap: var(--s3);
-    background: rgba(255,255,255,.9); border: 1px solid var(--line); border-radius: var(--r2);
-    backdrop-filter: blur(16px) saturate(160%); -webkit-backdrop-filter: blur(16px) saturate(160%); }
-  .brand { display: flex; align-items: center; gap: 10px; font: 600 20px var(--sans); letter-spacing: -.02em; }
-  .nav .links { margin-left: auto; display: flex; gap: var(--s3); font-size: 15px; font-weight: 500; color: var(--ink2); }
-  @media (hover: hover) { .nav .links a:hover { color: var(--ink); } }
-  .nav .btn { height: 48px; padding: 0 var(--s3); font-size: 15px; }
+  /* hero */
+  .hero { min-height: 100svh; display: grid; place-items: center; text-align: center; padding-top: 90px; }
+  .hero > div { min-width: 0; width: 100%; }
+  #orb { width: min(210px, 50vw); aspect-ratio: 1; display: block; margin: 0 auto 20px;
+    transition: transform .6s var(--ease); }
+  h1 { font-size: clamp(64px, 12vw, 128px); line-height: .95; letter-spacing: -.055em; font-weight: 700; margin: 0; }
+  .sub { font-size: clamp(22px, 3.2vw, 34px); letter-spacing: -.025em; color: var(--mute); margin: 12px 0 34px; font-weight: 500; }
+  .keys { display: flex; gap: 10px; justify-content: center; }
+  kbd { font: 15px -apple-system, system-ui, sans-serif; color: var(--mute); background: #fff; min-width: 76px; padding: 14px 20px;
+    border-radius: 14px; box-shadow: 0 0 0 .5px rgba(0,0,0,.08), 0 1px 1px rgba(0,0,0,.04), 0 6px 16px rgba(0,0,0,.06);
+    display: inline-flex; gap: 8px; align-items: center; justify-content: center;
+    transition: transform .12s var(--ease), box-shadow .12s var(--ease), color .12s; }
+  kbd b { font-weight: 400; color: var(--ink); font-size: 17px; }
+  kbd.space { min-width: 150px; }
+  kbd.down { transform: translateY(2px) scale(.97); color: var(--ink);
+    box-shadow: 0 0 0 .5px rgba(0,0,0,.12), 0 1px 2px rgba(0,0,0,.06); }
+  .hint { margin-top: 18px; font-size: 13px; color: var(--faint); min-height: 20px; transition: color .3s; }
+  .hint.live { color: var(--ink); }
 
-  /* 3. hero */
-  .hero { text-align: center; margin-top: -88px; padding: 112px 0 var(--s16); }
-  .hero h1 { font-size: var(--t-h1); line-height: .98; letter-spacing: -.025em; }
-  .hero .sub { font-size: 21px; line-height: 1.4; margin: var(--s3) auto var(--s4); max-width: 30ch; }
-  .avail { font-size: var(--t-label); color: var(--mute); margin: var(--s2) 0 0; }
-  @media (min-width: 701px) {
-    .hero h1 { font-size: clamp(56px, 5.6vw, 80px); line-height: 1; }
-    .hero h1 br { display: none; }
-    .hero .sub { margin: 12px auto 20px; max-width: none; }
-  }
-
-  /* hero: a live Mac where the real overlay does real asks. Built at a fixed design size, zoomed to fit.
-     On desktop its width also follows the viewport height, so the whole Mac sits above the fold. */
-  .mac { width: max(640px, min(1080px, 100% - var(--s6), (100svh - 404px) * 1000 / 580)); margin: 28px auto 0; aspect-ratio: 1000 / 580; text-align: left; background: #e4e4e9; }
-  .stage { --W: 1000; width: 1000px; height: 580px; position: relative; zoom: var(--k, 1); font: 12px/1.4 -apple-system, system-ui, var(--sans);
-    background: radial-gradient(120% 90% at 20% 0%, #fbfbfd 0%, #ececf1 55%, #dedee5 100%); color: var(--ink); }
-  .stage p, .stage h4, .stage h5, .stage ol { margin: 0; }
-  .menubar { position: absolute; inset: 0 0 auto; height: 26px; display: flex; align-items: center; gap: 18px; padding: 0 16px;
-    background: rgba(255,255,255,.6); font-size: 12.5px; font-weight: 500; z-index: 20; }
-  .menubar b { font-weight: 700; } .menubar i { margin-left: auto; font-style: normal; font-variant-numeric: tabular-nums; }
-  .win { position: absolute; border-radius: 12px; overflow: hidden; background: #fff;
-    box-shadow: 0 0 0 .5px rgba(0,0,0,.18), 0 18px 40px -14px rgba(0,0,0,.28); }
-  .win .tb { height: 30px; flex: none; display: flex; align-items: center; gap: 7px; padding: 0 12px; font-size: 11px; color: var(--mute); border-bottom: 1px solid rgba(0,0,0,.07); background: #f6f6f8; }
-  .tb s { width: 11px; height: 11px; border-radius: 50%; background: #d9d9de; flex: none; }
-  .tb s:nth-child(1) { background: #ff5f57; } .tb s:nth-child(2) { background: #febc2e; } .tb s:nth-child(3) { background: #28c840; }
-  .tb .url { margin: 0 auto; padding: 3px 14px; border-radius: 6px; background: #fff; color: var(--ink2); box-shadow: 0 0 0 .5px rgba(0,0,0,.1); }
-  .tb .url::before { content: "🔒 "; font-size: 8px; vertical-align: 1px; opacity: .6; }
-  .tb .name { margin: 0 auto; padding-right: 40px; }
-
-  /* Design Weekly: an article page */
-  .doc { left: 40px; top: 168px; width: 410px; height: 354px; z-index: 3; }
-  .dw-mast { height: 36px; display: flex; align-items: center; gap: 14px; padding: 0 18px; font-size: 10.5px; color: #55556a;
-    background: linear-gradient(100deg, #cfd6ff 0%, #f3c9e4 55%, #ffe1c4 100%); }
-  .dw-mast b { font: 700 14px/1 system-ui; color: var(--ink); letter-spacing: -.01em; margin-right: auto; }
-  .dw-art { padding: 14px 18px; }
-  .dw-art small { display: block; font: 600 9.5px/1 system-ui; letter-spacing: .1em; text-transform: uppercase; color: #a14f8a; }
-  .dw-art h4 { margin: 7px 0 6px; font: 700 19px/1.18 system-ui; letter-spacing: -.015em; }
-  .dw-by { font-size: 10.5px; color: var(--mute); }
-  .dw-art img { width: 100%; height: auto; aspect-ratio: 630 / 222; border-radius: 8px; margin: 10px 0 4px; box-shadow: 0 0 0 .5px rgba(0,0,0,.1); }
-  .dw-cap { font-size: 9.5px; color: var(--faint); margin-bottom: 8px !important; }
-  .dw-art p:not([class]) { font-size: 11.5px; line-height: 1.55; color: var(--ink2); margin-bottom: 6px; }
-
-  /* Terminal */
-  .term { left: 520px; top: 80px; width: 440px; height: 400px; z-index: 4; background: #1c1c1e; color: #d1d1d6; }
-  .term .tb { border-color: rgba(255,255,255,.08); background: #2a2a2c; color: #8e8e93; }
-  .term pre { margin: 12px 14px; font: 11.5px/1.7 var(--mono); white-space: pre; }
-  .term .g { color: #5fd17f; } .term .r { color: #ff7a72; } .term .d { color: #8e8e93; }
-  .term .cur { animation: blink 1.1s steps(1) infinite; }
-  @keyframes blink { 50% { opacity: 0; } }
-
-  .res { opacity: 0; transition: opacity .6s var(--ease); }
-  .res.on { opacity: 1; }
-
-  /* Spotify: the film's look (scene B) */
-  .spot { left: 462px; top: 76px; width: 510px; height: 438px; z-index: 6; background: #121212; color: #fff; display: flex; flex-direction: column; }
-  .spot .tb { background: #000; border-color: #000; color: #8e8e93; }
-  .sp-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 162px 1fr; }
-  .sp-side { background: #000; padding: 12px 12px; display: grid; gap: 10px; align-content: start; font-size: 11px; color: #b3b3b3; }
-  .sp-side b { color: #fff; font-size: 12px; margin-bottom: 2px; }
-  .sp-side span { display: flex; white-space: nowrap; align-items: center; gap: 8px; }
-  .sp-side span::before { content: ""; width: 26px; height: 26px; border-radius: 4px; background: var(--c); flex: none; }
-  .sp-side .now { color: #1ed760; }
-  .sp-main { padding: 18px 18px 0; background: linear-gradient(180deg, #4b3f73 0%, #2a2440 38%, #121212 62%); overflow: hidden; }
-  .sp-head { display: flex; align-items: flex-end; gap: 16px; }
-  .sp-art { width: 104px; height: 104px; border-radius: 6px; flex: none; background: linear-gradient(135deg, #5f8cf0, #a07cf0); box-shadow: 0 8px 24px rgba(0,0,0,.45); }
-  .sp-head small { font-size: 10px; color: #e0e0e0; }
-  .sp-head h4 { white-space: nowrap; font: 800 23px/1.05 system-ui; letter-spacing: -.02em; margin: 3px 0 6px; }
-  .sp-head p { font-size: 10.5px; color: #b3b3b3; }
-  .sp-play { width: 38px; height: 38px; border-radius: 50%; background: #1ed760; margin: 16px 0 10px; display: grid; place-items: center; }
-  .sp-main ol { list-style: none; padding: 0; font-size: 11.5px; }
-  .sp-main li { display: grid; grid-template-columns: 22px 1fr auto; align-items: center; height: 30px; padding: 0 8px; border-radius: 4px; color: #b3b3b3; }
-  .sp-main li b { font-weight: 500; color: #fff; } .sp-main li em { font-style: normal; font-size: 10px; display: block; color: #8e8e93; line-height: 1.2; }
-  .sp-main li.now { background: rgba(255,255,255,.08); } .sp-main li.now b, .sp-main li.now > span:first-child { color: #1ed760; }
-  .sp-bar { height: 52px; flex: none; background: #000; border-top: 1px solid #222; display: grid; grid-template-columns: 162px 1fr; align-items: center; padding: 0 12px; gap: 12px; font-size: 10.5px; }
-  .sp-bar > div:first-child { display: flex; align-items: center; gap: 8px; line-height: 1.25; }
-  .sp-bar > div:first-child::before { content: ""; width: 30px; height: 30px; border-radius: 3px; background: linear-gradient(135deg, #5f8cf0, #a07cf0); flex: none; }
-  .sp-bar em { font-style: normal; color: #8e8e93; display: block; }
-  .sp-ctl { display: grid; gap: 6px; justify-items: center; color: #b3b3b3; font-size: 10px; }
-  .sp-ctl > span { display: flex; gap: 18px; align-items: center; }
-  .sp-ctl > span b { width: 22px; height: 22px; border-radius: 50%; background: #fff; color: #000; display: grid; place-items: center; font-size: 8px; letter-spacing: -1px; }
-  .sp-prog { width: 100%; display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; font-variant-numeric: tabular-nums; }
-  .sp-prog i { height: 3px; border-radius: 2px; background: #4d4d4d; overflow: hidden; }
-  .sp-prog i::before { content: ""; display: block; height: 100%; width: 4%; background: #fff; border-radius: inherit; }
-  .spot.on .sp-prog i::before { animation: sp-play 30s linear forwards; }
-  @keyframes sp-play { to { width: 18%; } }
-  .pz { width: 3px; height: 12px; background: #000; box-shadow: 6px 0 #000; translate: -3px 0; }
-  .sp-ctl .pz { width: 2px; height: 8px; box-shadow: 4px 0 #000; translate: -2px 0; }
-
-  /* GitHub: the repo page, light */
-  .gh { left: 462px; top: 76px; width: 510px; height: 452px; z-index: 6; color: #1f2328; font-family: -apple-system, system-ui, sans-serif; }
-  .gh-top { height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 14px; font-size: 13px; color: #59636e; border-bottom: 1px solid #d1d9e0; background: #f6f8fa; }
-  .gh-top svg { width: 20px; height: 20px; flex: none; }
-  .gh-top b { color: #1f2328; font-weight: 600; }
-  .gh-pill { font-size: 9.5px; padding: 1px 7px; border: 1px solid #d1d9e0; border-radius: 99px; color: #59636e; margin-left: 2px; }
-  .gh-btn { font-size: 10.5px; padding: 3px 9px; border: 1px solid #d1d9e0; border-radius: 6px; background: #f6f8fa; color: #1f2328; font-weight: 500; }
-  .gh-top .gh-btn:first-of-type { margin-left: auto; }
-  .gh-tabs { display: flex; gap: 16px; padding: 0 14px; height: 32px; align-items: stretch; font-size: 11px; color: #59636e; border-bottom: 1px solid #d1d9e0; background: #f6f8fa; }
-  .gh-tabs span { display: flex; align-items: center; }
-  .gh-tabs .now { color: #1f2328; font-weight: 600; box-shadow: inset 0 -2px #fd8c73; }
-  .gh-body { padding: 12px 14px; }
-  .gh-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 11px; color: #59636e; }
-  .gh-row .go { margin-left: auto; background: #1f883d; border-color: #1f883d; color: #fff; }
-  .gh-files { border: 1px solid #d1d9e0; border-radius: 6px; overflow: hidden; font-size: 11px; }
-  .gh-files > div { display: grid; grid-template-columns: 112px 1fr auto; gap: 12px; align-items: center; height: 21px; padding: 0 12px; border-top: 1px solid #d8dee4; color: #59636e; white-space: nowrap; }
-  .gh-files > div > * { overflow: hidden; text-overflow: ellipsis; }
-  .gh-files > div:first-child { display: flex; gap: 6px; height: 34px; border: 0; background: #f6f8fa; }
-  .gh-files > div:first-child b { color: #1f2328; font-weight: 600; }
-  .gh-files > div:first-child span { margin-left: auto; font-size: 10.5px; }
-  .gh-av { width: 16px; height: 16px; border-radius: 50%; flex: none; background: linear-gradient(135deg, #3a3a3c, #8e8e93); }
-  .gh-files a { color: #1f2328; display: flex; align-items: center; gap: 6px; }
-  .gh-files a::before { content: ""; width: 12px; height: 10px; flex: none; border-radius: 1.5px; background: #54aeff; }
-  .gh-files a.f::before { width: 9px; height: 11px; background: none; border: 1px solid #8c959f; border-radius: 1.5px; }
-  .gh-readme { margin-top: 10px; border: 1px solid #d1d9e0; border-radius: 6px; overflow: hidden; }
-  .gh-readme > div:first-child { height: 30px; display: flex; align-items: center; gap: 14px; padding: 0 12px; font-size: 11px; color: #59636e; border-bottom: 1px solid #d1d9e0; }
-  .gh-readme > div:first-child b { color: #1f2328; font-weight: 600; box-shadow: 0 9px 0 -7px #fd8c73; }
-  .gh-readme h5 { margin: 10px 14px 6px; padding-bottom: 5px; font: 600 19px/1.2 -apple-system, system-ui; border-bottom: 1px solid #d1d9e0; }
-  .gh-readme p { margin: 0 14px 4px; font-size: 11.5px; color: #1f2328; }
-  .gh-readme kbd { font: 10px var(--mono); padding: 0 4px; border: 1px solid #d1d9e0; border-bottom-width: 2px; border-radius: 4px; background: #f6f8fa; }
-
-  .ov { position: absolute; left: 36px; top: 42px; width: 400px; z-index: 10; padding: 12px 14px 14px; border-radius: 18px; color: #f5f5f7;
-    background: rgba(38,38,41,.94); box-shadow: 0 0 0 .5px rgba(255,255,255,.12) inset, 0 0 0 .5px rgba(0,0,0,.4), 0 24px 50px -16px rgba(0,0,0,.55);
-    -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); }
-  .ov-top { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: #98989d; }
-  .ov-top canvas { width: 26px; height: 26px; }
-  .ov-top .x { margin-left: auto; width: 18px; height: 18px; border-radius: 50%; background: rgba(255,255,255,.12); display: grid; place-items: center; font-size: 11px; }
-  .ov-ask { margin: 10px 0 0 auto; width: fit-content; max-width: 92%; min-height: 34px; padding: 8px 12px; border-radius: 12px; background: rgba(255,255,255,.1);
-    font-size: 14px; line-height: 1.35; }
-  .ov-ask:empty { opacity: 0; }
-  .ov-res { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .6s var(--ease); }
-  .ov-res > div { min-height: 0; overflow: hidden; }
-  .ov.has .ov-res { grid-template-rows: 1fr; }
-  .ov-step { display: flex; align-items: center; gap: 7px; margin-top: 12px; font-size: 12px; color: #98989d; }
-  .ov-step::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #98989d; }
-  .ov.done .ov-step::before { background: #30d158; }
-  .ov-done { margin-top: 6px; font-size: 14px; line-height: 1.5; opacity: 0; transition: opacity .3s var(--ease); }
-  .ov.done .ov-done { opacity: 1; }
-  .ov-done small { display: block; color: #c7c7cc; font-size: 13px; }
-  .timer { position: absolute; left: 50%; top: 40px; translate: -50% 0; z-index: 11; padding: 6px 14px; border-radius: 999px; background: #1d1d1f; color: #fff;
-    font: 600 15px system-ui; font-variant-numeric: tabular-nums; opacity: 0; transition: opacity .3s var(--ease); white-space: nowrap; }
-  .timer em { font: 500 12px system-ui; color: #a1a1a6; margin-left: 6px; }
-  .timer.on { opacity: 1; }
-  .keys { position: absolute; left: 50%; bottom: 18px; translate: -50% 0; z-index: 12; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
-  .keys kbd { font: 500 12px system-ui; color: #fff; background: #1d1d1f; height: 28px; min-width: 28px; padding: 0 8px; border-radius: 7px; display: grid; place-items: center;
-    transition: background .2s, box-shadow .2s; box-shadow: 0 2px 0 #000; }
-  .keys kbd.wide { min-width: 58px; }
-  .keys.down kbd { background: #48484a; box-shadow: 0 0 0 #000; }
-  .keys span { margin-left: 8px; padding: 6px 14px; border-radius: 999px; background: #fff; font: 600 13px system-ui; box-shadow: 0 4px 14px rgba(0,0,0,.1); transition: opacity .3s var(--ease); }
-  @media (max-width: 700px) {
-    .stage { --W: 360; width: 360px; height: 560px; }
-    .mac { aspect-ratio: 360 / 560; width: calc(100% - var(--s4)); margin-top: var(--s6); }
-    .menubar span:nth-of-type(n+3) { display: none; }
-    .ov { left: 12px; top: 38px; width: 336px; }
-    .doc, .spot, .gh { left: 14px; top: 212px; width: 332px; height: 258px; }
-    .term { display: none; }
-    .dw-mast span, .dw-art p:not([class]) + p, .dw-cap { display: none; }
-    .dw-art { padding: 10px 14px; } .dw-art h4 { font-size: 16px; }
-    .sp-body { grid-template-columns: 1fr; } .sp-side { display: none; } .sp-main { padding: 14px 14px 0; }
-    .sp-art { width: 64px; height: 64px; } .sp-head h4 { font-size: 20px; } .sp-play { width: 30px; height: 30px; margin: 10px 0 4px; font-size: 11px; }
-    .sp-main li { height: 26px; } .sp-main li:nth-child(n+3) { display: none; }
-    .sp-bar { grid-template-columns: 1fr; height: 40px; } .sp-ctl { display: none; }
-    .gh-tabs, .gh-row, .gh-top .gh-btn, .gh-files > div:nth-child(-n+5):not(:first-child) { display: none; }
-    .gh-top { height: 36px; font-size: 12px; }
-    .gh-body { padding: 10px 12px; }
-    .gh-files > div { grid-template-columns: 84px 1fr; } .gh-files > div > :last-child:not(:first-child) { display: none; }
-    .gh-files > div:first-child { height: 30px; } .gh-files > div:first-child span { display: none; }
-    .gh-readme > div:first-child, .gh-readme p + p { display: none; }
-    .gh-readme { margin-top: 8px; } .gh-readme h5 { font-size: 17px; margin-top: 8px; }
-    .timer { top: auto; bottom: 54px; }
-    .keys { bottom: 14px; }
-    .keys span { display: none; }
-  }
-
-  /* 5. faster than clicking */
-  .dark { background: var(--ink); color: #f5f5f7; border-radius: var(--r4); padding: var(--s16) 0; position: relative; z-index: 4; }
-  .h2 { font-size: var(--t-h2); line-height: 1.04; }
-  .lede { font-size: var(--t-lede); line-height: 1.45; margin: var(--s3) auto 0; max-width: 38ch; color: var(--ink2); }
-  .dark .lede { color: rgba(245,245,247,.72); }
-  .faster { padding: var(--s16) 0 0; }
-  .race { width: min(1160px, 100% - var(--s6)); margin: var(--s8) auto 0; display: grid; grid-template-columns: 296px 1fr; gap: var(--s2); }
-  .lane { background: #fff; box-shadow: 0 0 0 1px var(--line); border-radius: var(--r3); padding: var(--s4); display: flex; flex-direction: column; }
-  .cap { font-size: 17px; font-weight: 500; }
-  .clock { font: 400 56px/1 var(--serif); font-variant-numeric: tabular-nums; margin-top: var(--s1); letter-spacing: -.01em; }
-  .of { font-size: var(--t-small); color: var(--mute); margin-top: var(--s1); }
-  .hand ol { list-style: none; padding: 0; margin: auto 0 0; display: grid; gap: var(--s1); counter-reset: s; }
-  .hand li { counter-increment: s; display: flex; gap: var(--s2); align-items: center; padding: 12px var(--s2); border-radius: var(--r2);
-    font-size: 15px; line-height: 1.3; color: var(--faint); border: 1px solid transparent; transition: color .3s var(--ease), background .3s var(--ease), border-color .3s var(--ease); }
-  .hand li::before { content: counter(s); flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
-    font: 600 12px var(--sans); border: 1px solid currentColor; }
-  .hand li.now { color: var(--ink); background: var(--bg); border-color: var(--line); }
-  .hand li.done { color: var(--ink2); }
-  .hand li.done::before { content: "✓"; background: #e8e8ed; border-color: transparent; }
-  .fast .head { display: grid; grid-template-columns: 1fr auto; gap: var(--s4); align-items: end; margin-bottom: var(--s4); }
-  .log { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; min-width: 320px; }
-  .log li { display: flex; justify-content: space-between; gap: var(--s3); font-size: 15px; color: var(--faint); transition: color .3s var(--ease); }
-  .log li.on { color: var(--ink); }
-  .log b { font-weight: 500; font-variant-numeric: tabular-nums; }
-  .fast .screen { aspect-ratio: 16 / 9; }
-  .note { margin: var(--s3) auto 0; text-align: center; font-size: var(--t-label); color: var(--mute); max-width: 70ch; padding-inline: var(--s3); }
-
-  /* 6. how it works */
-  .how { padding: var(--s20) 0 0; position: relative; overflow: clip; }
-  .hiw { position: relative; }
-  .steps { list-style: none; margin: 0; padding: 0; position: absolute; left: max(var(--s3), calc(50% - 620px)); top: calc(50% - 40px); z-index: 2; }
-  .steps li { font: 400 21px/1.2 var(--serif); color: var(--mute); padding: 6px 0 6px var(--s2); border-left: 2px solid #dcdce1;
-    cursor: pointer; transition: color .4s var(--ease), border-color .4s var(--ease); }
-  .steps li.on { color: var(--ink); border-color: var(--ink); }
-  .hiw-card { width: 640px; }
-  .hiw-txt h3 { font-size: 32px; line-height: 1.1; }
-  .hiw-txt p { margin: var(--s2) 0 0; font-size: var(--t-body); line-height: 1.5; max-width: 30ch; }
-  .hiw-txt q { display: block; margin-top: var(--s2); font-size: var(--t-small); color: var(--mute); }
-  .pin .hiw { height: 640px; }
-  .pin .hiw-step .hiw-card { position: absolute; left: 50%; top: 50%; translate: -50% -50%; opacity: 0; transition: opacity .6s var(--ease); }
-  .pin .hiw-step .hiw-txt { position: absolute; left: calc(50% + 360px); bottom: calc(50% - 200px); width: 260px; opacity: 0; transition: opacity .35s var(--ease); }
-  .pin .hiw-step.on .hiw-card, .pin .hiw-step.on .hiw-txt { opacity: 1; }
-  .pin .hiw-step.on .hiw-txt { transition-delay: .1s; }
-  .stack .steps { display: none; }
-  .stack .hiw { display: grid; gap: var(--s12); padding: var(--s8) var(--s3) var(--s4); justify-items: center; }
-  .stack .hiw-step { display: grid; grid-template-columns: minmax(0, 640px) 260px; gap: var(--s6); align-items: end; }
-  .stack .hiw-card { width: 100%; }
-
-  /* 7. built for your whole Mac: the centrepiece, on the overlay's dark */
-  .feats { margin-inline: var(--s2); padding: var(--s16) 0 var(--s12); }
-  .feats .wrap { --wrap: 1320px; }
-  .flist { --gap: var(--s8); display: grid; grid-template-columns: 58fr 42fr; gap: 0 var(--gap); margin-top: var(--s8); container-type: inline-size; }
-  .fmedia { --half: calc(((100cqw - var(--gap)) * .58 * 9 / 16 + 72px) / 2); position: sticky; top: calc(50vh - var(--half)); align-self: start;
-    margin-top: calc(32vh - var(--half)); }
-  .fstack { position: relative; aspect-ratio: 16 / 9; }
-  .fm { position: absolute; inset: 0; opacity: 0; transition: opacity .5s var(--ease); }
-  .fm.on { opacity: 1; z-index: 1; }
-  .fm .screen { height: 100%; }
-  .say { display: flex; align-items: center; gap: 6px; height: 48px; margin-top: var(--s3); font-size: 15px; color: rgba(245,245,247,.8); }
-  .say kbd { font: 500 12px var(--sans); color: var(--ink); background: #f5f5f7; height: 28px; min-width: 28px; padding: 0 8px; border-radius: 7px; display: grid; place-items: center; }
-  .say kbd.wide { min-width: 56px; }
-  .say q { margin-left: var(--s1); transition: opacity .3s var(--ease); }
-  .say q.swap { opacity: 0; transition-duration: .15s; }
-  .fitems { padding: 0; margin: 0; list-style: none; }
-  .fitem { min-height: 60vh; display: flex; flex-direction: column; justify-content: center; opacity: .3; transition: opacity .5s var(--ease); cursor: pointer; }
-  .fitem.on { opacity: 1; }
-  .fitem small { font: 500 var(--t-label) var(--sans); color: rgba(245,245,247,.5); font-variant-numeric: tabular-nums; margin-bottom: var(--s2); }
-  .fitem h3 { font-size: clamp(32px, 3.4vw, 48px); line-height: 1.05; }
-  .fitem p { margin: var(--s2) 0 0; font-size: 18px; line-height: 1.5; max-width: 34ch; color: rgba(245,245,247,.72); }
-  .fitem q { display: none; }
-  .prog { height: 2px; margin-top: var(--s3); max-width: 240px; background: var(--line-d); border-radius: 2px; overflow: hidden; }
-  .prog i { display: block; height: 100%; background: #fff; transform-origin: 0 50%; transform: scaleX(0); }
-
-  /* 8. privacy */
-  .priv { margin-top: var(--s12); background: #fff; border-radius: var(--r3); padding: var(--s8) var(--s6); display: grid;
-    grid-template-columns: 1fr 1.05fr 1fr; gap: var(--s6); align-items: center; box-shadow: 0 0 0 1px var(--line); }
-  .priv h2 { font-size: clamp(40px, 3.4vw, 48px); line-height: 1.02; }
-  .priv p { margin: 0 0 var(--s3); font-size: var(--t-body); line-height: 1.5; max-width: 34ch; }
-  .badges { display: flex; gap: var(--s2); justify-content: flex-end; }
-  .badge { width: 112px; height: 112px; border-radius: 50%; border: 1px solid var(--ink); display: grid; place-items: center;
-    text-align: center; font: 600 13px/1.2 var(--sans); box-shadow: inset 0 0 0 6px #fff, inset 0 0 0 7px var(--line); }
-
-  /* 9. runs on your plan */
-  .plan { padding: var(--s20) 0 var(--s16); display: grid; grid-template-columns: 1fr 400px; gap: var(--s12); }
-  .plan h2 { font-size: var(--t-h2); line-height: 1.04; }
-  .plan .lead { font-size: var(--t-lede); line-height: 1.45; max-width: 30ch; margin: var(--s4) 0 var(--s6); }
-  .pitems { display: grid; gap: var(--s4); padding-top: var(--s6); }
-  .pitem h3 { font: 600 var(--t-body) var(--sans); letter-spacing: 0; display: flex; align-items: center; gap: var(--s2); }
-  .pitem h3 span { flex: none; width: 32px; height: 32px; border-radius: var(--r1); background: #fff; box-shadow: 0 0 0 1px var(--line);
-    display: grid; place-items: center; font: 500 13px var(--mono); }
-  .pitem p { margin: var(--s1) 0 0 48px; font-size: var(--t-small); color: var(--mute); line-height: 1.5; }
-
-
-  /* 12. final cta */
-  .cta { margin-inline: var(--s2); border-radius: var(--r4); background: var(--ink); color: #fff; text-align: center; padding: var(--s16) var(--s3); }
-  .cta .logo { width: 120px; height: 120px; margin: 0 auto var(--s4); display: block; }
-  .cta h2 { font-size: clamp(52px, 7vw, 104px); line-height: 1; }
-  .cta .lede { color: rgba(255,255,255,.9); }
-  .install { display: inline-flex; align-items: center; gap: var(--s2); margin-top: var(--s6); padding: var(--s1) var(--s1) var(--s1) var(--s3); border-radius: var(--pill);
-    background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14); font: 14px var(--mono); max-width: 100%;
-    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
-  .install code { overflow-x: auto; white-space: nowrap; scrollbar-width: none; text-align: left; }
+  .install { display: inline-flex; align-items: center; gap: 14px; margin-top: 36px; padding: 12px 12px 12px 20px; border-radius: 14px;
+    background: var(--ink); color: #f5f5f7; font: 13.5px var(--mono); max-width: 100%; }
+  .install code { overflow-x: auto; white-space: nowrap; scrollbar-width: none; }
   .install code::-webkit-scrollbar { display: none; }
   .install code i { color: #8e8e93; font-style: normal; }
-  .install .btn { flex: none; height: 40px; padding: 0 var(--s3); font-size: 15px; }
+  .copy { flex: none; font: 600 13px -apple-system, system-ui, sans-serif; color: var(--ink); background: #f5f5f7; border: 0;
+    border-radius: 9px; padding: 8px 14px; cursor: pointer; transition: transform .15s var(--ease), background .2s; }
+  .copy:hover { background: #fff; }
+  .copy:active { transform: scale(.96); }
 
-  /* 13. footer */
-  footer { padding: var(--s12) 0 var(--s6); }
-  .cols { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--s4); margin-top: var(--s12); font-size: var(--t-small); }
-  .cols h4 { margin: 0 0 var(--s2); font: 500 var(--t-small) var(--sans); color: var(--mute); }
-  .cols a { display: block; margin-bottom: var(--s1); }
-  @media (hover: hover) { .cols a:hover { text-decoration: underline; } }
-  .mark { display: flex; align-items: center; justify-content: space-between; margin: var(--s12) 0 var(--s6); font: 700 min(23.4vw, 330px)/.8 var(--sans); letter-spacing: -.055em; }
-  .mark .logo { width: .7em; height: .7em; }
-  .legal { display: flex; justify-content: space-between; gap: var(--s3); flex-wrap: wrap; font-size: var(--t-label); color: var(--ink2); }
-  .legal div { display: flex; gap: var(--s3); flex-wrap: wrap; }
+  h2 { font-size: clamp(40px, 6vw, 72px); letter-spacing: -.045em; line-height: 1; margin: 0 0 18px; font-weight: 700; }
+  .lede { font-size: clamp(19px, 2.2vw, 24px); color: var(--mute); letter-spacing: -.015em; max-width: 620px; margin: 0; }
+  .center { text-align: center; }
+  .center .lede { margin-inline: auto; }
 
-  /* reveal: text only fades */
-  .rv { opacity: 0; transition: opacity .9s var(--ease); }
-  .rv.in { opacity: 1; }
+  /* live demo: a little desk that acts out each ask, next to a copy of the real overlay */
+  .stage { margin-top: 64px; padding: clamp(20px, 3vw, 40px); border-radius: 28px; display: grid; grid-template-columns: 1.55fr 1fr;
+    gap: clamp(20px, 3vw, 40px); align-items: stretch; text-align: left;
+    background: radial-gradient(70% 90% at 30% 20%, rgba(255,255,255,.85), transparent 70%), linear-gradient(160deg, #ececf1, #dedee5);
+    box-shadow: inset 0 0 0 .5px var(--line); }
+  .desk { position: relative; align-self: center; aspect-ratio: 16 / 9; --move: cubic-bezier(.65,0,.35,1); }
+  .scr { position: absolute; border: 3px solid #2c2c2e; border-radius: 10px; overflow: hidden;
+    background: linear-gradient(150deg, #fbfbfd, #e9e9f0 60%, #e4e2ef); box-shadow: 0 18px 40px rgba(0,0,0,.12); }
+  .mon { left: 2%; top: 4.7%; width: 60%; height: 74.7%; }
+  .lap { left: 66%; top: 39.7%; width: 32%; height: 46.7%; border-radius: 8px 8px 3px 3px; }
+  .stand { position: absolute; left: 27%; top: 79.3%; width: 10%; height: 10.5%; background: linear-gradient(#c7c7cc, #aeaeb2);
+    clip-path: polygon(30% 0, 70% 0, 100% 100%, 0 100%); }
+  .base { position: absolute; left: 63%; top: 86.3%; width: 38%; height: 3.5%; border-radius: 0 0 10px 10px;
+    background: linear-gradient(#d1d1d6, #a1a1a6); }
+  .scan { position: absolute; left: 2.5%; width: 59%; top: 6%; height: 2px; opacity: 0; pointer-events: none; z-index: 9;
+    background: linear-gradient(90deg, transparent, #0a84ff, transparent); box-shadow: 0 0 18px 4px rgba(10,132,255,.35); }
+  .desk.scanning .scan { animation: scan 1.1s var(--move) both; }
+  @keyframes scan { 0% { opacity: 0; top: 6%; } 15%, 85% { opacity: 1; } 100% { opacity: 0; top: 77%; } }
+  .win { position: absolute; border-radius: 6px; overflow: hidden; display: flex; flex-direction: column;
+    box-shadow: 0 0 0 .5px rgba(0,0,0,.18), 0 10px 24px rgba(0,0,0,.18);
+    transition: left .9s var(--move), top .9s var(--move), width .9s var(--move), height .9s var(--move),
+                opacity .45s var(--ease), transform .55s var(--ease); }
+  .win.off { opacity: 0; transform: scale(.9); }
+  .win.pop { animation: pop .55s var(--ease); }
+  @keyframes pop { from { transform: scale(.85); opacity: 0; } }
+  .bar { flex: none; height: 13px; display: flex; align-items: center; gap: 3px; padding: 0 6px; font: 6.5px var(--mono); color: #8e8e93; white-space: nowrap; overflow: hidden; }
+  .bar i { flex: none; width: 4px; height: 4px; border-radius: 50%; background: #ff5f57; } .bar i + i { background: #febc2e; } .bar i + i + i { background: #28c840; margin-right: 4px; }
+  .dark { background: #1e1e22; } .dark .bar { background: #2a2a2e; }
+  .light { background: #fff; } .light .bar { background: #f2f2f5; }
+  .code { padding: 5px 7px; font: 7.5px/1.55 var(--mono); color: #d1d1d6; white-space: pre; }
+  .code u { text-decoration: none; display: block; margin: 0 -7px; padding: 0 7px; transition: background .4s, box-shadow .4s; }
+  .win.flag .code u { background: rgba(255,69,58,.22); box-shadow: inset 2px 0 #ff453a; }
+  .code b { font-weight: 400; color: #ff7ab2; } .code s { text-decoration: none; color: #fdbc4b; } .code em { font-style: normal; color: #6c7986; }
+  .web { padding: 6px; display: grid; gap: 4px; grid-template-columns: repeat(3, 1fr); align-content: start; }
+  .web .hero2 { grid-column: 1 / -1; height: 30px; border-radius: 4px; background: linear-gradient(120deg, #e7dcff, #ffd9e8, #ffe7c7);
+    font: 600 8px -apple-system, sans-serif; color: #3a3a3c; padding: 6px; }
+  .web span { height: 18px; border-radius: 3px; background: #f0f0f3; }
+  .term { padding: 5px 7px; font: 7px/1.6 var(--mono); color: #8e8e93; white-space: pre; } .term b { font-weight: 400; color: #30d158; }
+  .spot { background: #121212; } .spot .bar { background: #181818; }
+  .np { flex: 1; display: flex; align-items: center; gap: 8px; padding: 8px; }
+  .art { flex: none; width: 34%; aspect-ratio: 1; border-radius: 4px; background: linear-gradient(135deg, #1db954, #0b3d2a 70%, #191414); }
+  .np div { font: 600 8.5px -apple-system, sans-serif; color: #fff; } .np small { display: block; font-weight: 400; color: #8e8e93; margin-top: 2px; }
+  .eq { display: flex; gap: 2px; align-items: flex-end; height: 14px; margin-top: 6px; }
+  .eq i { width: 3px; height: 30%; background: #1db954; border-radius: 1px; }
+  .playing .eq i { animation: eq .9s ease-in-out infinite alternate; }
+  .eq i:nth-child(2) { animation-delay: -.3s !important; } .eq i:nth-child(3) { animation-delay: -.6s !important; } .eq i:nth-child(4) { animation-delay: -.15s !important; }
+  @keyframes eq { to { height: 100%; } }
 
-  @media (max-width: 1180px) {
-    .flist { --gap: var(--s6); }
-  }
-  @media (max-width: 900px) {
-    .nav .links { display: none; }
-    .nav .btn { margin-left: auto; }
-    .race { grid-template-columns: 1fr; }
-    .hand ol { grid-template-columns: 1fr 1fr; margin-top: var(--s3); }
-    .fast .head { grid-template-columns: 1fr; gap: var(--s2); }
-    .log { min-width: 0; }
-    .stack .hiw-step { grid-template-columns: 1fr; gap: var(--s3); width: 100%; max-width: 640px; }
-    .flist { grid-template-columns: 1fr; margin-top: var(--s6); }
-    .fmedia { display: none; }
-    .fm { position: relative; opacity: 1; margin-bottom: var(--s3); }
-    .fm .screen { aspect-ratio: 16 / 9; height: auto; }
-    .fitem { min-height: 0; opacity: 1; cursor: auto; margin-bottom: var(--s8); }
-    .fitem small, .prog { display: none; }
-    .fitem q { display: block; margin-top: var(--s2); font-size: 15px; color: rgba(245,245,247,.5); }
-    .priv { grid-template-columns: 1fr; padding: var(--s6) var(--s3); gap: var(--s3); }
-    .badges { justify-content: flex-start; }
-    .plan { grid-template-columns: 1fr; gap: 0; padding: var(--s16) 0 var(--s12); }
-    .plan .lead { margin-bottom: var(--s3); }
-    .cols { grid-template-columns: 1fr 1fr; }
-  }
-  @media (max-width: 700px) {
-    .wrap { width: calc(100% - var(--s4)); }
-    .navwrap { top: 10px; margin-top: var(--s2); padding-inline: 12px; }
-    .nav { height: 56px; padding-left: 12px; }
-    .nav .btn { height: 40px; padding: 0 var(--s2); font-size: 14px; }
-    .hero { padding: 136px 0 var(--s12); margin-top: -72px; }
-    .hero .sub { margin: var(--s3) auto; }
-    .dark { border-radius: 28px; padding: var(--s12) 0 var(--s6); }
-    .feats { margin-inline: var(--s1); }
-    .faster { padding-top: var(--s12); }
-    .race { width: calc(100% - var(--s3)); margin-top: var(--s6); }
-    .lane { padding: var(--s3) var(--s2); }
-    .clock { font-size: 44px; }
-    .hand ol { grid-template-columns: 1fr; }
-    .hand li { padding: 10px 12px; font-size: 14px; }
-    .hand li:not(.now), .note { display: none; }
-    .how { padding-top: var(--s12); }
-    .stack .hiw { padding-inline: var(--s2); gap: var(--s8); }
-    .feats { padding-top: var(--s16); }
-    .fitem p { font-size: var(--t-body); }
-    .badge { width: 92px; height: 92px; font-size: 12px; }
-    .cta { border-radius: 28px; padding: var(--s16) var(--s2); }
-    .install { display: flex; flex-direction: column; align-items: stretch; padding: var(--s2); gap: 12px; border-radius: var(--r3); }
-    .mark { margin: var(--s8) 0 var(--s4); }
+  .side { display: flex; flex-direction: column; justify-content: space-between; gap: 24px; min-width: 0; }
+  .box { padding: 14px; border-radius: 18px; color: #f5f5f7; overflow: hidden;
+    background: rgba(28,28,30,.86); backdrop-filter: blur(30px) saturate(160%); -webkit-backdrop-filter: blur(30px) saturate(160%);
+    box-shadow: inset 0 0 0 .5px rgba(255,255,255,.12), 0 20px 50px rgba(0,0,0,.22); font-size: 13px;
+    transition: height .55s var(--ease); }
+  .inner, .tag { transition: opacity .35s var(--ease), transform .35s var(--ease), filter .35s var(--ease); }
+  .clear { opacity: 0; transform: translateY(-4px); filter: blur(3px); }
+  .box .head { display: flex; align-items: center; gap: 10px; color: #a1a1a6; font-size: 12.5px; }
+  .box canvas { width: 26px; height: 26px; }
+  .q { margin-top: 10px; padding: 9px 12px; border-radius: 11px; background: rgba(255,255,255,.09); line-height: 1.38; min-height: 37px; }
+  .q span { display: inline-block; white-space: pre; animation: word .4s var(--ease) both; }
+  @keyframes word { from { opacity: 0; filter: blur(4px); transform: translateY(3px); } }
+  .q.typing::after { content: ""; display: inline-block; width: 1.5px; height: 1em; margin-left: 1px;
+    vertical-align: -2px; background: #fff; animation: blink 1s steps(1) infinite; }
+  .step { margin-top: 9px; font-size: 12px; color: #8e8e93; display: flex; gap: 7px; align-items: center; }
+  .step::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: #fff; animation: pulse 1s ease-in-out infinite; transition: background .3s; }
+  .step.done::before { background: #30d158; animation: none; }
+  .a { margin-top: 9px; font-size: 14px; line-height: 1.48; }
+  .step, .a { animation: rise .5s var(--ease) both; }
+  .tag b { display: block; font-size: clamp(44px, 6vw, 76px); letter-spacing: -.05em; line-height: 1; font-weight: 700; }
+  .tag span { display: block; margin-top: 8px; font: 13px var(--mono); color: var(--mute); }
+  .tag > * { animation: rise .55s var(--ease) both; } .tag span { animation-delay: .08s; }
+  @keyframes blink { 50% { opacity: 0; } }
+  @keyframes pulse { 50% { opacity: .3; } }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } }
+
+  /* numbers */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 56px; }
+  .stat b { display: block; font-size: clamp(40px, 5.5vw, 68px); letter-spacing: -.05em; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+  .stat span { display: block; margin-top: 10px; font-size: 14px; color: var(--mute); }
+
+  /* bento: each feature shows itself instead of explaining */
+  .bento { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 64px; }
+  .card { background: #fff; border-radius: 24px; padding: 26px; box-shadow: 0 0 0 .5px var(--line), 0 1px 2px rgba(0,0,0,.03);
+    display: flex; flex-direction: column; gap: 22px; overflow: hidden; min-height: 230px;
+    transition: opacity .6s var(--ease), transform .7s var(--ease), box-shadow .3s var(--ease); }
+  .card:hover { box-shadow: 0 0 0 .5px var(--line), 0 18px 40px rgba(0,0,0,.07); }
+  .card.wide { grid-column: span 2; } .card.full { grid-column: 1 / -1; min-height: 0; flex-direction: row; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+  .card h3 { font-size: 21px; letter-spacing: -.025em; margin: 0; font-weight: 600; }
+  .card p { margin: 4px 0 0; color: var(--mute); font-size: 15px; }
+  .vis { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+  .race { display: grid; grid-template-columns: 84px 1fr auto; align-items: center; gap: 14px; font-size: 13px; color: var(--mute); }
+  .race + .race { margin-top: 14px; }
+  .track { height: 10px; border-radius: 99px; background: #f0f0f3; overflow: hidden; }
+  .track i { display: block; height: 100%; width: 0; border-radius: 99px; background: #c7c7cc; transition: width 1.6s cubic-bezier(.65,0,.35,1) .3s; }
+  .race.fast .track i { background: var(--ink); transition-duration: .5s; transition-delay: .3s; }
+  .race b { font: 600 15px var(--mono); color: var(--ink); text-align: right; white-space: nowrap; min-width: 120px; }
+  .card.in .race .track i { width: 100%; } .card.in .race.fast .track i { width: 7.3%; }
+  .chip { font: 15px var(--mono); padding: 12px 18px; border-radius: 12px; background: var(--ink); color: #f5f5f7; align-self: flex-start; }
+  .chip i { font-style: normal; color: #8e8e93; }
+  .points { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 14px; font-size: 17px; }
+  .points span { color: var(--faint); }
+  .vis.mem { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; } .mem span { font-size: 14px; padding: 9px 14px; border-radius: 10px; background: #f5f5f7; justify-self: start; }
+  .mem span i { font-style: normal; color: var(--mute); margin-right: 6px; }
+  .marquee { display: flex; flex-direction: column; gap: 8px; margin: 0 -26px; mask: linear-gradient(90deg, transparent, #000 15%, #000 85%, transparent); }
+  .row { display: flex; gap: 8px; width: max-content; animation: slide 26s linear infinite; }
+  .row.rev { animation-direction: reverse; }
+  .row span { font-size: 13px; padding: 7px 13px; border-radius: 99px; background: #f5f5f7; color: var(--ink); white-space: nowrap; }
+  @keyframes slide { to { transform: translateX(-50%); } }
+  .mini-scr { position: relative; height: 92px; border-radius: 10px; background: #f5f5f7; overflow: hidden; padding: 12px; display: grid; gap: 6px; align-content: start; }
+  .mini-scr span { height: 8px; border-radius: 4px; background: #e3e3e8; } .mini-scr span:nth-child(2) { width: 70%; } .mini-scr span:nth-child(3) { width: 85%; } .mini-scr span:nth-child(4) { width: 50%; }
+  .mini-scr::after { content: ""; position: absolute; inset-inline: 0; height: 2px; top: 0; background: linear-gradient(90deg, transparent, #0a84ff, transparent);
+    box-shadow: 0 0 14px 3px rgba(10,132,255,.3); animation: sweep 2.8s cubic-bezier(.65,0,.35,1) infinite; }
+  @keyframes sweep { 0% { top: 0; opacity: 0; } 15%, 80% { opacity: 1; } 100% { top: 100%; opacity: 0; } }
+  .wave { display: flex; align-items: center; gap: 4px; height: 60px; }
+  .wave i { flex: 1; max-width: 6px; border-radius: 3px; background: var(--ink); height: 20%; animation: wv 1.1s ease-in-out infinite alternate; }
+  @keyframes wv { to { height: 100%; } }
+  .lock { font-size: 13px; color: var(--mute); display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+  .lock::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #30d158; }
+  .nope { display: flex; flex-wrap: wrap; gap: 8px; }
+  .nope span { font: 13.5px var(--mono); padding: 8px 14px; border-radius: 10px; background: #f5f5f7; color: var(--faint);
+    text-decoration: line-through; text-decoration-color: #ff453a; text-decoration-thickness: 1.5px; }
+
+  .film { position: relative; margin-top: 64px; }
+  .film-play { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: 9.4%; min-width: 56px; aspect-ratio: 1; padding: 0; border: 0; border-radius: 50%;
+    background: #1d1d1f; color: #fff; cursor: pointer; display: grid; place-items: center; }
+  .film-play[hidden] { display: none; }
+  .film-play::before { content: ""; width: 40%; height: 46%; margin-left: 10%;
+    background: currentColor; clip-path: polygon(0 0, 100% 50%, 0 100%); }
+  .film-play:focus-visible { outline: 3px solid #0a84ff; outline-offset: 5px; }
+  video { display: block; width: 100%; border-radius: 24px; background: #e8e8ed;
+    box-shadow: 0 0 0 .5px var(--line), 0 30px 80px rgba(0,0,0,.08); }
+
+  .needs { list-style: none; padding: 0; margin: 40px auto 0; display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+  .needs li { font-size: 14px; color: var(--mute); padding: 8px 16px; border-radius: 99px; background: #fff; box-shadow: 0 0 0 .5px var(--line); }
+  footer { text-align: center; font-size: 13px; color: var(--faint); padding: 40px 20px 60px; }
+  footer a { color: var(--mute); }
+
+  /* scroll reveal: up 20px and in, staggered by --i */
+  .rv { opacity: 0; transform: translateY(20px); transition: opacity .6s var(--ease), transform .7s var(--ease);
+    transition-delay: calc(var(--i, 0) * 80ms); }
+  .rv.in { opacity: 1; transform: none; }
+
+  @media (max-width: 800px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .stage { grid-template-columns: 1fr; }
+    .bento { grid-template-columns: 1fr; } .card.wide, .card.full { grid-column: auto; }
+    kbd { min-width: 0; padding: 12px 14px; } kbd.space { min-width: 100px; }
   }
   @media (prefers-reduced-motion: reduce) {
-    html { scroll-behavior: auto; }
     *, *::before, *::after { animation: none !important; transition: none !important; }
-    .rv { opacity: 1; }
+    .rv { opacity: 1; transform: none; }
   }
 </style>
 </head>
 <body>
+<div class="glow"></div>
 
-<div class="navwrap">
-  <nav class="nav" aria-label="Main">
-    <a class="brand" href="#top"><canvas class="logo" data-orb="breathing" aria-hidden="true"></canvas>Atticus</a>
-    <div class="links"><a href="#how">How it works</a><a href="#features">Features</a><a href="#privacy">Privacy</a><a href="https://ko-fi.com/saarthr">☕ Tip</a><a href="https://github.com/SaarthurR/atticus-mac">★<span id="stars"></span></a></div>
-    <a class="btn" href="#install">Download for macOS</a>
-  </nav>
-</div>
+<nav>
+  <a class="brand" href="#"><canvas data-orb="breathing"></canvas>Atticus</a>
+  <span><a class="gh" href="https://ko-fi.com/saarthr">☕ Leave a tip</a>
+  <a class="gh" href="https://github.com/SaarthurR/atticus-mac">★<span id="stars"></span></a></span>
+</nav>
 
-<header class="hero" id="top">
-  <div class="hero-copy">
-    <h1>Don't click, <br><em>just ask.</em></h1>
-    <p class="sub">Your whole Mac, one sentence away.</p>
-    <div class="btns"><a class="btn" href="#install">Download for macOS</a><a class="btn ghost" href="#features">See it work</a></div>
+<section class="hero">
+  <div>
+    <canvas id="orb" class="rv" data-orb="breathing" aria-hidden="true"></canvas>
+    <h1 class="rv" style="--i:1">Atticus</h1>
+    <p class="sub rv" style="--i:2">Your whole Mac, one sentence away.</p>
+    <p class="points rv" style="--i:2"><b>Fast</b><span>·</span><b>No API key</b><span>·</span><b>Remembers you</b><span>·</span><b>Free</b></p>
+    <div class="keys rv" style="--i:3" aria-label="Shortcut: control, option, space">
+      <kbd id="kc"><b>⌃</b>control</kbd><kbd id="ko"><b>⌥</b>option</kbd><kbd id="ks" class="space">space</kbd>
+    </div>
+    <p class="hint rv" style="--i:4" id="hint">Try it. Hold the keys.</p>
+    <div class="install rv" style="--i:5">
+      <code><i>$</i> curl -fsSL https://raw.githubusercontent.com/SaarthurR/atticus-mac/main/install.sh | bash</code>
+      <button class="copy">Copy</button>
+    </div>
   </div>
-  <div class="screen mac" id="mac" role="img" aria-label="A Mac desktop with a Design Weekly article and a terminal. Holding control, option, space, someone asks Atticus to open GitHub, then to play a late night coding playlist on Spotify; each is done in the overlay.">
-    <div class="stage" id="stage" aria-hidden="true">
-      <div class="menubar"><b>Finder</b><span>File</span><span>Edit</span><span>View</span><span>Window</span><i id="mclock">Mon 9:41</i></div>
-      <div class="win doc"><div class="tb"><s></s><s></s><s></s><span class="url">designweekly.com/gear/desk-lamps</span></div>
-        <div class="dw-mast"><b>Design Weekly</b><span>Gear</span><span>Studio</span><span>Type</span></div>
-        <div class="dw-art">
-          <small>Gear · Tested</small>
-          <h4>Five desk lamps under $30 that don't look cheap</h4>
-          <p class="dw-by">By Mira Okafor · Nov 21, 2026 · 6 min read</p>
-          <img src="assets/hero-article.jpg" alt="" width="630" height="222">
-          <p class="dw-cap">The Arc LED and the Clip Reading Light made our final cut.</p>
-          <p>A good desk lamp should disappear until you need it. We lived with eleven of them for a month, through late nights and early calls, and five stayed on our desks.</p>
-          <p>The Arc LED is the one we'd buy first: warm at night, crisp at noon, and it folds flat when you need the space back.</p>
-        </div></div>
-      <div class="win term"><div class="tb"><s></s><s></s><s></s><span class="name">zsh — ~/shop</span></div><pre>~/shop $ npm run dev
-<span class="d">&gt; shop@0.4.2 dev
-&gt; next dev</span>
-  <span class="g">ready</span> on localhost:3000
+</section>
+
+<section class="center">
+  <h2 class="rv">Just ask.</h2>
+  <p class="lede rv" style="--i:1">Say it. Watch it happen.</p>
+  <div class="stage rv" style="--i:2">
+    <div class="desk" id="desk" aria-hidden="true">
+      <div class="scr mon"></div><div class="stand"></div>
+      <div class="scr lap"></div><div class="base"></div>
+      <div class="scan"></div>
+      <div class="win dark" id="w-code"><div class="bar"><i></i><i></i><i></i>checkout.py</div><div class="code"><b>def</b> checkout(cart):
+    total = <s>0</s>
+    <b>for</b> item <b>in</b> cart:
+        total += item.price
+
+    tax = total * <s>0.0925</s>
+    total += tax
+
+    <em># show the receipt</em>
+    print(<s>"Items: "</s> + str(len(cart)))
+<u>    print(<s>"Total: $"</s> + total)</u>    <b>return</b> total</div></div>
+      <div class="win light off" id="w-web"><div class="bar"><i></i><i></i><i></i>design-weekly.com</div><div class="web"><div class="hero2">Design Weekly</div><span></span><span></span><span></span><span></span><span></span><span></span></div></div>
+      <div class="win dark off" id="w-term"><div class="bar"><i></i><i></i><i></i>zsh</div><div class="term">~/shop $ npm run dev
+  <b>ready</b> on localhost:3000
 ~/shop $ git status
-On branch main
-Changes not staged for commit:
-  <span class="r">modified:   checkout.py</span>
-~/shop $ git diff --stat
- checkout.py | 12 <span class="g">++++++++</span><span class="r">----</span>
- 1 file changed, 8 insertions(+), 4 deletions(-)
-~/shop $ <span class="cur">▍</span></pre></div>
-      <div class="win res spot"><div class="tb"><s></s><s></s><s></s><span class="name">Spotify</span></div>
-        <div class="sp-body">
-          <div class="sp-side"><b>Your Library</b><span style="--c:linear-gradient(135deg,#ffb16b,#f0687e)">Liked Songs</span><span class="now" style="--c:linear-gradient(135deg,#5f8cf0,#a07cf0)">Late Night Coding</span><span style="--c:linear-gradient(135deg,#3be8a0,#29b07a)">1M</span><span style="--c:linear-gradient(135deg,#ff9b5e,#ff5f57)">Gym</span></div>
-          <div class="sp-main">
-            <div class="sp-head"><div class="sp-art"></div><div><small>Playlist</small><h4>Late Night Coding</h4><p>SaarthurR · 24 songs, 1 hr 32 min</p></div></div>
-            <div class="sp-play"><i class="pz"></i></div>
-            <ol>
-              <li class="now"><span>▶</span><span><b>Starboy</b><em>The Weeknd, Daft Punk</em></span><span>3:50</span></li>
-              <li><span>2</span><span><b>Nightcall</b><em>Kavinsky</em></span><span>4:19</span></li>
-              <li><span>3</span><span><b>Awake</b><em>Tycho</em></span><span>4:43</span></li>
-              <li><span>4</span><span><b>Midnight City</b><em>M83</em></span><span>4:03</span></li>
-            </ol>
-          </div>
-        </div>
-        <div class="sp-bar"><div><span>Starboy<em>The Weeknd</em></span></div><div class="sp-ctl"><span>⤨ ⏮ <b><i class="pz"></i></b> ⏭ ↻</span><div class="sp-prog">0:09<i></i>3:50</div></div></div>
-      </div>
-      <div class="win res gh"><div class="tb"><s></s><s></s><s></s><span class="url">github.com/SaarthurR/atticus</span></div>
-        <div class="gh-top"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="#1f2328" d="M8 0a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.83 1.23.83.71 1.22 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.65-.89-3.65-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 8 0Z"/></svg>SaarthurR / <b>atticus</b><span class="gh-pill">Public</span><span class="gh-btn">☆ Star</span><span class="gh-btn">⑂ Fork</span></div>
-        <div class="gh-tabs"><span class="now">&lt;&gt; Code</span><span>Issues</span><span>Pull requests</span><span>Actions</span><span>Wiki</span></div>
-        <div class="gh-body">
-          <div class="gh-row"><span class="gh-btn">⑂ main ▾</span><span>1 branch · 12 tags</span><span class="gh-btn go">&lt;&gt; Code ▾</span></div>
-          <div class="gh-files">
-            <div><i class="gh-av"></i><b>SaarthurR</b>Open a folder by name with no AI<span>5885ea0 · 2 days ago · 1,403 commits</span></div>
-            <div><a>docs</a><span>Settings: split General into General, Voice &amp; Sound and Box &amp; Display</span><span>2 days ago</span></div>
-            <div><a>tests</a><span>Open a folder by name with no AI</span><span>2 days ago</span></div>
-            <div><a>ui</a><span>Setup: 'You can change this anytime.' under the AI choices</span><span>2 days ago</span></div>
-            <div><a class="f">Atticus.swift</a><span>Box, setup and Settings: a call from Swift waits until the page is ready</span><span>2 days ago</span></div>
-            <div><a class="f">README.md</a><span>Atticus 2.0.1</span><span>2 days ago</span></div>
-            <div><a class="f">build.sh</a><span>Colours come from one file: ui/tokens.css</span><span>3 days ago</span></div>
-            <div><a class="f">index.html</a><span>Repo holds just the app</span><span>6 weeks ago</span></div>
-          </div>
-          <div class="gh-readme"><div><b>README</b><span>MIT license</span></div>
-            <h5>Atticus</h5>
-            <p>Your whole Mac, one sentence away.</p>
-            <p>Hold <kbd>⌃ control</kbd> <kbd>⌥ option</kbd> <kbd>space</kbd>, say what you need, let go.</p>
-          </div>
-        </div>
-      </div>
-      <div class="ov" id="ov">
-        <div class="ov-top"><canvas id="orb" width="52" height="52"></canvas><span id="ovState">Listening</span><span class="x">×</span></div>
-        <div class="ov-ask" id="ovAsk"></div>
-        <div class="ov-res"><div><div class="ov-step" id="ovStep"></div><div class="ov-done" id="ovDone"></div></div></div>
-      </div>
-      <div class="timer" id="timer"></div>
-      <div class="keys" id="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd class="wide">Space</kbd><span id="cap">Instant. Before you finish talking.</span></div>
+  modified: checkout.py
+~/shop $ </div></div>
+      <div class="win spot off" id="w-spot"><div class="bar"><i></i><i></i><i></i>Spotify</div><div class="np"><span class="art"></span><div>late night coding<small>Playlist · 1M likes</small><div class="eq"><i></i><i></i><i></i><i></i></div></div></div></div>
     </div>
-  </div>
-    <p class="avail">For macOS 26 or later</p>
-</header>
-
-<section class="dark feats" id="features">
- <div class="wrap">
-  <h2 class="h2 center rv">Built for <em>your whole Mac,</em><br>not one app.</h2>
-  <p class="lede center rv">One shortcut, every app and every screen.</p>
-  <div class="flist">
-    <div class="fmedia" id="fmedia">
-     <div class="fstack">
-      <div class="fm on" data-pick><div class="screen"><video class="clip" src="assets/clips/A.mp4" poster="assets/clips/A.jpg" muted playsinline loop preload="metadata" aria-label="Atticus putting code on the big screen and Chrome and Terminal on the laptop"></video></div></div>
-      <div class="fm" data-pick><div class="screen"><video class="clip" src="assets/clips/C.mp4" poster="assets/clips/C.jpg" muted playsinline loop preload="metadata" aria-label="Atticus finding the Tokyo trip notes"></video></div></div>
-      <div class="fm" data-pick><div class="screen"><video class="clip" src="assets/clips/D.mp4" poster="assets/clips/D.jpg" muted playsinline loop preload="metadata" aria-label="Atticus reading a Python error on screen and fixing it"></video></div></div>
-      <div class="fm" data-pick><div class="screen"><video class="clip" src="assets/clips/E.mp4" poster="assets/clips/E.jpg" muted playsinline loop preload="metadata" aria-label="Atticus writing an email reply in the open reply box"></video></div></div>
-      <div class="fm" data-pick><div class="screen"><video class="clip" src="assets/clips/F.mp4" poster="assets/clips/F.jpg" muted playsinline loop preload="metadata" aria-label="Atticus finding desk lamps on Amazon in the background"></video></div></div>
-      <div class="fm" data-pick><div class="screen"><video class="clip" src="assets/clips/G.mp4" poster="assets/clips/G.jpg" muted playsinline loop preload="metadata" aria-label="Atticus highlighting the Night Shift button in Displays"></video></div></div>
-      <div class="fm" data-pick><div class="screen"><video class="clip" src="assets/clips/H.mp4" poster="assets/clips/H.jpg" muted playsinline loop preload="metadata" aria-label="Meeting Copilot answering a question during a call"></video></div></div>
-      <div class="fm" data-pick><div class="screen"><video class="clip" src="assets/clips/K.mp4" poster="assets/clips/K.jpg" muted playsinline loop preload="metadata" aria-label="Atticus learning a focus mode command and running it"></video></div></div>
-     </div>
-     <div class="say" aria-hidden="true"><kbd>⌃</kbd><kbd>⌥</kbd><kbd class="wide">Space</kbd><q id="sayQ"></q></div>
-    </div>
-    <ul class="fitems">
-      <li class="fitem on"><h3>Your whole Mac</h3><p>Apps, windows, screens, the web. Say how you want your desk and it sets it up.</p><q>Code on my big screen, Chrome and Terminal on the laptop.</q><div class="prog"><i></i></div></li>
-      <li class="fitem"><h3>Knows your files</h3><p>Finds any file by what's inside, not just its name.</p><q>Find my notes about the Tokyo trip.</q><div class="prog"><i></i></div></li>
-      <li class="fitem"><h3>Sees your screen</h3><p>Say “this” and it looks. It reads the error and fixes the line.</p><q>What's wrong with this code?</q><div class="prog"><i></i></div></li>
-      <li class="fitem"><h3>Writes where you are</h3><p>The words land in the box you're already in, in your voice.</p><q>Reply to this. Thursday works, send me a time.</q><div class="prog"><i></i></div></li>
-      <li class="fitem"><h3>Works in the background</h3><p>Big jobs run in their own browser window, behind your apps. Your pointer stays yours.</p><q>Find me a desk lamp under thirty dollars on Amazon.</q><div class="prog"><i></i></div></li>
-      <li class="fitem"><h3>Shows you where to click</h3><p>Ask how, and it points at the spot on your screen.</p><q>Where do I turn on Night Shift?</q><div class="prog"><i></i></div></li>
-      <li class="fitem"><h3>Answers on a call</h3><p>Meeting Copilot listens along and answers what you missed.</p><q>Sorry, what budget did we just agree on?</q><div class="prog"><i></i></div></li>
-      <li class="fitem"><h3>Remembers what you teach it</h3><p>Teach it once. Next time one word is enough.</p><q>When I say focus mode, close Slack and open my to-do.</q><div class="prog"><i></i></div></li>
-    </ul>
-  </div>
- </div>
-</section>
-
-<section class="faster" id="faster">
-  <div class="wrap center">
-    <h2 class="h2 rv">Faster <em>than clicking.</em></h2>
-    <p class="lede rv">Three asks, done before you finish talking.</p>
-  </div>
-  <div class="race">
-    <div class="lane hand">
-      <div class="cap">By hand</div>
-      <div class="clock" id="handClock">0.0 s</div>
-      <div class="of" id="handOf">Step 1 of 4</div>
-      <ol id="handSteps">
-        <li class="now">Click Spotify in the Dock</li>
-        <li>Drag it to the big screen</li>
-        <li>Click Chrome, then the address bar</li>
-        <li>Type github.com, press Return</li>
-      </ol>
-    </div>
-    <div class="lane fast">
-      <div class="head">
-        <div>
-          <div class="cap">Atticus</div>
-          <div class="clock" id="attClock">0.00 s</div>
-          <div class="of" id="attOf">0 of 3 done</div>
-        </div>
-        <ol class="log" id="log">
-          <li><q>Open Spotify.</q><b>0.31 s</b></li>
-          <li><q>Spotify on my big…</q><b>0.24 s</b></li>
-          <li><q>Open GitHub.</q><b>0.38 s</b></li>
-        </ol>
-      </div>
-      <div class="screen"><video class="clip" id="raceVid" src="assets/clips/B.mp4" poster="assets/clips/B.jpg" muted playsinline loop preload="auto" aria-label="Atticus opens Spotify, moves it to the big screen and opens GitHub, each in under half a second"></video></div>
+    <div class="side">
+      <div class="box" id="box"><div class="inner" id="inner">
+        <div class="head"><canvas id="mini" data-orb="listening"></canvas><span id="st">Listening</span></div>
+        <div class="q" id="q"></div>
+        <div id="out"></div>
+      </div></div>
+      <div class="tag" id="tag"></div>
     </div>
   </div>
 </section>
 
-<section class="how" id="how">
-  <div class="wrap center" style="position:relative">
-    <p class="label">How it works</p>
-    <h2 class="h2 rv">Hold three keys.<br><em>Say what you need.</em></h2>
+<section>
+  <h2 class="rv">Fast. Nearly free.</h2>
+  <p class="lede rv" style="--i:1">No API key. Runs on the Claude plan you already have.</p>
+  <div class="stats">
+    <div class="stat rv" style="--i:0"><b data-n="0.08" data-suf="s">0.08s</b><span>to open an app</span></div>
+    <div class="stat rv" style="--i:1"><b data-n="0.18" data-pre="~" data-suf="¢">~0.18¢</b><span>per ask, on average</span></div>
+    <div class="stat rv" style="--i:2"><b data-n="550" data-pre="~">~550</b><span>asks for $1</span></div>
+    <div class="stat rv" style="--i:3"><b data-n="0">0</b><span>API keys to set up</span></div>
   </div>
-  <div class="hiw" id="hiw">
-    <ol class="steps" id="steps"><li class="on">Say it</li><li>Point at it</li><li>Hand it the whole job</li></ol>
-    <div class="hiw-step on" data-pick>
-      <div class="hiw-card screen" style="aspect-ratio:800/434"><video class="clip" src="assets/clips/arrange.mp4" poster="assets/clips/arrange.jpg" muted playsinline loop preload="metadata" aria-label="Atticus putting Spotify on the left and Chrome on the right"></video></div>
-      <div class="hiw-txt"><h3>Hold ⌃ ⌥ Space and say it</h3><p>Talk while you hold the keys. Let go and it happens. Or skip the voice and type.</p></div>
+  <div class="bento">
+    <div class="card wide rv">
+      <div><h3>It learns your shortcuts.</h3><p>Ask once. Next time it skips the AI.</p></div>
+      <div class="vis">
+        <div class="race"><span>First time</span><div class="track"><i></i></div><b>AI assisted</b></div>
+        <div class="race fast"><span>After that</span><div class="track"><i></i></div><b>no AI · free</b></div>
+      </div>
     </div>
-    <div class="hiw-step" data-pick>
-      <div class="hiw-card screen" style="aspect-ratio:800/450"><video class="clip" src="assets/clips/circle.mp4" poster="assets/clips/circle.jpg" muted playsinline loop preload="metadata" aria-label="Circling the Sydney Opera House and asking what it is"></video></div>
-      <div class="hiw-txt"><h3>Point at what you mean</h3><p>Circle it with your mouse while you talk. Atticus looks there and explains, step by step, on your screen.</p></div>
+    <div class="card rv" style="--i:1">
+      <div><h3>No API key.</h3><p>Uses your Pro or Max plan.</p></div>
+      <div class="vis"><div class="chip"><i>$</i> claude -p</div></div>
     </div>
-    <div class="hiw-step" data-pick>
-      <div class="hiw-card screen" style="aspect-ratio:800/520"><video class="clip" src="assets/clips/pdf.mp4" poster="assets/clips/pdf.jpg" muted playsinline loop preload="metadata" aria-label="Atticus combining three photos into one PDF in Finder"></video></div>
-      <div class="hiw-txt"><h3>Hand it the whole job</h3><p>Ask for the result, not the clicks. It works out the steps and leaves the file where you are.</p></div>
+    <div class="card wide rv">
+      <div><h3>It remembers you.</h3><p>Say “remember” once. Every ask after that knows it. Correct it, and it won't make that mistake again.</p></div>
+      <div class="vis mem">
+        <span><i>Remembered</i>“Open” means bring it to the front</span>
+        <span><i>About you</i>Codes in VS Code · lives in Austin</span>
+        <span><i>Shortcut</i>“Focus mode” closes Slack, opens to-dos</span>
+      </div>
+    </div>
+    <div class="card rv" style="--i:1">
+      <div><h3>Your whole Mac.</h3><p>Apps, windows, files, music, the web, your calls.</p></div>
+      <div class="vis"><div class="marquee">
+        <div class="row"><span>Finder</span><span>Spotify</span><span>Chrome</span><span>Terminal</span><span>Calendar</span><span>Reminders</span><span>Notes</span><span>Settings</span><span>Finder</span><span>Spotify</span><span>Chrome</span><span>Terminal</span><span>Calendar</span><span>Reminders</span><span>Notes</span><span>Settings</span></div>
+        <div class="row rev"><span>Move windows</span><span>Find files</span><span>Search the web</span><span>Click buttons</span><span>Type replies</span><span>Play music</span><span>Move windows</span><span>Find files</span><span>Search the web</span><span>Click buttons</span><span>Type replies</span><span>Play music</span></div>
+      </div></div>
+    </div>
+    <div class="card wide rv">
+      <div><h3>Sees your screen.</h3><p>Say “this” and it looks. Ask “where’s…?” and a ring lights up the spot.</p></div>
+      <div class="vis"><div class="mini-scr"><span></span><span></span><span></span><span></span></div></div>
+    </div>
+    <div class="card rv" style="--i:2">
+      <div><h3>Private ears.</h3><p>Speech turns to text on your Mac.</p></div>
+      <div class="vis"><div class="wave" id="wave"></div><div class="lock">Audio never leaves the Mac</div></div>
+    </div>
+    <div class="card wide rv">
+      <div><h3>Works in the background.</h3><p>It clicks, scrolls and types inside any app, behind what you're doing. A live mini screen shows the work.</p></div>
+      <div class="vis mem">
+        <span><i>Chrome · Live</i>Finding a desk lamp under $30 on Amazon</span>
+        <span><i>Spotify</i>Playing Late Night Coding, still behind your apps</span>
+      </div>
+    </div>
+    <div class="card wide rv">
+      <div><h3>Sends an agent.</h3><p>Big jobs go to an agent in the corner. Keep working. It tells you when it's done, and you can steer it from the box.</p></div>
+      <div class="vis mem">
+        <span><i>Agent · Researching</i>Find me USB-C hubs</span>
+        <span><i>Agent done</i>USB-C hub comparison ready</span>
+      </div>
+    </div>
+    <div class="card rv" style="--i:1">
+      <div><h3>Writes where you are.</h3><p>Reply, email, rewrite. It reads the screen and puts the words in the box.</p></div>
+      <div class="vis"><div class="chip"><i>✎</i> Insert</div></div>
+    </div>
+    <div class="card wide rv">
+      <div><h3>Meeting Copilot.</h3><p>Answers questions while you're on a call. Transcripts and recaps stay on your Mac.</p></div>
+      <div class="vis mem">
+        <span><i>Dana</i>“What budget did we just agree on?”</span>
+        <span><i>Atticus</i>$18,000. You agreed on it at 12:02.</span>
+      </div>
+    </div>
+    <div class="card rv" style="--i:1">
+      <div><h3>Safe by default.</h3><p>A misheard word can't do damage.</p></div>
+      <div class="nope"><span>rm -rf</span><span>sudo</span><span>diskutil</span><span>shutdown</span><span>git push</span></div>
     </div>
   </div>
 </section>
 
-<section class="wrap">
-  <div class="priv rv" id="privacy">
-    <h2>Your voice<br><em>stays yours.</em></h2>
-    <div>
-      <p>Your audio never leaves your Mac. Risky commands are always blocked.</p>
-      <a class="more" href="https://github.com/SaarthurR/atticus-mac/blob/main/docs/GUIDE.md#safe-by-default">Read the guide</a>
-    </div>
-    <div class="badges"><div class="badge">Open<br>source<br>MIT</div><div class="badge">On-device<br>speech</div><div class="badge">No<br>API key</div></div>
-  </div>
-
-  <div class="plan">
-    <div>
-      <p class="label rv">What you need</p>
-      <h2 class="rv">Runs on<br><em>the Claude plan you have.</em></h2>
-      <p class="lead rv">No API key. It runs through Claude Code.</p>
-      <a class="more rv" href="https://github.com/SaarthurR/atticus-mac/blob/main/docs/GUIDE.md#install">Install guide</a>
-    </div>
-    <div class="pitems">
-      <div class="pitem rv"><h3><span>$0</span>Free</h3></div>
-      <div class="pitem rv"><h3><span>Pro</span>Claude Pro or Max</h3></div>
-      <div class="pitem rv"><h3><span>¢</span>About 0.18¢ per ask</h3></div>
-      <div class="pitem rv"><h3><span>26</span>macOS 26 or later</h3></div>
-    </div>
+<section class="center">
+  <h2 class="rv">See it work.</h2>
+  <div class="film rv" style="--i:1">
+    <video id="film" aria-label="Atticus demo" tabindex="0" src="docs/atticus-film.mp4" poster="docs/film-poster.png" controls playsinline preload="none"></video>
+    <button class="film-play" type="button" aria-label="Play Atticus demo" aria-controls="film" hidden></button>
   </div>
 </section>
 
-<section class="cta" id="install">
-  <canvas class="logo" data-orb="breathing" data-dark aria-hidden="true"></canvas>
-  <h2>One line<br><em>to install.</em></h2>
-  <p class="lede">Paste it in Terminal. It updates itself.</p>
-  <div class="install">
+<section class="center">
+  <h2 class="rv">One line to install.</h2>
+  <p class="lede rv" style="--i:1">Paste it in Terminal. Atticus builds itself, opens, and keeps itself up to date.</p>
+  <div class="install rv" style="--i:2">
     <code><i>$</i> curl -fsSL https://raw.githubusercontent.com/SaarthurR/atticus-mac/main/install.sh | bash</code>
-    <button class="btn light copy" type="button">Copy</button>
+    <button class="copy">Copy</button>
   </div>
+  <ul class="needs rv" style="--i:3"><li>macOS 26 or later</li><li>Claude Pro or Max</li><li>Free · open source (MIT)</li></ul>
 </section>
 
-<footer class="wrap">
-  <div class="cols">
-    <div><h4>Atticus</h4><a href="#how">How it works</a><a href="#features">Features</a><a href="#privacy">Privacy</a><a href="#install">Install</a></div>
-    <div><h4>Resources</h4><a href="https://github.com/SaarthurR/atticus-mac/blob/main/docs/GUIDE.md">Guide</a><a href="https://github.com/SaarthurR/atticus-mac/releases">What's new</a><a href="https://github.com/SaarthurR/atticus-mac/issues">Report a bug</a></div>
-    <div><h4>Code</h4><a href="https://github.com/SaarthurR/atticus-mac">GitHub</a><a href="https://github.com/SaarthurR/atticus-mac/blob/main/LICENSE">MIT license</a></div>
-  </div>
-  <div class="mark" aria-label="Atticus"><canvas class="logo" data-orb="breathing" aria-hidden="true"></canvas><span>Atticus</span></div>
-  <div class="legal"><div><span>© 2026 Atticus</span><a href="https://github.com/SaarthurR">Made by SaarthurR</a><a href="https://ko-fi.com/saarthr">Leave a tip</a><a href="https://github.com/Jakubantalik/thinking-orbs">Orb by thinking-orbs</a></div><a href="https://github.com/SaarthurR/atticus-mac">GitHub</a></div>
-</footer>
+<footer>Made by <a href="https://github.com/SaarthurR">SaarthurR</a> · <a href="https://ko-fi.com/saarthr">Leave a tip</a> · Orb by <a href="https://github.com/Jakubantalik/thinking-orbs">thinking-orbs</a></footer>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
 <script>
-(() => {
-  const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const $ = id => document.getElementById(id);
-  const NS = 'http://www.w3.org/2000/svg';
-
-  /* ---------- orb: a small dotted sphere, like the app's ---------- */
-  const orb = $('orb'), octx = orb.getContext('2d');
-  const dots = Array.from({ length: 140 }, (_, i) => {
-    const y = 1 - (i + .5) / 70, r = Math.sqrt(1 - Math.min(1, y * y)), a = i * 2.39996;
-    return [Math.cos(a) * r, y, Math.sin(a) * r];
-  });
-  let spin = 0;
-  function drawOrb(listening) {
-    const S = orb.width, R = S * .36;
-    octx.clearRect(0, 0, S, S);
-    const c = Math.cos(spin), s = Math.sin(spin), tilt = .35;
-    for (const [x, y, z] of dots) {
-      const x1 = x * c - z * s, z1 = x * s + z * c;
-      const y1 = y * Math.cos(tilt) - z1 * Math.sin(tilt), z2 = y * Math.sin(tilt) + z1 * Math.cos(tilt);
-      const k = listening ? 1 + .06 * Math.sin(spin * 9 + y * 6) : 1;
-      octx.globalAlpha = .2 + .8 * (z2 + 1) / 2;
-      octx.fillStyle = '#f5f5f7';
-      octx.beginPath(); octx.arc(S / 2 + x1 * R * k, S / 2 + y1 * R * k, .9 + z2 * .4, 0, 7); octx.fill();
+  // The poster's play icon is artwork; give it a real control, independent of the orb module.
+  const film = document.getElementById('film');
+  const filmPlay = document.querySelector('.film-play');
+  filmPlay.hidden = false;
+  filmPlay.addEventListener('click', async () => {
+    filmPlay.disabled = true;
+    try {
+      await film.play();
+      film.focus({ preventScroll: true });
+    } catch {
+      // Keep the button available if playback fails so the visitor can retry.
+      filmPlay.hidden = false;
+    } finally {
+      filmPlay.disabled = false;
     }
-    octx.globalAlpha = 1;
-  }
-
-  /* ---------- hero: the overlay runs two real asks, timed as in the film ---------- */
-  const TASKS = [
-    { ask: 'Open GitHub.', step: 'Opening GitHub', done: 'Done.', time: .38, win: 1 },
-    { ask: 'Play my late night coding playlist on Spotify.', step: 'Opening Spotify', done: 'Playing “late night coding.”', note: 'no AI · free', win: 0 },
-  ];
-  const mac = $('mac'), stage = $('stage'), ov = $('ov'), keys = $('keys'), timer = $('timer');
-  const wins = [...stage.querySelectorAll('.res')];
-  const fit = () => stage.style.setProperty('--k', mac.clientWidth / parseFloat(getComputedStyle(stage).getPropertyValue('--W')));
-  fit(); addEventListener('resize', fit);
-  const sleep = ms => new Promise(r => setTimeout(r, ms));
-  let listening = false, heroOn = true;
-  const stamp = t => t.time ? `${t.time.toFixed(2)} s<em>no AI</em>` : t.note;
-  const show = t => {
-    $('ovAsk').textContent = t.ask; $('ovStep').textContent = t.step; $('ovDone').innerHTML = t.done;
-    ov.classList.add('has', 'done'); wins[t.win].classList.add('on');
-    timer.innerHTML = stamp(t); timer.classList.add('on');
-  };
-  async function run() {
-    for (let i = 0; ; i = (i + 1) % TASKS.length) {
-      const t = TASKS[i];
-      while (!heroOn) await sleep(300);
-      $('ovState').textContent = 'Listening'; keys.classList.add('down'); listening = true;
-      const words = t.ask.split(' ');
-      for (let w = 1; w <= words.length; w++) { $('ovAsk').textContent = words.slice(0, w).join(' '); await sleep(190); }
-      await sleep(250); keys.classList.remove('down'); listening = false;
-      $('ovStep').textContent = t.step; $('ovDone').innerHTML = t.done; ov.classList.add('has');
-      $('ovState').textContent = 'Working'; timer.innerHTML = t.time ? '0.00 s<em>no AI</em>' : t.note; timer.classList.add('on');
-      if (t.time) {
-        const t0 = performance.now();
-        for (let e = 0; e < t.time; e = (performance.now() - t0) / 1000) { timer.innerHTML = `${e.toFixed(2)} s<em>no AI</em>`; await sleep(16); }
-      } else await sleep(350);
-      timer.innerHTML = stamp(t);
-      wins[t.win].classList.add('on'); ov.classList.add('done'); $('ovState').textContent = 'Done';
-      await sleep(2800);
-      ov.classList.remove('done'); timer.classList.remove('on'); await sleep(250);
-      ov.classList.remove('has'); wins[t.win].classList.remove('on'); $('ovAsk').textContent = ''; $('ovState').textContent = 'Ready';
-      await sleep(900);
-    }
-  }
-  new IntersectionObserver(([e]) => { heroOn = e.isIntersecting; }).observe(mac);
-  let last = performance.now();
-  function tick(now) {
-    const dt = Math.min(.05, (now - last) / 1000); last = now;
-    if (heroOn) { spin += dt * (listening ? 2.2 : .6); drawOrb(listening); }
-    requestAnimationFrame(tick);
-  }
-  if (still) { show(TASKS[0]); $('ovState').textContent = 'Done'; drawOrb(false); }
-  else { requestAnimationFrame(tick); sleep(600).then(run); }
-
-  /* ---------- clips: each is one whole film scene; it plays from its start while on screen and active ---------- */
-  const clips = [...document.querySelectorAll('video.clip')];
-  const seen = new Map();
-  const wants = v => !still && seen.get(v) && (v.closest('[data-pick]')?.classList.contains('on') ?? true);
-  const sync = v => { if (wants(v)) { if (v.paused) v.play().catch(() => {}); } else if (!v.paused) v.pause(); };
-  const restart = el => { const v = el.querySelector('video'); if (v) { v.currentTime = 0; sync(v); } };
-  const vio = new IntersectionObserver(es => es.forEach(e => { seen.set(e.target, e.isIntersecting); sync(e.target); }), { rootMargin: '100px 0px' });
-  clips.forEach(v => vio.observe(v));
-
-  /* ---------- faster than clicking: both clocks read the video's own time ---------- */
-  const race = $('raceVid'), handLis = [...$('handSteps').children], logLis = [...$('log').children];
-  const STEP = 2.2;                         // pace of the by-hand steps; Atticus's numbers below are the film's
-  const DONE_AT = [0.4, 2.3, 4.0], TOOK = [0.31, 0.24, 0.38];
-  let raceT = -1;
-  function drawRace() {
-    const t = race.currentTime;
-    if (Math.abs(t - raceT) < .02) return; raceT = t;
-    const k = Math.min(3, Math.floor(t / STEP));
-    $('handClock').textContent = t.toFixed(1) + ' s';
-    $('handOf').textContent = `Step ${k + 1} of 4`;
-    handLis.forEach((li, j) => { li.classList.toggle('done', j < k); li.classList.toggle('now', j === k); });
-    const n = DONE_AT.filter(d => t >= d).length;
-    $('attClock').textContent = TOOK.slice(0, n).reduce((a, b) => a + b, 0).toFixed(2) + ' s';
-    $('attOf').textContent = `${n} of 3 done`;
-    logLis.forEach((li, j) => li.classList.toggle('on', j < n));
-  }
-
-  /* ---------- features: the item in the middle of the screen is the one shown ---------- */
-  const fitems = [...document.querySelectorAll('.fitem')], fms = [...document.querySelectorAll('.fm')];
-  const bars = fitems.map(el => el.querySelector('.prog i')), sayQ = $('sayQ');
-  fitems.forEach((el, i) => el.insertAdjacentHTML('afterbegin', `<small>${String(i + 1).padStart(2, '0')} / ${String(fitems.length).padStart(2, '0')}</small>`));
-  const say = i => {
-    const put = () => { sayQ.textContent = fitems[i].querySelector('q').textContent; sayQ.classList.remove('swap'); };
-    if (still) return put();
-    sayQ.classList.add('swap'); setTimeout(put, 160);
-  };
-  say(0);
-  let feat = 0;
-  const setFeat = i => {
-    if (i === feat) return; feat = i;
-    fitems.forEach((el, j) => el.classList.toggle('on', i === j));
-    fms.forEach((el, j) => el.classList.toggle('on', i === j));
-    say(i);
-    clips.forEach(sync); restart(fms[i]);
-  };
-  const phone = matchMedia('(max-width: 900px)').matches;
-  // phone: each feature card holds its own clip; every clip plays when on screen
-  if (phone) fitems.forEach((el, i) => { el.prepend(fms[i]); fms[i].classList.add('on'); });
-  else {
-  const fio = new IntersectionObserver(es => es.forEach(e => e.isIntersecting && setFeat(fitems.indexOf(e.target))),
-    { rootMargin: phone ? '-62% 0px -37% 0px' : '-50% 0px -49% 0px' });
-  fitems.forEach((el, i) => { fio.observe(el); el.addEventListener('click', () => setFeat(i)); });
-  }
-
-  function frame() {
-    if (!race.paused) drawRace();
-    const v = fms[feat].querySelector('video');
-    bars.forEach((b, j) => { b.style.transform = `scaleX(${j === feat && v.duration ? v.currentTime / v.duration : 0})`; });
-    requestAnimationFrame(frame);
-  }
-  race.addEventListener('timeupdate', drawRace);
-  if (!still) requestAnimationFrame(frame);
-
-  /* ---------- reveals ---------- */
-  const rio = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); rio.unobserve(e.target); } }), { threshold: .15 });
-  document.querySelectorAll('.rv').forEach(el => rio.observe(el));
-
-  /* ---------- how it works ---------- */
-  const how = $('how'), steps = [...document.querySelectorAll('#steps li')], hsteps = [...document.querySelectorAll('.hiw-step')];
-  let stepNow = 0;
-  const setStep = i => {
-    if (i === stepNow) return; stepNow = i;
-    steps.forEach((el, j) => el.classList.toggle('on', i === j));
-    hsteps.forEach((el, j) => el.classList.toggle('on', i === j));
-    clips.forEach(sync); restart(hsteps[i]);
-  };
-
-  /* ---------- copy ---------- */
-  document.querySelector('.copy').onclick = async e => {
-    const code = e.target.previousElementSibling.innerText.replace(/^\$\s*/, '');
-    try { await navigator.clipboard.writeText(code); e.target.textContent = 'Copied'; } catch { e.target.textContent = 'Select and copy'; }
-    setTimeout(() => e.target.textContent = 'Copy', 1600);
-  };
-
-  /* ---------- how it works: pinned on wide screens, stacked otherwise ---------- */
-  const stack = () => { how.classList.add('stack'); how.classList.remove('pin'); hsteps.forEach(el => el.classList.add('on')); clips.forEach(sync); };
-  if (!window.gsap) return stack();
-  gsap.registerPlugin(ScrollTrigger);
-  steps.forEach((li, i) => li.addEventListener('click', () => {
-    const st = ScrollTrigger.getById('hiw'); if (st) scrollTo({ top: st.start + (st.end - st.start) * (i + .5) / 3, behavior: still ? 'auto' : 'smooth' });
-  }));
-  ScrollTrigger.matchMedia({
-    '(min-width: 1181px) and (prefers-reduced-motion: no-preference)': () => {
-      how.classList.add('pin'); how.classList.remove('stack');
-      hsteps.forEach((el, j) => el.classList.toggle('on', j === stepNow));
-      ScrollTrigger.create({ id: 'hiw', trigger: '#hiw', start: 'center center', end: '+=200%', pin: true,
-        onUpdate: s => setStep(Math.min(2, Math.floor(s.progress * 3))) });
-      clips.forEach(sync);
-      return () => how.classList.remove('pin');
-    },
-    '(max-width: 1180px), (prefers-reduced-motion: reduce)': stack,
   });
-})();
-</script>
-<script>
-  // live star count, same as the live site
-  fetch('https://api.github.com/repos/SaarthurR/atticus-mac')
-    .then(r => r.json()).then(d => { if (d.stargazers_count != null) document.getElementById('stars').textContent = ' ' + d.stargazers_count; }).catch(() => {});
+  film.addEventListener('playing', () => { filmPlay.hidden = true; });
 </script>
 <script type="module">
-  // the real Atticus orb, same module and call as the real site: M = MODE_FRAMES, p = paintFrame, r = resolvePreset
-  const E = await import('./assets/orbs.js');
+  // the real Atticus orb: M = MODE_FRAMES, p = paintFrame, r = resolvePreset (thinking-orbs' minified export names)
+  const E = await import('./ui/orbs.js');
   const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const orbs = [...document.querySelectorAll('canvas[data-orb]')].map(cv => {
+  const orbs = [...document.querySelectorAll('[data-orb]')].map(cv => {
     const S = 64, k = Math.ceil(cv.getBoundingClientRect().width / S * devicePixelRatio) || 2;
     cv.width = cv.height = S * k;
-    return { cv, ctx: cv.getContext('2d'), k, S, t: Math.random() * 9, dark: cv.hasAttribute('data-dark'), preset: E.r(cv.dataset.orb, S) };
+    return { cv, ctx: cv.getContext('2d'), k, S, t: Math.random() * 9, boost: 1,
+      dark: !!cv.closest('.box'), preset: E.r(cv.dataset.orb, S) };
   });
+  const set = (o, s) => { o.preset = E.r(s, o.S); };
   let prev = performance.now();
   (function frame(now) {
     const dt = (now - prev) / 1000; prev = now;
     for (const o of orbs) {
-      o.t += dt * o.preset.speed * (still ? 0 : 1);
+      o.t += dt * o.preset.speed * o.boost * (still ? 0 : 1);
       o.ctx.setTransform(o.k, 0, 0, o.k, 0, 0); o.ctx.clearRect(0, 0, o.S, o.S);
       E.p(o.ctx, E.M[o.preset.mode](o.S, o.t, o.preset.opts), o.dark, null);
     }
     requestAnimationFrame(frame);
   })(prev);
+
+  // hold ⌃⌥Space on the page: the keys press and the hero orb listens, like the app
+  const hero = orbs.find(o => o.cv.id === 'orb'), hint = document.getElementById('hint');
+  const keys = { Control: 'kc', Alt: 'ko', ' ': 'ks' }, held = new Set();
+  const sync = () => {
+    for (const [k, id] of Object.entries(keys)) document.getElementById(id).classList.toggle('down', held.has(k));
+    const all = held.size === 3;
+    set(hero, all ? 'listening' : 'breathing'); hero.boost = all ? 1.6 : 1;
+    hero.cv.style.transform = all ? 'scale(1.06)' : '';
+    hint.classList.toggle('live', all);
+    hint.textContent = all ? 'Listening… now picture saying “open Spotify.”' : 'Try it. Hold the keys.';
+  };
+  addEventListener('keydown', e => { if (e.target.closest('button, a, input, textarea, select, video, [contenteditable]')) return; if (keys[e.key]) { if (e.key === ' ') e.preventDefault(); held.add(e.key); sync(); } });
+  addEventListener('keyup', e => { held.delete(e.key); sync(); });
+  addEventListener('blur', () => { held.clear(); sync(); });
+  if (matchMedia('(hover: none)').matches) hint.textContent = 'Hold control, option, space on your Mac.';
+
+  // live star count; a site can't star for you, so the link opens the repo's Star button
+  fetch('https://api.github.com/repos/SaarthurR/atticus-mac').then(r => r.json())
+    .then(d => { if (d.stargazers_count != null) document.getElementById('stars').textContent = ' ' + d.stargazers_count; }).catch(() => {});
+  for (const b of document.querySelectorAll('.copy')) b.onclick = async e => {
+    await navigator.clipboard.writeText(b.previousElementSibling.innerText.replace(/^\$\s*/, ''));
+    e.target.textContent = 'Copied'; setTimeout(() => e.target.textContent = 'Copy', 1600);
+  };
+
+  // scroll reveal
+  const io = new IntersectionObserver(es => es.forEach(x => x.isIntersecting && (x.target.classList.add('in'), io.unobserve(x.target))),
+    { threshold: .15 });
+  document.querySelectorAll('.rv').forEach(el => io.observe(el));
+
+  // demo loop: listening → words → the desk acts it out → answer
+  const $ = id => document.getElementById(id), mini = orbs.find(o => o.cv.id === 'mini');
+  const wait = ms => new Promise(r => setTimeout(r, still ? Math.min(ms, 300) : ms));
+  const el = (tag, cls, txt) => Object.assign(document.createElement(tag), { className: cls, textContent: txt });
+  const W = { code: $('w-code'), web: $('w-web'), term: $('w-term'), spot: $('w-spot') };
+  // window spots, in % of the desk: [left, top, width, height]
+  const P = { full: [3.4, 7.5, 57.2, 69.1], messA: [6, 10.5, 32, 44.3], messB: [18, 22.2, 34, 44.3], messC: [31, 35, 27, 36.2],
+    pop: [21, 17.5, 24, 39.7], lapFull: [66.4, 41.5, 31.2, 43.6], lapL: [66.4, 41.5, 15.4, 43.6], lapR: [82, 41.5, 15.6, 43.6] };
+  const lay = map => Object.entries(W).forEach(([k, w], i) => {
+    const r = P[map[k]];
+    if (!r) return w.classList.add('off');
+    const put = () => Object.assign(w.style, { left: r[0] + '%', top: r[1] + '%', width: r[2] + '%', height: r[3] + '%' });
+    if (w.classList.contains('off')) { w.style.transition = 'none'; put(); w.offsetWidth; w.style.transition = ''; w.classList.remove('off'); w.classList.add('pop'); }
+    else { w.style.transitionDelay = i * 70 + 'ms'; put(); }
+    w.style.zIndex = Object.keys(map).indexOf(k) + 1;
+  });
+  for (const w of Object.values(W)) w.onanimationend = () => w.classList.remove('pop');
+  const split = { code: 'full', web: 'lapL', term: 'lapR' };
+  const asks = [
+    { q: 'Open Spotify.', from: { code: 'full', web: 'lapFull' },
+      act: () => lay({ code: 'full', web: 'lapFull', spot: 'pop' }), a: 'Opened Spotify.', time: 'demo', note: 'no AI · free' },
+    { q: 'Code on my big screen, Chrome and Terminal on the laptop.', from: { code: 'messA', web: 'messB', term: 'messC' }, step: 'Arranging 3 windows',
+      act: () => lay(split), a: 'Done. Three windows, two screens.', time: 'demo', note: 'Claude Haiku · a fraction of a cent' },
+    { q: "What's wrong with this code?", from: split, step: 'Looking at your screen',
+      act: async () => { $('desk').classList.add('scanning'); await wait(1000); W.code.classList.add('flag'); },
+      a: 'Line 11 adds a number to a string. Wrap total in str().', time: 'demo', note: 'reads your screen · Claude Haiku' },
+    { q: 'Play my late night coding playlist on Spotify.', from: split,
+      act: () => { lay({ ...split, spot: 'lapFull' }); W.spot.classList.add('playing'); }, a: 'Playing “late night coding.”', time: 'demo', note: 'no AI · free' },
+  ];
+  // the box grows and shrinks smoothly to fit what is inside it
+  new ResizeObserver(() => $('box').style.height = $('inner').offsetHeight + 28 + 'px').observe($('inner'));
+  let started = false;
+  new IntersectionObserver(([x]) => { if (x.isIntersecting && !started) { started = true; loop(); } }, { threshold: .4 }).observe($('desk'));
+  async function loop() {
+    for (let i = 0; ; i = (i + 1) % asks.length) {
+      const k = asks[i];
+      $('desk').classList.remove('scanning'); W.code.classList.remove('flag'); W.spot.classList.remove('playing');
+      lay(k.from);
+      $('q').replaceChildren(); $('out').replaceChildren(); $('tag').replaceChildren();
+      $('st').textContent = 'Listening'; set(mini, 'listening');
+      $('inner').classList.remove('clear'); $('tag').classList.remove('clear');
+      await wait(900);
+      $('q').classList.add('typing');
+      for (const w of k.q.split(' ')) { $('q').append(el('span', '', ($('q').childElementCount ? ' ' : '') + w)); await wait(150 + Math.random() * 80); }
+      $('q').classList.remove('typing'); await wait(350);
+      if (k.step) {
+        $('st').textContent = 'Thinking'; set(mini, 'solving');
+        const s = el('div', 'step', k.step); $('out').append(s);
+        await wait(500); await k.act(); await wait(1100); s.classList.add('done');
+      } else k.act();
+      $('st').textContent = ''; set(mini, 'breathing');
+      $('out').append(el('div', 'a', k.a));
+      $('tag').append(el('b', '', k.time), el('span', '', k.note));
+      await wait(3000);
+      $('inner').classList.add('clear'); $('tag').classList.add('clear'); await wait(450);
+    }
+  }
+
+  // stats count up from zero when they scroll in
+  const countIO = new IntersectionObserver(es => es.forEach(x => {
+    if (!x.isIntersecting) return; countIO.unobserve(x.target);
+    const b = x.target, n = +b.dataset.n, d = (b.dataset.n.split('.')[1] || '').length, t0 = performance.now();
+    const tick = now => { const p = Math.min(1, (now - t0) / 1400), e = 1 - (1 - p) ** 4;
+      b.textContent = (b.dataset.pre || '') + (n * e).toFixed(d) + (b.dataset.suf || ''); if (p < 1) requestAnimationFrame(tick); };
+    if (!still) requestAnimationFrame(tick);
+  }), { threshold: .6 });
+  document.querySelectorAll('[data-n]').forEach(b => countIO.observe(b));
+  // voice wave bars, each on its own rhythm
+  for (let i = 0; i < 28; i++) $('wave').append(Object.assign(document.createElement('i'), { style: `animation-delay:${-Math.random() * 1.1}s;animation-duration:${.7 + Math.random() * .7}s` }));
 </script>
 </body>
 </html>
