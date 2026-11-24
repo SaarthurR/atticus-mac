@@ -68,11 +68,6 @@
   /* logo: the real Atticus orb, drawn live by assets/orbs.js like the real site */
   .logo { flex: none; width: 30px; height: 30px; }
 
-  /* 1. announce bar */
-  .bar { background: var(--ink); color: #f5f5f7; text-align: center; font-size: 15px; font-weight: 500;
-    padding: var(--s2) var(--s3); display: flex; gap: var(--s3); justify-content: center; flex-wrap: wrap; }
-  .bar a { opacity: .8; } .bar a::after { content: " ›"; }
-
   /* 2. pill nav */
   .navwrap { position: sticky; top: var(--s2); z-index: 50; margin-top: var(--s3); padding-inline: var(--s3); }
   .nav { max-width: 912px; margin: 0 auto; height: 64px; padding: 0 var(--s1) 0 var(--s2); display: flex; align-items: center; gap: var(--s3);
@@ -236,7 +231,7 @@
     .menubar span:nth-of-type(n+3) { display: none; }
     .ov { left: 12px; top: 38px; width: 336px; }
     .doc, .spot, .gh { left: 14px; top: 212px; width: 332px; height: 258px; }
-    .term { left: 120px; top: 150px; width: 230px; height: 120px; z-index: 2; }
+    .term { display: none; }
     .dw-mast span, .dw-art p:not([class]) + p, .dw-cap { display: none; }
     .dw-art { padding: 10px 14px; } .dw-art h4 { font-size: 16px; }
     .sp-body { grid-template-columns: 1fr; } .sp-side { display: none; } .sp-main { padding: 14px 14px 0; }
@@ -389,9 +384,12 @@
     .log { min-width: 0; }
     .stack .hiw-step { grid-template-columns: 1fr; gap: var(--s3); width: 100%; max-width: 640px; }
     .flist { grid-template-columns: 1fr; margin-top: var(--s6); }
-    .fmedia { top: 80px; margin-top: 0; z-index: 2; padding-top: var(--s2); background: var(--ink); box-shadow: 0 0 0 var(--s2) var(--ink); }
-    .say { height: 40px; margin-top: var(--s1); font-size: 14px; }
-    .fitem { min-height: 56vh; }
+    .fmedia { display: none; }
+    .fm { position: relative; opacity: 1; margin-bottom: var(--s3); }
+    .fm .screen { aspect-ratio: 16 / 9; height: auto; }
+    .fitem { min-height: 0; opacity: 1; cursor: auto; margin-bottom: var(--s8); }
+    .fitem small, .prog { display: none; }
+    .fitem q { display: block; margin-top: var(--s2); font-size: 15px; color: rgba(245,245,247,.5); }
     .priv { grid-template-columns: 1fr; padding: var(--s6) var(--s3); gap: var(--s3); }
     .badges { justify-content: flex-start; }
     .plan { grid-template-columns: 1fr; gap: 0; padding: var(--s16) 0 var(--s12); }
@@ -400,7 +398,6 @@
   }
   @media (max-width: 700px) {
     .wrap { width: calc(100% - var(--s4)); }
-    .bar { font-size: 13px; padding: 12px var(--s2); gap: 4px var(--s2); }
     .navwrap { top: 10px; margin-top: var(--s2); padding-inline: 12px; }
     .nav { height: 56px; padding-left: 12px; }
     .nav .btn { height: 40px; padding: 0 var(--s2); font-size: 14px; }
@@ -414,10 +411,10 @@
     .clock { font-size: 44px; }
     .hand ol { grid-template-columns: 1fr; }
     .hand li { padding: 10px 12px; font-size: 14px; }
+    .hand li:not(.now), .note { display: none; }
     .how { padding-top: var(--s12); }
     .stack .hiw { padding-inline: var(--s2); gap: var(--s8); }
     .feats { padding-top: var(--s16); }
-    .fitem { min-height: 50vh; }
     .fitem p { font-size: var(--t-body); }
     .badge { width: 92px; height: 92px; font-size: 12px; }
     .cta { border-radius: 28px; padding: var(--s16) var(--s2); }
@@ -432,8 +429,6 @@
 </style>
 </head>
 <body>
-
-<div class="bar">Atticus 2.0.1: tiny when minimized, new Settings pages <a href="https://github.com/SaarthurR/atticus-mac/releases">See what's new</a></div>
 
 <div class="navwrap">
   <nav class="nav" aria-label="Main">
@@ -528,7 +523,7 @@ Changes not staged for commit:
 <section class="dark feats" id="features">
  <div class="wrap">
   <h2 class="h2 center rv">Built for <em>your whole Mac,</em><br>not one app.</h2>
-  <p class="lede center rv">One shortcut, every app and every screen. Each clip is one whole scene from the Atticus film.</p>
+  <p class="lede center rv">One shortcut, every app and every screen.</p>
   <div class="flist">
     <div class="fmedia" id="fmedia">
      <div class="fstack">
@@ -786,9 +781,13 @@ Changes not staged for commit:
     clips.forEach(sync); restart(fms[i]);
   };
   const phone = matchMedia('(max-width: 900px)').matches;
+  // phone: each feature card holds its own clip; every clip plays when on screen
+  if (phone) fitems.forEach((el, i) => { el.prepend(fms[i]); fms[i].classList.add('on'); });
+  else {
   const fio = new IntersectionObserver(es => es.forEach(e => e.isIntersecting && setFeat(fitems.indexOf(e.target))),
     { rootMargin: phone ? '-62% 0px -37% 0px' : '-50% 0px -49% 0px' });
   fitems.forEach((el, i) => { fio.observe(el); el.addEventListener('click', () => setFeat(i)); });
+  }
 
   function frame() {
     if (!race.paused) drawRace();
