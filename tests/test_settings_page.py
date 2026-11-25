@@ -454,6 +454,29 @@ return {lines,translated,fits};
         self.assertEqual(out['result'], [2, ['open notes']])
         self.assertIn({'do': 'copy', 'text': 'Opened Notes'}, out['posts'])
 
+    def test_history_expands_full_text_and_keeps_stopped_asks_copyable(self):
+        out = self.page(r'''st.tab('usage');
+            const task = 'Plan a garden\n' + 'Include herbs and flowers. '.repeat(40), reply = 'First line\nSecond line\n' + 'Plant mint. '.repeat(100);
+            st.state({today: use, week: use, all: use, rules: [], skills: [], me: {facts: []}, plan: {ok: true, text: ''},
+              asks: [{at: '2026-10-15 09:30:00', task, reply, status: 'failed'}, {at: '2026-10-14 08:00:00', task: 'Add a shaded bed', reply: '', status: 'cancelled'}]});
+            const detail = $('asklist').querySelector('details'), summary = detail.querySelector('summary');
+            const closed = !detail.open; summary.click();
+            const expanded = detail.open && detail.querySelector('b').textContent === task && detail.querySelector('.answer').textContent === reply;
+            const styles = [getComputedStyle(detail.querySelector('b')).whiteSpace, getComputedStyle(detail.querySelector('.answer')).webkitLineClamp];
+            $('asklist').querySelector('.x.copy').click(); const copyKeptOpen = detail.open;
+            summary.click(); const closedAgain = !detail.open;
+            const failed = summary.textContent.includes('Failed');
+            $('askq').value = 'shaded'; $('askq').oninput();
+            const stopped = $('asklist').textContent.includes('Stopped');
+            $('asklist').querySelector('.x.copy').click();
+            return {closed, expanded, copyKeptOpen, closedAgain, failed, stopped, styles, reply};''')
+        result = out['result']
+        for key in ('closed', 'expanded', 'copyKeptOpen', 'closedAgain', 'failed', 'stopped'):
+            self.assertTrue(result[key], key)
+        self.assertEqual(result['styles'], ['pre-wrap', 'none'])
+        self.assertIn({'do': 'copy', 'text': result['reply']}, out['posts'])
+        self.assertIn({'do': 'copy', 'text': 'Add a shaded bed'}, out['posts'])
+
     def test_import_failure_offers_the_settings_that_fix_it(self):
         out = self.page('''st.profileImport({errors: ['mail'], errorReasons: {mail:'automation'}, counts: {contacts: 3}}); const one = $('profileStatus').textContent;
             $('profileStatus').querySelector('.btn').click();
@@ -485,7 +508,7 @@ return {lines,translated,fits};
                  patch.object(atticus, 'me', return_value={}), patch('sys.argv', ['atticus.py', '--state']), \
                  contextlib.redirect_stdout(io.StringIO()) as out:
                 atticus.main()
-        self.assertEqual([(a['task'], a['reply']) for a in json.loads(out.getvalue())['asks']], [('weather', 'Sunny'), ('open notes', 'Opened Notes')])
+        self.assertEqual([(a['task'], a['reply']) for a in json.loads(out.getvalue())['asks']], [('weather', 'Sunny'), ('weather', ''), ('open notes', 'Opened Notes')])
 
 
 if __name__ == '__main__':

@@ -39,7 +39,17 @@
   .savedline b { display:block;color:var(--fg2);font-size:11px;font-weight:500;margin-bottom:2px; }
   #meetingmessage { font-size:12px;color:var(--fg2);margin:12px 0; }
   #askq { margin-bottom:8px; } #asklist { max-height:320px;overflow-y:auto; }
-  #asklist .t span { -webkit-user-select:text;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap; }
+  #asklist .hist { padding:0; }
+  #asklist details { margin:0;width:100%;min-width:0;color:var(--fg);font-size:13px; }
+  #asklist summary { position:relative;padding:10px 42px 11px 14px;cursor:pointer;list-style:none; }
+  #asklist summary::after { content:'›';position:absolute;right:18px;top:50%;transform:translateY(-50%);color:var(--fg3);font-size:16px;transition:transform var(--t-fast) var(--ease); }
+  #asklist details[open] summary::after { transform:translateY(-50%) rotate(90deg); }
+  #asklist summary::-webkit-details-marker { display:none; }
+  #asklist summary:focus-visible { outline:2px solid var(--accent);outline-offset:-2px;border-radius:8px; }
+  #asklist summary b { display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+  #asklist details[open] summary b { white-space:pre-wrap;overflow-wrap:anywhere;-webkit-user-select:text; }
+  #asklist .answer { margin:0 14px 12px;padding-top:10px;border-top:.5px solid var(--line);color:var(--fg);font-size:13px;line-height:1.45;-webkit-user-select:text; }
+  #asklist .hist > .x.copy { right:40px; }
   #notice { position:fixed;bottom:16px;left:208px;right:0;margin:0 auto;width:fit-content;max-width:420px;display:flex;align-items:center;gap:12px;
     padding:8px 8px 8px 14px;border-radius:11px;background:var(--pop);box-shadow:inset 0 0 0 .5px var(--line),0 6px 20px rgba(var(--black-rgb),.18);font-size:12.5px;animation:rise var(--t-base) var(--ease); }
   /* Reduce Motion (the system's, or Atticus's own st.motion): crossfade only. Nothing slides or loops; what appears still fades */
@@ -333,6 +343,7 @@
     </div>
     <h3>Dictate anywhere</h3>
     <div class="group">
+      <div class="row"><div class="t"><b>Dictation</b><span>Off frees its shortcut and ⌃⌘V.</span></div><label class="sw"><input type="checkbox" data-k="dictate" aria-label="Dictation"></label></div>
       <div class="row"><div class="t"><b id="dictatelabel">Dictation shortcut</b><span id="dictatehint"></span></div><div class="keyfield"><button class="kf" id="dictatechange" aria-labelledby="dictatelabel" aria-describedby="dictatehint"></button><button class="x" id="dictateclear" aria-label="Clear dictation shortcut">×</button></div></div>
       <div class="row" id="globefix" hidden><div class="t"><b>Set Press 🌐 key to Do Nothing</b><span>So 🌐 only starts dictation.</span></div><button class="btn" data-do="globeKey">Open Keyboard Settings</button></div>
       <div class="row"><div class="t"><b>Dictated text</b><span id="dictatemodehint">Clean up drops fillers, fixes misheard words.</span></div><div class="seg" data-k="dictateMode"><button data-v="verbatim">Verbatim</button><button data-v="cleanup">Clean up</button></div></div>
@@ -843,7 +854,9 @@
     $('dictateclear').hidden = !P.dictateHotkeyLabel || recording === 'dictate';
     $('dictatechange').classList.toggle('bad', dictateHotkeyTaken && recording !== 'dictate');
     if (recording !== 'dictate' && $('dictatehint').className !== 'warn') { $('dictatehint').textContent = dictateHint(); $('dictatehint').className = dictateHotkeyTaken ? 'taken' : ''; }
-    dim('dictateMode', !P.dictateHotkeyLabel);
+    const dictateOff = P.dictate === false, keyRow = $('dictatechange').closest('.row');
+    keyRow.classList.toggle('dim', dictateOff); keyRow.inert = dictateOff;
+    dim('dictateMode', dictateOff || !P.dictateHotkeyLabel);
     document.querySelector('[data-k=dictateMode] [data-v=cleanup]').disabled = other;
     $('dictatemodehint').textContent = other ? 'Clean up needs Claude.' : 'Clean up drops fillers, fixes misheard words.';
     document.querySelectorAll('.seg[data-k]').forEach(g => {
@@ -945,11 +958,16 @@
   function paintAsks() {
     const q = $('askq').value.trim().toLowerCase(), shown = asks.filter(a => !q || (a.task + '\n' + a.reply).toLowerCase().includes(q));
     $('asklist').replaceChildren(...shown.map(a => {
-      const row = document.createElement('div'); row.className = 'row'; row.setAttribute('role', 'listitem');
-      row.innerHTML = '<div class="t"><b></b><span></span></div>';
-      row.querySelector('b').textContent = a.task; row.querySelector('span').textContent = new Date(a.at.replace(' ', 'T')).toLocaleString(undefined, {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}) + ' · ' + a.reply;
-      const copy = iconButton('copy', 'Copy answer to ' + a.task, ' copy'); copy.onclick = () => { post({ do: 'copy', text: a.reply }); copied(copy); };
-      row.append(copy);
+      const row = document.createElement('div'); row.className = 'row hist'; row.setAttribute('role', 'listitem');
+      const detail = document.createElement('details'); detail.className = 't';
+      const summary = document.createElement('summary'), meta = document.createElement('small'), task = document.createElement('b');
+      const status = {cancelled: 'Stopped', interrupted: 'Stopped', failed: 'Failed', crashed: 'Failed', running: 'In progress', handed_off: 'Moved to agent'}[a.status];
+      meta.textContent = new Date(a.at.replace(' ', 'T')).toLocaleString(undefined, {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}) + (status ? ' — ' + status : '');
+      task.textContent = a.task; summary.append(meta, task);
+      const answer = document.createElement('span'); answer.className = 'answer'; answer.textContent = a.reply || 'No answer saved.';
+      detail.append(summary, answer);
+      const copy = iconButton('copy', a.reply ? 'Copy answer' : 'Copy ask', ' copy'); copy.onclick = () => { post({ do: 'copy', text: a.reply || a.task }); copied(copy); };
+      row.append(detail, copy);
       return row;
     }));
     if (!shown.length) $('asklist').innerHTML = `<div class="empty">${q ? 'No asks match.' : 'Your asks and answers will appear here.'}</div>`;
@@ -972,7 +990,7 @@
 
   const PROFILE = [['basics','Basics','name: Saarth'],['contact','Contact','email: me@example.com'],['places','Places','home address: …'],
     ['school_work','School & work','school: …'],['links','Links & handles','website: …'],['preferences','Preferences','answers: concise'],
-    ['people','People','dad: Sunil Ranka'],['notes','Notes','Anything else']];
+    ['people','People','dad: …'],['notes','Notes','Anything else']];
   const openProfile = new Set();
   function paintProfile(profile) {
     document.querySelectorAll('.profile-category[open]').forEach(d => openProfile.add(d.dataset.category));

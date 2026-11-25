@@ -35,9 +35,9 @@ class RepoFixTests(unittest.TestCase):
 
     def test_release_metadata_has_one_version_source(self):
         version = (ROOT / 'VERSION').read_text().strip()
-        self.assertEqual(version, '2.0.1')
+        self.assertEqual(version, '2.0.2')
         major, minor, patch_version = map(int, version.split('.'))
-        self.assertEqual(major * 1_000_000 + minor * 1_000 + patch_version, 2_000_001)
+        self.assertEqual(major * 1_000_000 + minor * 1_000 + patch_version, 2_000_002)
         build = (ROOT / 'build.sh').read_text()
         self.assertIn('VERSION=$(tr -d', build)
         self.assertIn('<string>$BUILD</string>', build)

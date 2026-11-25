@@ -423,11 +423,14 @@ print(json.dumps({{"type": "result", "is_error": True, "result": "Authentication
                          'how do i solve problem 21', 'can you show me on my screen how to do problem 36'],
                 'easy': ["Hey, how's it going?", 'Hey, what’s up?', 'Open Notes', 'Atticus, can you open up Spotify?', 'turn dark mode off',
                          'Can you skip?', 'What does CRT mean in trading?', 'How much is 50 Celsius in Fahrenheit?', '2026-1977.',
-                         'type see you at five'],
+                         'type see you at five',
+                         # Nov 21: one-step asks in other words went to the work model
+                         'what app is in front', "Yo, how's it going bro?", 'hey whats up', 'And then what is an H-O-R-I?', 'Can you quit? Zoom.', 'Unpause.'],
                 'work': ['answer problem 30', 'How do you calculate discriminant?', 'Is x squared minus 2 x plus 4 factorable?',
                          'What is this?', "what's the answer for 33", 'Open my study guide.', 'Quit, whisper flow, and open willow voice.',
                          'Turn the Gofi lights off.', 'is it going to be raining in marine valley tomorrow can you check',
-                         'Turn your voice on, and then solve problem 4.', 'graph y is equal to x squared minus four']}
+                         'Turn your voice on, and then solve problem 4.', 'graph y is equal to x squared minus four',
+                         'find the cooking video, then put Chrome on the left', 'which of these is right?', 'No, I meant this one.']}
         for route, texts in asks.items():
             for text in texts:
                 with self.subTest(text=text): self.assertEqual(atticus.ask_route(text), route)

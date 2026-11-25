@@ -71,10 +71,10 @@ Needs **macOS 26** and an AI client: Claude Code on a Claude plan, Devin, Pi or 
 - **Sees your screen.** Ask about anything on it. Point or circle with your mouse while you hold the shortcut, or use **Point at your screen** to mark a spot first.
 - **Teaches and draws.** "Teach me…" points at each spot, one step at a time. "Explain this and draw it" builds a labeled diagram over your screen.
 - **Picks the right model.** Easy asks go to a quick model; harder ones go to a stronger one. Change it in Settings → Intelligence.
-- **Dictate anywhere.** Hold fn, talk, let go. Your words land in any text field, cleaned up.
+- **Dictate anywhere.** Hold fn, talk, let go. Your words land in any text field, cleaned up. One switch in Settings turns it off.
 - **Hands-free.** Turn on the wake word and just say "Atticus".
 - **Background agents.** Big jobs run behind your apps while you keep working.
-- **Meeting Copilot.** Answers and notes during calls, saved on your Mac.
+- **Meeting Copilot.** Answers and notes during calls, saved on your Mac. Press ⌘↩ any time for what to say next.
 - **Watch and routines.** "Tell me when Codex is done." "Every weekday at 8, summarize my calendar."
 - **Your plan, no API key.** Runs on Claude, Devin, Pi or a [local model](docs/GUIDE.md#use-a-local-model).
 - **Private and safe.** Your voice stays on your Mac. Deletes, sends and purchases ask first.

@@ -73,7 +73,18 @@ print("special shortcuts stay distinct")
         self.assertIn("var hotkeyRegistered = false", registration)
         self.assertIn("var dictateHotkeyRegistered = false", registration)
         self.assertIn('"hotkeyTaken": !hotkeyRegistered', push)
-        self.assertIn('"dictateHotkeyTaken": !Prefs.str("dictateHotkeyLabel").isEmpty && !dictateHotkeyRegistered', push)
+        self.assertIn('"dictateHotkeyTaken": dictateKeyOn() && !dictateHotkeyRegistered', push)
+
+    def test_dictation_switch_frees_its_shortcuts(self):
+        settings = (ROOT / 'ui' / 'settings.html').read_text()
+        self.assertIn('data-k="dictate"', settings)
+        self.assertIn('"dictate": true', self.swift)   # on for everyone who never touched it
+        self.assertIn('func dictateKeyOn() -> Bool { Prefs.bool("dictate") && !Prefs.str("dictateHotkeyLabel").isEmpty }', self.swift)
+        register = self.swift[self.swift.index("func registerDictateHotkey()"):self.swift.index("let settings = SettingsWindow()")]
+        self.assertIn("guard dictateKeyOn() else", register)
+        self.assertIn('pasteHotkeyRegistered = Prefs.bool("dictate") &&', register)
+        self.assertIn('if k == "dictate" { registerDictateHotkey(); registerPasteHotkey() }', self.swift)
+        self.assertNotIn('!Prefs.str("dictateHotkeyLabel").isEmpty', self.swift.replace('func dictateKeyOn() -> Bool { Prefs.bool("dictate") && !Prefs.str("dictateHotkeyLabel").isEmpty }', ''))
 
     def test_long_step_callout_starts_at_its_first_words(self):
         callout = self.swift[self.swift.index("final class DrawingCalloutView"):self.swift.index("final class ScreenDrawing")]

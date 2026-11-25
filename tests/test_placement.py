@@ -12,9 +12,9 @@ UNCHECKED = 'Moved Fixture, but could not check where its window is. Look at the
 
 class Windows:
     """A fake System Events: `first window whose name is/contains "…"` resolves like AppleScript, front window first."""
-    def __init__(self, *names):
+    def __init__(self, *names, min_width=0):
         self.windows = [(n, [100 + 50 * i, 100, 800, 600]) for i, n in enumerate(names)]
-        self.writes = []
+        self.writes, self.min_width, self.hidden = [], min_width, False   # hidden: in a full screen Space that is not showing
 
     @property
     def frames(self):
@@ -24,19 +24,22 @@ class Windows:
         return [n for (n, f), (_, old) in zip(self.windows, before) if f != old]
 
     def run(self, args, **kw):   # the read-only window lists; any other process (open -a, one-step bounds) is refused
+        if args[:2] == ['open', '-a']: self.hidden = False   # bringing the app forward shows its Space
         if args[:3] == ['osascript', '-l', 'JavaScript']:
-            rows = [[n, 'AXStandardWindow'] for n, _ in self.windows] if args[-1] == 'windows' else []
+            rows = [[n, 'AXStandardWindow'] for n, _ in self.windows] if args[-1] == 'windows' and not self.hidden else []
             return subprocess.CompletedProcess(args, 0, json.dumps(rows), '')
         self.writes.append(args)
         return subprocess.CompletedProcess(args, 1, '', '')
 
     def osa(self, script, *args):
+        if 'exists process' in script: return 'true'
+        if self.hidden: return ''
         m = re.search(r'first window whose name (is|contains) "((?:[^"\\]|\\.)*)"', script)
         frame = m and next((f for n, f in self.windows if (n == m[2] if m[1] == 'is' else m[2] in n)), None)
         if 'whose subrole is "AXStandardWindow"' in script: frame = self.windows[0][1]
         if not frame: return ''
         if re.search(r'\bset |AXRaise', script): self.writes.append(script)
-        if size := re.search(r'set size of .+ to \{(-?\d+), (-?\d+)\}', script): frame[2:] = map(int, size.groups())
+        if size := re.search(r'set size of .+ to \{(-?\d+), (-?\d+)\}', script): frame[2:] = max(int(size[1]), self.min_width), int(size[2])
         if pos := re.search(r'set position of .+ to \{(-?\d+), (-?\d+)\}', script): frame[:2] = map(int, pos.groups())
         if 'value of attribute "AXFullScreen", value of attribute "AXMinimized"' in script: return 'false, false, ' + ', '.join(map(str, frame))
         if 'return {position, size}' in script: return ', '.join(map(str, frame))
@@ -45,7 +48,7 @@ class Windows:
     def place(self, title, where='left'):
         with patch.object(atticus.subprocess, 'run', side_effect=self.run), patch.object(atticus, 'osa', side_effect=self.osa), \
              patch.object(atticus, 'free_focus') as focus, patch.object(atticus, 'preview_app'), patch.object(atticus.time, 'sleep'), \
-             patch.object(atticus, 'screens', return_value=[('Laptop', 0, 0, 1000, 800, True)]):
+             patch.object(atticus, 'screens', return_value=[('Laptop', 0, 25, 1000, 775, True)]):
             return atticus.place('Fixture', where, 'laptop', title), focus
 
 
@@ -92,6 +95,20 @@ class PlacementTargetTests(unittest.TestCase):
         out, _ = windows.place('')
         self.assertFalse(atticus.place_failed(out), out)
         self.assertEqual(windows.frames, [('Study-Guide copy.pdf', [300, 300, 800, 600]), ('Study-Guide.pdf', [0, 25, 500, 775])])
+
+    def test_a_window_that_will_not_shrink_to_half_is_not_done(self):
+        windows = Windows('Fixture', min_width=600)   # its center still lands on the display
+        out, _ = windows.place('', 'left')
+        self.assertTrue(atticus.place_failed(out), out)
+        self.assertFalse(atticus.place_unchecked(out), out)
+        self.assertIn('size 600x775', out)
+
+    def test_a_window_in_a_full_screen_space_not_showing_is_brought_here_and_moved(self):
+        windows = Windows('Fixture')
+        windows.hidden = True   # and its app can't list its own windows
+        out, _ = windows.place('', 'left')
+        self.assertFalse(atticus.place_failed(out), out)
+        self.assertEqual(windows.frames, [('Fixture', [0, 25, 500, 775])])
 
     def test_every_write_names_the_one_resolved_window(self):
         windows = Windows('Study-Guide copy.pdf', 'Study-Guide.pdf')

@@ -31,6 +31,24 @@ class TurnTimingTests(unittest.TestCase):
     def rows(self):
         return atticus.read_rows(str(Path(self.tmp.name) / 'log.jsonl'))
 
+    def test_history_keeps_cancelled_and_failed_followups_without_answers(self):
+        atticus.begin_turn('Plan a garden')
+        atticus.log_turn('Plan a garden', 'Start with herbs.', 1000)
+        atticus.begin_turn('Add a shaded bed\nInclude mint')
+        atticus.end_turn('cancelled', emit=False)
+        atticus.begin_turn('Try a smaller bed')
+        atticus.end_turn('failed', emit=False)
+        with patch.multiple(atticus, memory_rules=lambda: [], skills=lambda: {}, workflows=lambda: {},
+                            plan=lambda: {}, me=lambda: {}), \
+             patch('sys.argv', ['atticus.py', '--state']), contextlib.redirect_stdout(io.StringIO()) as output:
+            atticus.main()
+        state = json.loads(output.getvalue())
+        self.assertEqual([(r['task'], r['reply'], r['status']) for r in state['asks']], [
+            ('Try a smaller bed', '', 'failed'),
+            ('Add a shaded bed\nInclude mint', '', 'cancelled'),
+            ('Plan a garden', 'Start with herbs.', 'completed')])
+        self.assertEqual(state['all']['asks'], 2)  # History does not change usage accounting.
+
     def test_first_answer_once_after_confirmation_and_monotonic_finish(self):
         atticus.begin_turn('Fixture request')
         self.clock = 102

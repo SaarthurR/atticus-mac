@@ -3,6 +3,7 @@ import io
 import json
 import os
 from pathlib import Path
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -271,7 +272,8 @@ class UniversalTests(unittest.TestCase):
 
     def test_polite_opens_take_the_fast_path_but_bare_words_and_tasks_do_not(self):
         ok = subprocess.CompletedProcess([], 0)
-        (self.root / 'Downloads').mkdir()
+        for name in ('Downloads', 'Fixture', 'Hidden Stuff'): (self.root / name).mkdir()
+        os.chflags(self.root / 'Hidden Stuff', stat.UF_HIDDEN)
         with patch.object(atticus, 'skills', return_value={}), patch.object(atticus, 'fast_hands', return_value=None), patch.object(atticus, 'free_focus'), \
              patch.object(atticus, 'HOME', str(self.root)), patch.object(atticus, 'app_named', side_effect=lambda name: 'Fixture' if name == 'fixture' else None), \
              patch.object(atticus, 'LAST', str(self.root / 'last_app')), patch.object(atticus.subprocess, 'run', return_value=ok) as run, patch.object(atticus, 'show') as show:
@@ -283,9 +285,13 @@ class UniversalTests(unittest.TestCase):
                              ('pull up google calendar', 'https://calendar.google.com'), ('open the youtube website', 'https://youtube.com')):
                 self.assertTrue(atticus.fast(ask).startswith('Opened '), ask)   # Nov 21, 2026: a known site by name opens with no AI, as in Plip
                 self.assertEqual(run.call_args.args[0], ['open', url], ask)
+            for ask, folder in (('open my downloads folder', self.root / 'Downloads'), ('Can you open Downloads?', self.root / 'Downloads'),
+                                ('open home folder', self.root)):
+                self.assertTrue(atticus.fast(ask).startswith('Opened '), ask)   # Nov 21, 2026: a folder Finder shows by name opens with no AI
+                self.assertEqual(run.call_args.args[0], ['open', str(folder)], ask)
             run.reset_mock()
             for ask in ('open homework', 'open unfamiliar', 'Can you open up Unfamiliar?', 'Um, search Unfamiliar for e-bikes and find me the cheapest one.',
-                        'What am I looking at?', 'open downloads', 'open it', 'Can you open up?', 'open my unfamiliar homework', 'open unfamiliar and play music'):
+                        'What am I looking at?', 'open hidden stuff', 'open it', 'Can you open up?', 'open my unfamiliar homework', 'open unfamiliar and play music'):
                 self.assertIsNone(atticus.fast(ask), ask)   # one bare word may be his file or tab, not <word>.com: the AI finds it
         run.assert_not_called(); show.assert_not_called()
 

@@ -337,7 +337,7 @@ class NightTests(unittest.TestCase):
             calls.append(script)
             return 'false, false, 0, 0, 800, 600' if 'AXFullScreen' in script else '0, 25, 500, 775'
         with patch.object(atticus, 'placement_window', return_value=('Fixture', None)), patch.object(atticus, 'osa', side_effect=osa), patch.object(atticus, 'free_focus'), \
-             patch.object(atticus, 'screens', return_value=[('Request display', 0, 0, 1000, 800, True)]), \
+             patch.object(atticus, 'screens', return_value=[('Request display', 0, 25, 1000, 775, True)]), \
              patch.object(atticus.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)), \
              patch.object(atticus, 'preview_app') as preview, patch.object(atticus.time, 'sleep') as sleep:
             self.assertIn('window -> left', atticus.place('Fixture', 'left'))

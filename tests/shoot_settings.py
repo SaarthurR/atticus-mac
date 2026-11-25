@@ -12,7 +12,7 @@ PREFS = {'hotkeyLabel': '⌃⌥Space', 'login': True, 'paused': False, 'volume':
          'routing': 'balanced', 'microphone': 'automatic', 'agentModel': 'sonnet', 'agentUserTools': True, 'screen': 'auto',
          'speak': False, 'hideWhenSharing': True, 'menuIcon': True, 'autoUpdate': True, 'safe': True, 'meeting': False,
          'meetingSave': True, 'learnMe': True, 'stats': True, 'tips': True, 'draw': True, 'dictateMode': 'verbatim',
-         'dictateHotkeyLabel': '', 'dictateHistory': True, 'typeRight': True, 'talkMode': 'hold', 'speechModel': 'speech',
+         'dictate': True, 'dictateHotkeyLabel': '', 'dictateHistory': True, 'typeRight': True, 'talkMode': 'hold', 'speechModel': 'speech',
          'improve': False, 'drawModel': 'sonnet', 'modelSuggestions': True, 'voiceRate': 196}
 STATE = {'today': {'asks': 3, 'usd': .004, 'secs': 3}, 'week': {'asks': 21, 'usd': .03, 'secs': 3.4}, 'all': {'asks': 140, 'usd': .2, 'secs': 3.8},
          'rules': ['When I say focus mode, close Slack and open Notes'], 'skills': [{'say': 'standup', 'reply': 'Opened Zoom and the standup notes'}],
@@ -33,6 +33,7 @@ SCENES = [
     ('settings-dictation', "load({dictateHotkeyLabel:'fn'});st.tab('dictation');up()"),
     ('settings-dictation-end', "document.querySelector('main').scrollTop=1e5"),
     ('settings-dictation-keyboard', "(b=>{b.focus();b.scrollIntoView({block:'center'})})(document.querySelector('#dictationhistory .x.copy'))"),   # focus shows a row's actions, like hover
+    ('settings-dictation-off', "load({dictateHotkeyLabel:'fn',dictate:false});st.tab('dictation');up()"),
     ('settings-general', "load({});st.tab('general');up()"),
     ('settings-general-voice', "document.querySelector('[data-do=testVoice]').scrollIntoView({block:'center'})"),
     ('settings-general-voicespeed', "(r=>{r.focus();r.scrollIntoView({block:'center'})})(document.querySelector('[data-k=voiceRate]'))"),
@@ -137,6 +138,23 @@ class SettingsShots(unittest.TestCase):
         self.shots('settings', SHOTS.replace('SCENES', json.dumps(scenes)).replace('OBPAGES', json.dumps(pages)).replace('PREFS_JSON', json.dumps(PREFS))
                    .replace('STATE_JSON', json.dumps(STATE)).replace('PERMS_JSON', json.dumps(PERMS))
                    .replace('ROUTINES_JSON', json.dumps(ROUTINES)).replace('DICTATION_JSON', json.dumps(DICTATION)), 'settings shots ok')
+
+    def test_ask_history(self):
+        state = {**STATE, 'asks': [
+            {'at': '2026-11-24 09:32:00', 'task': 'Add a shaded bed\nInclude mint and ferns.', 'reply': '', 'status': 'cancelled'},
+            {'at': '2026-11-24 09:31:00', 'task': 'Try a smaller bed', 'reply': 'The plan could not be saved.\nYour existing plan is unchanged.', 'status': 'failed'},
+            {'at': '2026-11-24 09:30:00', 'task': 'Plan a garden for a small courtyard.\nUse containers and leave room for a table.',
+             'reply': '1. Put herbs in pots near the door.\n2. Keep the center clear for a table.\n3. Place taller plants along the back wall.\n\nWater containers when the top layer of soil is dry.', 'status': 'completed'}]}
+        scenes = [
+            ('history-closed', 'st.state(' + json.dumps(state) + ");st.tab('usage');document.querySelector('#asklist').scrollIntoView({block:'center'})"),
+            ('history-open', "document.querySelectorAll('#asklist summary')[2].click();document.querySelectorAll('#asklist .x.copy')[2].focus({preventScroll:true})"),
+            ('history-stopped', "document.querySelectorAll('#asklist summary')[2].click();document.querySelector('#asklist summary').click()")]
+        scenes = [(name, js + ";setTimeout(()=>document.querySelector('#askq').scrollIntoView({block:'start',behavior:'instant'}),300)") for name, js in scenes]
+        body = SHOTS.replace('sw.orderOut(nil);onboardingScene(look);return',
+            'if look+1<looks.count{settingsScene(0,look+1)}else{print("settings shots ok");exit(0)};return')
+        self.shots('history', body.replace('SCENES', json.dumps(scenes)).replace('OBPAGES', '[]').replace('PREFS_JSON', json.dumps(PREFS))
+                   .replace('STATE_JSON', json.dumps(state)).replace('PERMS_JSON', json.dumps(PERMS))
+                   .replace('ROUTINES_JSON', '[]').replace('DICTATION_JSON', json.dumps(DICTATION)), 'settings shots ok')
 
     def test_settings_and_setup(self):
         self.page_shots(SCENES, [])
