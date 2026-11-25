@@ -2122,7 +2122,7 @@ def folder_named(words):
             path = os.path.join(root, n)
             try:
                 if re.sub(r'[^a-z0-9]', '', n.lower()) == w and not n.startswith('.') and not n.endswith('.app') and os.path.isdir(path) \
-                        and not os.stat(path).st_flags & stat.UF_HIDDEN: return path
+                        and not getattr(os.stat(path), "st_flags", 0) & stat.UF_HIDDEN: return path
             except OSError: continue
     return None
 
