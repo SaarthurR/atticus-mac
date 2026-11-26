@@ -197,7 +197,7 @@ enum Prefs {
         "selection": true, "ahead": true, "aheadDelay": 0.7, "live": true, "screen": "auto", "openOn": "here", "workIn": "back", "miniScreen": true, "draw": true, "guideSteps": "auto", "pageJS": false,
         "speak": true, "showAnswers": "stream", "autoCopy": false, "hideWhenSharing": true, "menuIcon": true, "autoUpdate": true,
         "learn": true, "safe": true, "pointer": false, "meeting": false, "meetingSave": true, "meetingAuto": "sure", "meetingNudge": false, "meetingDetect": true, "learnMe": true, "saveChats": true, "stats": true, "tips": true, "support": true, "comeBack": true, "askMe": true, "meetingSummary": true, "typeRight": true, "talkMode": "hold", "uiLanguage": "auto", "speechModel": "speech", "whisperModel": "turbo", "whisperLanguage": "auto", "improve": false, "improveAsked": false, "draftInsert": "ask",
-        "dictate": true, "dictateHotkeyCode": -1, "dictateHotkeyMods": 0, "dictateHotkeyLabel": "", "dictateMode": "cleanup", "dictateHistory": true, "dictateLearn": true, "dictateWords": [], "dictateFixes": [String: String](), "boxW": 500, "boxH": 420, "autoMinimize": true, "tinyFold": false,
+        "dictate": true, "dictateHotkeyCode": -1, "dictateHotkeyMods": 0, "dictateHotkeyLabel": "", "dictateMode": "cleanup", "dictateHistory": true, "dictateLearn": true, "dictateWords": [], "dictateFixes": [String: String](), "boxW": 500, "boxH": 420, "autoMinimize": true, "tinyFold": false, "followPointer": true,
         "voiceRate": 196]   // say's words a minute; its own 175 dragged through spoken steps
     static let retiredKeys = ["quietAudio", "quietLevel", "autoCopy", "askMe", "corner", "linger", "soundStart", "soundRelease", "soundDone", "soundStop",
         "instant", "live", "ahead", "aheadDelay", "learn", "selection", "guideSteps", "workIn", "openOn", "draftInsert",
@@ -1012,7 +1012,9 @@ func arrowCursorScript() -> WKUserScript? {
 var mouseScreen: NSScreen { NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main! }
 // Every floating surface's one follow check: where a frame jumps once the pointer is on another display (same nearer side and
 // offsets, clamped there), or nil to stay. Callers set it without an animator so it never shows on both displays or crosses the gap.
+// Settings > Box & Display > "Follow my pointer" off: every surface stays on the display where it was placed.
 func pointerFollow(_ f: NSRect) -> NSRect? {
+    guard Prefs.bool("followPointer") else { return nil }
     let to = mouseScreen.visibleFrame
     guard NSEvent.pressedMouseButtons == 0, let from = NSScreen.screens.first(where: { $0.frame.contains(NSPoint(x: f.midX, y: f.midY)) })?.visibleFrame, from != to else { return nil }
     return MeetingFrame.clamp(MeetingFrame.follow(f, from, to, right: f.midX > from.midX, top: f.midY > from.midY), to)
@@ -3181,6 +3183,7 @@ final class App: NSObject, WKScriptMessageHandler {
         if let h = heldHeight { heldHeight = nil; var f = panel.frame; f.origin.y = f.maxY - h; f.size.height = h; frame(f) }
     }
     var followTimer: Timer?
+    var lastSpot: NSPoint?   // the box's top-left when it last closed; with Follow my pointer off it reopens there
     var began = Date()   // when recording began, for the recording limit
     var composing = false, compH: CGFloat = 0, clickTalk = false, quiet: DispatchWorkItem?   // typing box focused / its height from the bottom; mic button = talk without keys
     var keysHeld = false   // Type right away: the shortcut took the keyboard from the user's app; it goes back once the ask is spoken
@@ -3870,10 +3873,13 @@ final class App: NSObject, WKScriptMessageHandler {
             return
         }
         defer { if drawing.active { avoidDrawing() } }
-        let screen = mouseScreen, vf = screen.visibleFrame   // open where the user is looking: the cursor's screen
+        // Open where the user is looking (the cursor's screen), or with Follow my pointer off, where the box was left.
+        let spot = Prefs.bool("followPointer") ? nil : lastSpot.flatMap { p in NSScreen.screens.first { $0.visibleFrame.contains(NSPoint(x: p.x + 1, y: p.y - 1)) }.map { (p, $0) } }
+        let screen = spot?.1 ?? mouseScreen, vf = screen.visibleFrame
         var f = panel.frame
         if !pillOn { f.size.width = boxWidth(Prefs.num("boxW"), vf) }
         f.origin = NSPoint(x: Prefs.str("corner") == "top-right" ? vf.maxX - f.width - 14 : vf.minX + 14, y: vf.maxY - f.height - 10)
+        if !pillOn, let p = spot?.0 { f.origin = NSPoint(x: p.x, y: p.y - f.height) }
         frame(f, on: screen)
         panel.alphaValue = 0
         panel.orderFrontRegardless()
@@ -3931,6 +3937,7 @@ final class App: NSObject, WKScriptMessageHandler {
         defaultKey(false)
         mini.reset()
         followTimer?.invalidate(); followTimer = nil
+        if panel.isVisible, !pillOn { lastSpot = boxHome ?? NSPoint(x: panel.frame.minX, y: panel.frame.maxY) }
         panel.orderOut(nil); agentCard = ""; pinned = false; stuck = false; boxHome = nil; composing = false; keysHeld = false; js("compose", false); js("visible", false)
         if hovering { hovering = false; js("hover", false); pointer("[]") }   // a hidden panel gets no mouseExited
         pill(false)

@@ -473,6 +473,12 @@ print("shelf follows")
     def test_every_floating_surface_jumps_to_the_pointer_display_through_one_check(self):
         shared = self.swift[self.swift.index("func pointerFollow("):self.swift.index("// Freeze the display")]
         self.assertIn("NSEvent.pressedMouseButtons == 0", shared)   # never mid-drag or while a button is held
+        self.assertIn('guard Prefs.bool("followPointer") else { return nil }', shared)   # Settings > Follow my pointer off: nothing follows
+        self.assertIn('"followPointer": true', self.swift)   # on by default
+        settings = (ROOT / 'ui' / 'settings.html').read_text()
+        self.assertIn('data-k="followPointer"', settings[settings.index('<section id="box">'):settings.index('<section id="brain">')])
+        show = self.swift[self.swift.index("    func show()"):self.swift.index("    func hide(")]
+        self.assertIn('Prefs.bool("followPointer") ? nil : lastSpot', show)   # off: reopens where it was left, not on the pointer's display
         self.assertIn("from != to", shared)
         # the same side-and-offset formula the shelf-follow harness proves
         self.assertIn("MeetingFrame.clamp(MeetingFrame.follow(f, from, to, right: f.midX > from.midX, top: f.midY > from.midY), to)", shared)
