@@ -58,7 +58,7 @@ SCENES = [
     ('settings-feedback', "st.tab('feedback');up()"),
 ]
 SCENES = [(n, js.replace('MEETINGS_JSON', json.dumps(MEETINGS)).replace('APPS_JSON', json.dumps(APPS))) for n, js in SCENES]
-SETUP_PAGES = ['welcome', 'ai', 'model', 'perms', 'try', 'dictate', 'show', 'improve', 'tip', 'done']   # setup's steps after the permissions, in order
+SETUP_PAGES = ['welcome', 'ai', 'perms', 'try', 'model', 'dictate', 'show', 'meeting', 'improve', 'tip', 'done']   # setup's steps after the permissions, in order
 
 # By window ID: a stray system prompt in the VM cannot cover the shot.
 SNAP = r'''func snap(_ name:String,_ w:NSWindow){w.sharingType = .readOnly;let p=Process();p.executableURL=URL(fileURLWithPath:"/usr/sbin/screencapture");p.arguments=["-x","-o","-l\(w.windowNumber)",out+"/"+name+".png"];try! p.run();p.waitUntilExit();print("shot \(name)")}
@@ -82,7 +82,7 @@ func obReady(_ tries:Int,_ go:@escaping()->Void){ov.evaluateJavaScript("typeof o
  if v as? String == "object"{go()}else if tries>60{print("setup page never loaded");exit(1)}else{after(0.5){obReady(tries+1,go)}}}}
 func onboardingScene(_ look:Int){
  let name=looks[look].0;ow.orderFrontRegardless()
- obReady(0){ov.evaluateJavaScript("ob.prefs({draw:true,meeting:false,routing:'balanced',dictateMode:'verbatim',dictateHotkeyLabel:''});ob.plan({ok:true,client:'claude',text:'Signed in. Claude Max.'});ob.set({mic:true,speech:true,ax:true,screen:false,auto:true});document.querySelector('[data-to=perms]').click();if(document.querySelector('.page.on').id!=='perms')throw Error('wrong permission shot')"){_,_ in
+ obReady(0){ov.evaluateJavaScript("ob.prefs({draw:true,meeting:false,routing:'balanced',dictateMode:'verbatim',dictateHotkeyLabel:'fn'});ob.plan({ok:true,client:'claude',text:'Signed in. Claude Max.'});ob.set({mic:true,speech:true,ax:true,screen:false,auto:true});document.querySelector('[data-to=perms]').click();if(document.querySelector('.page.on').id!=='perms')throw Error('wrong permission shot')"){_,_ in
   after(1.4){snap("setup-perms-"+name,ow)
    ov.evaluateJavaScript("document.querySelector('[data-to=\"ai\"]').click();document.querySelector('.opt[data-p=\"server\"]').click();ob.models(['qwen3','llama3.2'])"){_,_ in
     after(0.9){snap("setup-provider-"+name,ow)
@@ -92,17 +92,22 @@ func featurePage(_ i:Int,_ look:Int){
   guard look+1<looks.count else{print("settings shots ok");exit(0)}
   ow.orderOut(nil);settingsScene(0,look+1);return}
  ov.evaluateJavaScript("document.querySelector('[data-to=\"\(pages[i])\"]').click()"){_,e in if let e{print("page failed \(pages[i]): \(e)");exit(1)}
-  after(2.6){snap("setup-"+pages[i]+"-"+looks[look].0,ow);if pages[i]=="show"{frames(0,look){featurePage(i+1,look)}}else if pages[i]=="model"{opus(look){featurePage(i+1,look)}}else{featurePage(i+1,look)}}}}
+  after(2.6){snap("setup-"+pages[i]+"-"+looks[look].0,ow);if frameAt[pages[i]] != nil{frames(pages[i],0,look){featurePage(i+1,look)}}else if pages[i]=="model"{opus(look){featurePage(i+1,look)}}else if pages[i]=="try"{tried(look){featurePage(i+1,look)}}else{featurePage(i+1,look)}}}}
 // The work model step with the other card picked, then back to the default.
 func opus(_ look:Int,_ done:@escaping()->Void){
  ov.evaluateJavaScript("document.querySelector('.mc[data-m=opus]').click()"){_,_ in
   after(0.6){snap("setup-model-opus-"+looks[look].0,ow);ov.evaluateJavaScript("document.querySelector('.mc[data-m=sonnet]').click()"){_,_ in done()}}}}
-// Show me how's loop held at five moments: keys down and the mouse setting off, the loop half round, nearly closed, the resting dot, the answer.
-let frameAt=[1100,1800,2500,3150,4700]
-func frames(_ f:Int,_ look:Int,_ done:@escaping()->Void){
- guard f<frameAt.count else{ov.evaluateJavaScript("ob.showAt(null)"){_,_ in done()};return}
- ov.evaluateJavaScript("ob.showAt(\(frameAt[f]))"){_,_ in
-  after(0.6){snap("setup-show-frame\(f+1)-"+looks[look].0,ow);frames(f+1,look,done)}}}
+// Try it once the first task worked: its answer in the live line and its check.
+func tried(_ look:Int,_ done:@escaping()->Void){
+ ov.evaluateJavaScript("ob.tried();ob.app('listen');ob.app('words','What’s on my screen?');ob.app('think');ob.app('line','✓ A browser window with your inbox open.')"){_,_ in
+  after(0.9){snap("setup-try-done-"+looks[look].0,ow);done()}}}
+// Each loop held at fixed moments. Show me how: keys down and the mouse setting off, the loop half round, nearly closed, the resting dot, the answer.
+// Meeting Copilot: captions arriving, ⌘↩ with the card waiting, the answer.
+let frameAt=["show":[1100,1800,2500,3150,4700],"meeting":[1800,3500,5200]]
+func frames(_ page:String,_ f:Int,_ look:Int,_ done:@escaping()->Void){
+ guard f<frameAt[page]!.count else{ov.evaluateJavaScript("ob.showAt(null)"){_,_ in done()};return}
+ ov.evaluateJavaScript("ob.showAt(\(frameAt[page]![f]))"){_,_ in
+  after(0.6){snap("setup-\(page)-frame\(f+1)-"+looks[look].0,ow);frames(page,f+1,look,done)}}}
 func ready(_ tries:Int){sv.evaluateJavaScript("typeof st"){v,_ in   // a busy VM can take a while to load the page
  guard v as? String == "object" else{if tries>60{print("settings page never loaded");exit(1)};after(0.5){ready(tries+1)};return}
  sv.evaluateJavaScript(setup+"load({});"){_,e in if let e{print("load failed: \(e)");exit(1)};settingsScene(0,0)}}}
@@ -131,7 +136,7 @@ BOX_SCENES = [
 class SettingsShots(unittest.TestCase):
     def shots(self, name, body, marker):
         out = ROOT / 'test-artifacts' / 'design' / 'settings'; out.mkdir(parents=True, exist_ok=True)
-        run_fixture(self, body.replace('OUTDIR', str(out)), marker)
+        run_fixture(self, body.replace('OUTDIR', str(out)), marker, timeout=240)
         for png in sorted(out.glob('*.png')): print('PNG', png.name, base64.b64encode(png.read_bytes()).decode(), flush=True)
 
     def page_shots(self, scenes, pages):
@@ -154,6 +159,18 @@ class SettingsShots(unittest.TestCase):
             'if look+1<looks.count{settingsScene(0,look+1)}else{print("settings shots ok");exit(0)};return')
         self.shots('history', body.replace('SCENES', json.dumps(scenes)).replace('OBPAGES', '[]').replace('PREFS_JSON', json.dumps(PREFS))
                    .replace('STATE_JSON', json.dumps(state)).replace('PERMS_JSON', json.dumps(PERMS))
+                   .replace('ROUTINES_JSON', '[]').replace('DICTATION_JSON', json.dumps(DICTATION)), 'settings shots ok')
+
+    def test_ai_import(self):   # About you › Bring in from ChatGPT / Claude / Gemini: waiting for the copy, then its preview
+        facts = [{'category': 'places', 'kind': 'city', 'value': 'Testville'}, {'category': 'people', 'kind': 'sister', 'value': 'Maya Example'},
+                 {'category': 'preferences', 'kind': 'preference', 'value': 'Prefers short answers'}, {'category': 'school_work', 'kind': 'school', 'value': 'Springfield High'},
+                 {'category': 'notes', 'kind': 'plan', 'value': 'Trip to Lisbon in March'}]
+        scenes = [('ai-import-waiting', "st.tab('memory');up();if(!document.getElementById('aiImport').hidden)document.getElementById('aiCancel').click();document.getElementById('aiOpen').click();document.querySelector('[data-ai=chatgpt]').click()"),
+                  ('ai-import-preview', 'st.aiImport(' + json.dumps({'phase': 'preview', 'facts': facts}) + ')')]
+        body = SHOTS.replace('sw.orderOut(nil);onboardingScene(look);return',
+            'if look+1<looks.count{settingsScene(0,look+1)}else{print("settings shots ok");exit(0)};return')
+        self.shots('ai-import', body.replace('SCENES', json.dumps(scenes)).replace('OBPAGES', '[]').replace('PREFS_JSON', json.dumps(PREFS))
+                   .replace('STATE_JSON', json.dumps(STATE)).replace('PERMS_JSON', json.dumps(PERMS))
                    .replace('ROUTINES_JSON', '[]').replace('DICTATION_JSON', json.dumps(DICTATION)), 'settings shots ok')
 
     def test_settings_and_setup(self):

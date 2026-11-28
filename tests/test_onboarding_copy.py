@@ -30,8 +30,9 @@ class OnboardingMatchesAppTests(unittest.TestCase):
         self.assertIn('if relaunch { relaunchSoon() }', finish)
 
     def test_setup_order_and_optional_consent(self):
-        self.assertEqual(re.findall(r'<section class="page" id="(\w+)"', self.page), ['welcome', 'ai', 'model', 'perms', 'try', 'dictate', 'show', 'improve', 'tip', 'done'])
-        self.assertIn("const pages = ['welcome', 'ai', 'model', 'perms', 'try', 'dictate', 'show', 'improve', 'tip', 'done'];", self.page)
+        order = ['welcome', 'ai', 'perms', 'try', 'model', 'dictate', 'show', 'meeting', 'improve', 'tip', 'done']   # the first task right after the AI and Mac access
+        self.assertEqual(re.findall(r'<section class="page" id="(\w+)"', self.page), order)
+        self.assertIn('const pages = ' + repr(order).replace('"', "'") + ';', self.page)
         self.assertNotIn('data-k="improve"', self.page)
         self.assertIn("post({ do: 'set', k: 'improve', v: String(value) })", self.page)
         self.assertIn('"dictateHotkeyLabel": Prefs.str("dictateHotkeyLabel")', (ROOT / 'Atticus.swift').read_text())
@@ -68,7 +69,7 @@ class OnboardingMatchesAppTests(unittest.TestCase):
                    'When a task fails, Atticus can tell its maker what went wrong, so the next version gets it right.', 'You can change this anytime.',
                    'What you asked, the steps Atticus took, and why it didn’t work.', 'A random ID. Never your name, your screen, your files or passwords.',
                    'Emails, numbers, file paths and anything typed for you are removed before it leaves your Mac.',
-                   'Pick a work model', 'Atticus uses it for bigger asks.', 'Asked', '“Teach me the Pythagorean theorem.”',
+                   'It’s on. You can turn it off in Settings → Meetings.', 'Pick a work model', 'Atticus uses it for bigger asks.', 'Asked', '“Teach me the Pythagorean theorem.”',
                    'Quick, clear answers.', 'More detail, more steps.', 'Lighter on your plan', 'About 2× more of your plan',
                    'The two small squares add up to the big one.', '✎ Draws the triangle', '✎ Draws all three squares',
                    '9 + 16 = 25: the squares on the short sides fill the one on the long side.']
@@ -260,7 +261,6 @@ for (const [saved, page] of want) if (pick(saved) !== page) { console.error(save
         self.assertIn('voicePermissions(needs, dictate: dictate, quiet: quiet)', start)
         prepare = swift.split('    func prepareSpeech()', 1)[1].split('    var text =', 1)[0]
         self.assertIn('guard !preparingSpeech else { return }', prepare)
-        self.assertIn('await DictationTranscriber.supportedLocales', prepare)
         self.assertIn('await SpeechTranscriber.supportedLocales', prepare)
 
 

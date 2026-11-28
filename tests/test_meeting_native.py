@@ -93,6 +93,9 @@ func showNudge(_ data: [String: Any]) { nudges.append(data) }
 meeting.running = true; meeting.callApp = "Zoom"; current = []; checkMic(); checkMic(); precondition(meeting.stops == 0)
 current = ["Zoom"]; checkMic(); current = []; checkMic(); precondition(meeting.stops == 0 && callGone != nil)
 callGone = Date().addingTimeInterval(-3); checkMic(); precondition(meeting.stops == 1 && !meeting.running)
+// before setup finishes, a call on the mic gets no card (it would ask to listen before setup asks for the mic)
+current = ["Zoom"]; onMicSince["Zoom"] = Date().addingTimeInterval(-4); checkMic(); precondition(nudges.isEmpty && onMicSince.isEmpty, "call card during setup")
+UserDefaults.standard.register(defaults: ["onboarded": true])
 current = []; callNudged = []; onMicSince = [:]
 current = ["Zoom"]; checkMic(); precondition(nudges.isEmpty)
 onMicSince["Zoom"] = Date().addingTimeInterval(-2); checkMic(); precondition(nudges.isEmpty)

@@ -32,7 +32,7 @@ var fixtureTelemetry:[[String]]=[]
 func telemetry(_ args:[String]){fixtureTelemetry.append(args)}
 enum Prefs {
  static let path=ProcessInfo.processInfo.environment["ATTICUS_DIR"]!+"/settings.json"
- static var d:[String:Any]=[:]
+ static var d:[String:Any]=["followPointer":true]
  static func set(_ k:String,_ v:Any){d[k]=v}
  static func bool(_ k:String)->Bool{d[k] as? Bool ?? false}
  static func str(_ k:String)->String{d[k] as? String ?? ""}
@@ -55,7 +55,7 @@ let calendar=EKEventStore()
 final class MeetingStub {var running=false;func open(){};func acceptAgent(_ row:[String:Any]){};func showAgentPrep(_ row:[String:Any]){}}
 let meeting=MeetingStub()
 final class OnboardingStub {
- var allowed:[String]=[]
+ var allowed:[String]=[];var win:NSWindow?=nil
     func help(_ pane:String) {}
  static func permissionState(_ need:String,app:String)->Int { Onboarding.on ? 1 : -1 }
  static func granted(_ need:String,app:String)->Bool { Onboarding.on }
@@ -69,16 +69,16 @@ final class EngineStub{var isRunning=false}
 final class AppStub{
  let web=WKWebView()
  let panel=KeyPanel(contentRect:NSRect(x:40,y:40,width:340,height:120),styleMask:[.nonactivatingPanel,.borderless],backing:.buffered,defer:false)
- let mini=MiniScreen(),engine=EngineStub();var pageReady=false,busy=false,composing=false,pinned=false,stuck=false,dragging=false,hovering=false,pillOn=false,gen=0,escRef:EventHotKeyRef?,agentCard=""
+ let mini=MiniScreen(),engine=EngineStub();var pageReady=false,busy=false,tiny=false,dictating=false,composing=false,pinned=false,stuck=false,dragging=false,hovering=false,pillOn=false,gen=0,escRef:EventHotKeyRef?,agentCard=""
  var calls:[String]=[],defaultKeys:[EventHotKeyRef]=[],allowUntil=Date.distantPast,allowUserApp=false
- var askFile="",retryOffer=false,moveRef:EventHotKeyRef?,speechPressedAt:TimeInterval?
+ var askFile="",retryOffer=false,moveRef:EventHotKeyRef?,speechPressedAt:TimeInterval?,lastSpot:NSPoint?
  var agentMoveFile=""{didSet{moveKey()}}
  var defaultWanted=false,defaultObservers:[NSObjectProtocol]=[]
  func js(_ call:String,_ data:Any?=nil){calls.append(call)}
  func modelChoices()->[String:Any]{[:]}
  func frame(_ f:NSRect,on target:NSScreen?=nil,animate:Bool=false){panel.setFrame(f,display:true)}
  func cue(_ name:String){};func sound(_ name:String,_ v:Float){};func startFollowingPointerScreen(){}
- func hide(after:Double){}
+ func hide(after:Double){};func gone(){panel.orderOut(nil)}
  func escape(){};func shortcut(_ pressed:Bool){};func dictateShortcut(_ pressed:Bool){};func pasteLastDictation(){}
  struct DrawingStub{var active=false};let drawing=DrawingStub();func avoidDrawing(){}
 ''' + show + defaults + '''

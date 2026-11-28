@@ -187,13 +187,13 @@ function sourceChips(r,items,limit=6){const list=el('div','sources'),seen=new Se
  for(const s of items||[]){let url;try{url=new URL(s.url);if(!['http:','https:'].includes(url.protocol)||url.username||url.password)continue;}catch{continue;}
   const name=url.hostname.replace(/^www\./,'');if(seen.has(s.url))continue;seen.add(s.url);if(n++>=limit)continue;
   const a=el('a','source'),fav=el('i','fav',name[0].toUpperCase()),img=el('img');img.alt='';img.referrerPolicy='no-referrer';img.loading='lazy';img.src='https://'+url.hostname+'/favicon.ico';img.onerror=()=>img.remove();
-  fav.append(img);a.href='#';a.title=s.url;a.append(fav,el('span','',s.title&&s.title!==url.hostname?s.title:name));a.onclick=e=>{e.preventDefault();command('open',r.id,{target:s.url});};list.append(a);}
+  fav.append(img);a.href='#';a.title=s.url;a.append(fav,el('span','',E.linkTitle(s.title,s.url)));a.onclick=e=>{e.preventDefault();command('open',r.id,{target:s.url});};list.append(a);}
  if(n>limit)list.append(el('span','more','+'+(n-limit)));return n?list:null;}
 const KINDS=[['sheet',/spreadsheet|\/spreadsheets\/|\.(csv|xlsx?|numbers|tsv)$/i,'Spreadsheet'],['slides',/presentation|\.(pptx?|key)$/i,'Presentation'],['doc',/document|\.(docx?|md|txt|pages|rtf|html?)$/i,'Document'],
  ['event',/calendar|event/i,'Event'],['mail',/mail|draft/i,'Message'],['pdf',/pdf/i,'PDF'],['image',/image|\.(png|jpe?g|gif|heic|webp|svg)$/i,'Image'],['folder',/folder/i,'Folder'],['file',/^\//,'File']];
 function things(r){const list=r.made?.length?r.made:(r.links||[]).map(url=>({url,title:'',type:''})),said=answer(r);
  return list.map(m=>{const k=KINDS.find(k=>k[1].test((m.type||'')+' '+m.url.split(/[?#]/)[0]))||['link',0,'Link'],h=host(m.url),file=m.url.startsWith('/');
-  return {...m,named:!!m.title,kind:k[0],title:m.title||(file?m.url.split('/').pop():h)||m.url,sub:k[2]+' · '+(file?'In its folder':h)};}).filter(m=>m.kind!=='link'||m.named||!said.includes(m.url));}   // an untitled page the answer links to is a source; a titled one came from a tool that made it
+  return {...m,named:!!m.title,kind:k[0],title:file?(m.title||m.url.split('/').pop()||m.url):E.linkTitle(m.title,m.url),sub:k[2]+' · '+(file?'In its folder':h)};}).filter(m=>m.kind!=='link'||m.named||!said.includes(m.url));}   // an untitled page the answer links to is a source; a titled one came from a tool that made it
 function madeCards(r){const list=things(r);if(!list.length)return null;const box=el('div','made');
  list.forEach((m,i)=>{const b=el('button','thing'+(i?'':' main')),tile=el('i','tile'),txt=el('span','t'),open=el('span','open','Open');tile.append(icon(m.kind));txt.append(el('b','',m.title),el('small','',m.sub));open.append(icon('out'));
   b.append(tile,txt,open);b.title=m.url;b.onclick=e=>{e.stopPropagation();command('open',r.id,{target:m.url});};box.append(b);});return box;}
@@ -217,7 +217,7 @@ const appName=tool=>{const parts=tool.split('__');return parts.length>2?(parts[1
 function groups(r){const out=[];
  for(const e of r.timeline||[]){if(e.question)continue;if(e.user){out.push({kind:'user',lines:[e.user],tools:[''],sources:[]});continue;}const kind=kindOf(e),prev=out[out.length-1];
   if(kind==='sources'){if(prev)prev.sources.push(...e.sources);continue;}
-  if(kind==='made'){out.push({kind,lines:(e.made||[]).map(m=>'Made '+(m.title||host(m.url))),tools:[],sources:[]});continue;}
+  if(kind==='made'){out.push({kind,lines:(e.made||[]).map(m=>'Made '+(m.url.startsWith('/')?(m.title||m.url.split('/').pop()):E.linkTitle(m.title,m.url))),tools:[],sources:[]});continue;}
   if(prev&&prev.kind==='note'&&e.tool&&prev.lines.length===1&&prev.lines[0]===e.text){out.pop();}   // the narration line becomes its tool step
   const last=out[out.length-1];
   if(last&&kind!=='note'&&last.kind===kind){last.lines.push(e.text||'');last.tools.push(e.tool);last.sources.push(...(e.sources||[]));}

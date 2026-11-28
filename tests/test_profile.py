@@ -27,6 +27,78 @@ class ProfileTests(unittest.TestCase):
     def add(self, category, kind, value, source='you'):
         self.assertEqual(atticus.profile_add(category, value, kind, source), 'saved')
 
+    def test_learned_values_drop_wrappers_but_preserve_user_spelling_and_negation(self):
+        with self.asking("It's 42 Cedar Lane, Exampleville"):
+            self.assertEqual(atticus.profile_add('places', "It's 42 Cedar Lane, Exampleville", 'address'), 'saved')
+        fact = atticus.me()['facts'][0]
+        self.assertEqual(fact['value'], '42 Cedar Lane, Exampleville')
+        with self.asking('My address is 43 Ceder Lane, Exampleville'):
+            self.assertEqual(atticus.profile_set(fact['id'], 'address: My address is 43 Ceder Lane, Exampleville',
+                                               evidence='My address is 43 Ceder Lane, Exampleville'), 'saved')
+        self.assertEqual(atticus.me()['facts'][0]['value'], '43 Ceder Lane, Exampleville')
+        self.assertEqual(atticus.learned_value('status', 'My status is not available'), 'not available')
+        with self.asking('It is on the left'):
+            self.assertIn('not saved', atticus.profile_set(fact['id'], 'It is on the left'))
+        self.assertEqual(atticus.me()['facts'][0]['value'], '43 Ceder Lane, Exampleville')
+
+    def test_a_corrected_fact_replaces_the_fact(self):
+        # Oct 13: "It's bury as in BERRY, that's my address" became a spelling rule while the address fact kept "Bury":
+        # --me set needed the whole new address in the user's words, and a correction says only what changed
+        self.add('places', 'address', '12 Bury Place, Exampleville')
+        fact = atticus.me()['facts'][0]
+        with self.asking("It's bury as in BERRY, I remember that that's my address."):
+            self.assertIn('not saved', atticus.profile_set(fact['id'], '12 Berry Place, Otherville'))   # "Otherville" was never said
+            self.assertIn('not saved', atticus.profile_set(fact['id'], 'favorite food: 12 Berry Place, Exampleville'))   # nor a new kind for the fact
+            self.assertEqual(atticus.profile_set(fact['id'], '12 Berry Place, Exampleville'), 'saved')
+        self.assertEqual([(f['id'], f['value']) for f in atticus.me()['facts']], [(fact['id'], '12 Berry Place, Exampleville')])
+        with self.asking('Open my address in Maps'):
+            self.assertIn('not saved', atticus.profile_set(fact['id'], '12 Berry Place, Exampleville'))   # nothing changed and nothing said
+
+    def test_stated_work_family_and_locker_facts_survive_guards(self):
+        for ask, category, kind, value in [
+            ('I work at Birch Labs now', 'school_work', 'employer', 'Birch Labs'),
+            ('my sister is Nora', 'people', 'sister', 'Nora'),
+            ('remember my locker is 317', 'notes', 'locker', '317'),
+        ]:
+            with self.subTest(ask=ask), self.asking(ask):
+                self.assertEqual(atticus.profile_add(category, value, kind), 'saved')
+            self.assertTrue(any(f['kind'] == kind and f['value'] == value for f in atticus.me()['facts']))
+
+    def test_contextual_chat_pointer_is_not_a_fact_value(self):
+        value = "that chat is my cousin's chat. Use that chat when I ask."
+        with self.asking(value):
+            self.assertIn('not saved', atticus.profile_add('people', value, 'cousin chat'))
+        self.assertEqual(atticus.me()['facts'], [])
+        with self.asking("My cousin's chat is Ember Finch"):
+            self.assertEqual(atticus.profile_add('people', 'Ember Finch', 'cousin chat'), 'saved')
+
+    def test_recollection_and_task_inputs_are_not_standing_rules(self):
+        temporary = ["I don't remember the name", 'Memorize the answers and fill the form',
+                     "They're all right here", 'It is on the left']
+        for rule in temporary:
+            with self.subTest(rule=rule):
+                self.assertIn('not saved', atticus.remember_rule(rule))
+                with self.asking(rule):
+                    self.assertIn('not saved', atticus.profile_add('notes', rule))
+        self.assertEqual(atticus.remember_rule('Keep replies concise'), 'saved')
+        self.assertIn('not saved', atticus.edit_rule('Keep replies concise', temporary[0]))
+        self.assertEqual(atticus.memory_rules(), ['Keep replies concise'])
+        (self.root / 'memory.md').write_text('\n'.join('- ' + rule for rule in temporary + ['Keep replies concise']))
+        before = (self.root / 'memory.md').read_bytes()
+        self.assertEqual(atticus.relevant_rules('fill form'), 'Keep replies concise')
+        self.assertEqual((self.root / 'memory.md').read_bytes(), before)
+
+    def test_school_facts_and_exact_note_replacement_need_no_new_parser(self):
+        with self.asking('I study at Maple Institute. I prefer quiet rooms.'):
+            self.assertEqual(atticus.profile_add('school_work', 'Maple Institute', 'school'), 'saved')
+            self.assertEqual(atticus.profile_add('preferences', 'quiet rooms', 'study space'), 'saved')
+        facts = atticus.me()['facts']
+        note = next(f for f in facts if f['kind'] == 'study space')
+        with self.asking('I prefer shared rooms now.'):
+            self.assertEqual(atticus.profile_set(note['id'], 'shared rooms'), 'saved')
+        self.assertEqual(len(atticus.me()['facts']), 2)
+        self.assertEqual(next(f['value'] for f in atticus.me()['facts'] if f['id'] == note['id']), 'shared rooms')
+
     def test_legacy_profile_migrates_without_loss(self):
         self.me.write_text(json.dumps({'name': 'Sam Example', 'about': 'Student in Chicago.', 'facts': ['Likes tea', 'Uses metric units']}))
         profile = atticus.me()
@@ -225,6 +297,24 @@ atticus.remember_rule(sys.argv[1])
         (self.root / 'recent.jsonl').write_text(''.join(json.dumps({'t': atticus.time.time() - 30, 'q': q, 'a': a}) + '\n' for q, a in earlier))
         return patch.dict(os.environ, {'ATTICUS_ASK': str(ask)})
 
+    def test_a_new_job_replaces_the_old_one(self):
+        self.add('school_work', 'school', 'Springfield High')
+        self.add('school_work', 'side job', 'barista at Bean Co')
+        self.add('school_work', 'job', 'works at Acme')
+        self.assertEqual(atticus.profile_add('school_work', "I'm a PM at Initech now"), 'saved (replaced job: works at Acme)')
+        with self.asking('I work at Globex as a designer now'):
+            self.assertIn('replaced', atticus.profile_add('school_work', 'designer', 'role'))
+            self.assertEqual(atticus.profile_add('school_work', 'Globex', 'employer'), 'saved')   # the same job, said in the same ask
+        self.assertEqual(sorted((f['kind'], f['value']) for f in atticus.me()['facts']),
+                         [('employer', 'Globex'), ('role', 'designer'), ('school', 'Springfield High'), ('side job', 'barista at Bean Co')])
+        self.add('school_work', 'previous job', 'Acme')
+        self.add('people', 'boss', 'Pat Example')
+        self.assertEqual(len(atticus.me()['facts']), 6)
+        # typed one at a time in Settings: a new company keeps the role, a new role keeps the company
+        self.assertEqual(atticus.profile_add('school_work', 'Hooli', 'company'), 'saved (replaced employer: Globex)')
+        self.assertEqual(atticus.profile_add('school_work', 'engineer', 'role'), 'saved (replaced role: designer)')
+        self.assertEqual({(f['kind'], f['value']) for f in atticus.me()['facts']} & {('company', 'Hooli'), ('role', 'engineer')}, {('company', 'Hooli'), ('role', 'engineer')})
+
     def test_remember_that_uses_the_users_words_from_the_turn_before(self):
         earlier = [("Um, can you change that? My dad's email is dad@example.com.", 'The To field now has dad@example.com.')]
         with self.asking("Can you, like, remember that that's his email?", earlier):
@@ -284,6 +374,78 @@ atticus.remember_rule(sys.argv[1])
         self.assertEqual(run('--rule', 'Use Chrome', 'Use Chrome for browsing'), 'saved')
         self.assertEqual(run('--forget', 'Work mode: Orca full screen'), 'forgot 1 line(s)')   # not the longer rule that contains it
         self.assertEqual((self.root / 'memory.md').read_text(), '- Work mode: Orca full screen, Chrome on the laptop\n- Use Chrome for browsing\n')
+
+    AI_ANSWER = """Here's your profile:
+
+```plaintext
+## ABOUT ME
+**Name:** Sam Example
+Birthday: not provided
+City: Testville
+Email: sam@example.test
+Website: https://example.test
+
+PEOPLE
+(one per line, like  sister: Maya)
+- sister: Maya Example
+- dad: Pat Example
+
+PREFERENCES
+- Prefers short answers
+- coffee: oat latte
+
+SCHOOL & WORK
+- school: Springfield High
+- Bank account: 1234
+
+PLANS
+- Trip to Lisbon in March
+
+ANYTHING ELSE
+- Plays the cello
+```
+Let me know if you'd like me to add anything!"""
+
+    def test_ai_answer_is_read_only_whole_and_without_the_question(self):
+        facts = atticus.ai_profile(self.AI_ANSWER)
+        self.assertEqual(facts, [
+            ('basics', 'name', 'Sam Example'), ('places', 'city', 'Testville'), ('contact', 'email', 'sam@example.test'),
+            ('links', 'website', 'https://example.test'), ('people', 'sister', 'Maya Example'), ('people', 'dad', 'Pat Example'),
+            ('preferences', 'preference', 'Prefers short answers'), ('preferences', 'coffee', 'oat latte'),
+            ('school_work', 'school', 'Springfield High'), ('notes', 'plan', 'Trip to Lisbon in March'), ('notes', 'note', 'Plays the cello')])
+        self.assertEqual(atticus.ai_profile(atticus.AI_PROMPT.replace('\nName:', '\nName: Sam')), None)   # the question, filled in
+        self.assertEqual(atticus.ai_profile(atticus.AI_PROMPT + '\n' + self.AI_ANSWER), None)   # the whole chat
+        self.assertEqual(atticus.ai_profile(self.AI_ANSWER.split('PLANS')[0]), None)   # still writing: no last heading
+        self.assertEqual(atticus.ai_profile('ANYTHING ELSE\nx\nABOUT ME\nName: Sam'), None)   # out of order
+        self.assertEqual(atticus.ai_profile(self.AI_ANSWER + '\nABOUT ME\nName: Other'), None)   # two answers
+        self.assertEqual(atticus.ai_profile('Some copied text'), None)
+        self.assertEqual(atticus.ai_profile('ABOUT ME\nName:\n\nANYTHING ELSE\n'), [])   # an AI that knows nothing
+
+    def test_ai_answer_saves_new_facts_as_one_batch_its_undo_removes(self):
+        self.add('basics', 'name', 'Sam Example')
+        before = atticus.me()['facts']
+        preview = atticus.profile_ai_read(self.AI_ANSWER)['facts']
+        self.assertEqual(len(preview), 10)                      # the name was already saved
+        self.assertNotIn({'category': 'basics', 'kind': 'name', 'value': 'Sam Example'}, preview)
+        ids = atticus.profile_ai_add(self.AI_ANSWER)['ids']
+        self.assertEqual(len(ids), 10)
+        self.assertTrue(all(f['source'] == 'ai' for f in atticus.me()['facts'][1:]))
+        self.assertEqual(atticus.profile_ai_add(self.AI_ANSWER)['ids'], [])   # copied again: nothing new
+        self.assertEqual(atticus.profile_ai_read('Some copied text'), {'facts': None})
+        self.assertEqual(atticus.profile_ai_add('Some copied text'), {'ids': []})
+        atticus.profile_ai_undo(ids)
+        self.assertEqual(atticus.me()['facts'], before)
+
+    def test_ai_import_commands_take_the_answer_on_stdin(self):
+        env = {**os.environ, 'ATTICUS_DIR': str(self.root)}
+        env.pop('ATTICUS_ASK', None)
+        run = lambda *a, text='': subprocess.run([atticus.sys.executable, atticus.ME, '--me', *a], env=env, input=text, capture_output=True, text=True, timeout=30).stdout
+        self.assertEqual(run('ai-prompt'), atticus.AI_PROMPT)
+        self.assertEqual(len(json.loads(run('ai-read', text=self.AI_ANSWER))['facts']), 11)
+        ids = json.loads(run('ai-add', text=self.AI_ANSWER))['ids']
+        self.assertEqual(len(json.loads(self.me.read_text())['facts']), 11)
+        self.assertEqual(run('ai-undo', *ids).strip(), 'forgotten')
+        self.assertEqual(json.loads(self.me.read_text())['facts'], [])
 
 
 if __name__ == '__main__':

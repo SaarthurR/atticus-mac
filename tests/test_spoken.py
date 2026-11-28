@@ -30,6 +30,8 @@ FIXTURES = [
     ("Open file:///tmp/private or www.example.com next.", "Open or next."),
     ("Keep and/or and https://example.com/code out.", "Keep and/or and out."),
     ("The value is \\(x^{2}\\) or \\[x \\leq 4\\].", "The value is x squared or x less than or equal to 4."),
+    ("Three flights fit. The early one is cheapest.\n---\n- Early, 120 dollars\n- Noon, 140 dollars", "Three flights fit. The early one is cheapest."),
+    ("Run this:\n```\n---\n```\nThen restart.", "Run this: Then restart."),
 ]
 
 class SpokenTests(unittest.TestCase):

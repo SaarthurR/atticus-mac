@@ -196,8 +196,8 @@ enum Prefs {
             ["name": "Friendly", "text": "Warm and conversational, like talking to a colleague. Simple words."]],
         "selection": true, "ahead": true, "aheadDelay": 0.7, "live": true, "screen": "auto", "openOn": "here", "workIn": "back", "miniScreen": true, "draw": true, "guideSteps": "auto", "pageJS": false,
         "speak": true, "showAnswers": "stream", "autoCopy": false, "hideWhenSharing": true, "menuIcon": true, "autoUpdate": true,
-        "learn": true, "safe": true, "pointer": false, "meeting": false, "meetingSave": true, "meetingAuto": "sure", "meetingNudge": false, "meetingDetect": true, "learnMe": true, "saveChats": true, "stats": true, "tips": true, "support": true, "comeBack": true, "askMe": true, "meetingSummary": true, "typeRight": true, "talkMode": "hold", "uiLanguage": "auto", "speechModel": "speech", "whisperModel": "turbo", "whisperLanguage": "auto", "improve": false, "improveAsked": false, "draftInsert": "ask",
-        "dictate": true, "dictateHotkeyCode": -1, "dictateHotkeyMods": 0, "dictateHotkeyLabel": "", "dictateMode": "cleanup", "dictateHistory": true, "dictateLearn": true, "dictateWords": [], "dictateFixes": [String: String](), "boxW": 500, "boxH": 420, "autoMinimize": true, "tinyFold": false, "followPointer": true,
+        "learn": true, "safe": true, "pointer": false, "meeting": true, "meetingOnByDefault": true, "meetingSave": true, "meetingAuto": "sure", "meetingNudge": false, "meetingDetect": true, "learnMe": true, "saveChats": true, "stats": true, "tips": true, "support": true, "comeBack": true, "askMe": true, "meetingSummary": true, "typeRight": true, "talkMode": "hold", "uiLanguage": "auto", "speechModel": "speech", "whisperModel": "turbo", "whisperLanguage": "auto", "improve": false, "improveAsked": false, "draftInsert": "ask",
+        "dictate": true, "dictateHotkeyCode": -1, "dictateHotkeyMods": 0, "dictateHotkeyLabel": "", "dictateMode": "cleanup", "dictateHistory": true, "dictateLearn": true, "dictateWords": [], "dictateFixes": [String: String](), "boxW": 500, "boxH": 420, "autoMinimize": true, "fullFold": false, "followPointer": true,
         "voiceRate": 196]   // say's words a minute; its own 175 dragged through spoken steps
     static let retiredKeys = ["quietAudio", "quietLevel", "autoCopy", "askMe", "corner", "linger", "soundStart", "soundRelease", "soundDone", "soundStop",
         "instant", "live", "ahead", "aheadDelay", "learn", "selection", "guideSteps", "workIn", "openOn", "draftInsert",
@@ -206,6 +206,11 @@ enum Prefs {
         let saved = (try? JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: path)))) as? [String: Any] ?? [:]
         var values = defaults.merging(saved) { $1 }
         if saved["support"] == nil, saved["tips"] as? Bool == false { values["support"] = false }   // tips turned off before the tip jar existed: keep its line off too (atticus.py reads the same default)
+        if values["speechModel"] as? String == "dictation" { values["speechModel"] = "speech" }   // the retired Dictation model: Speech replaces it
+        // Meeting Copilot was off by default, and every write saved that off. A file from before it turned on by default (no meetingOnByDefault)
+        // kept it off by choice only if it was used: keys only its panel writes, or saved meetings.
+        if saved["meetingOnByDefault"] == nil, saved["meeting"] as? Bool == false, !["meetingPrep", "meetingFrames", "meetingSizes", "meetingDisplay"].contains(where: { saved[$0] != nil }),
+           !FileManager.default.fileExists(atPath: (path as NSString).deletingLastPathComponent + "/meetings") { values["meeting"] = true }
         if !["cheapest", "balanced", "capable"].contains(values["routing"] as? String ?? "") {
             values["routing"] = values["model"] as? String != "haiku" ? "capable" :
                 (values["escalate"] as? Bool != false && values["escalateAuto"] as? Bool != false ? "balanced" : "cheapest")
@@ -243,6 +248,11 @@ func supportedSpeechLocale(_ locales: [Locale], language: String = Prefs.str("ui
     return locale
 }
 
+// Some Macs on macOS 26 can't run SpeechTranscriber at all (no languages, or not available): DictationTranscriber stands in there.
+func speechTranscriberServes(_ locale: Locale, available: Bool, locales: [Locale]) -> Bool {
+    available && locales.contains { $0.identifier(.bcp47) == locale.identifier(.bcp47) }
+}
+
 func applySharing(_ window: NSWindow) {
     window.sharingType = Prefs.bool("hideWhenSharing") ? .none : .readOnly
 }
@@ -250,7 +260,7 @@ func applySharing(_ window: NSWindow) {
 func profileName(_ path: String) -> String {
     guard let profile = (try? JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: path)))) as? [String: Any] else { return "" }
     guard let facts = profile["facts"] as? [[String: Any]] else { return profile["name"] as? String ?? "" }
-    for source in ["you", "contacts", "mail", "learned"] {
+    for source in ["you", "contacts", "mail", "learned", "ai"] {
         if let value = facts.first(where: { $0["category"] as? String == "basics" && ($0["kind"] as? String)?.lowercased() == "name" && $0["source"] as? String == source })?["value"] as? String {
             return value
         }
@@ -283,15 +293,22 @@ func microphones() -> [MicrophoneDevice] {
         return MicrophoneDevice(id: id, uid: uid, name: name, transport: audioProp(id, kAudioDevicePropertyTransportType, UInt32(0)).first ?? 0)
     }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
 }
-func chooseMic(_ preferred: String, _ devices: [MicrophoneDevice], _ defaultID: AudioDeviceID) -> MicrophoneDevice? {
+// With the lid closed the built-in mic hears nothing, so a Bluetooth default stays.
+func chooseMic(_ preferred: String, _ devices: [MicrophoneDevice], _ defaultID: AudioDeviceID, lidClosed: Bool = false) -> MicrophoneDevice? {
     if preferred != "automatic", let picked = devices.first(where: { $0.uid == preferred }) { return picked }
     guard let standard = devices.first(where: { $0.id == defaultID }) else { return devices.first }
     let bluetooth = [kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE].contains(standard.transport)
-    return bluetooth ? devices.first(where: { $0.transport == kAudioDeviceTransportTypeBuiltIn }) ?? standard : standard
+    return bluetooth && !lidClosed ? devices.first(where: { $0.transport == kAudioDeviceTransportTypeBuiltIn }) ?? standard : standard
 }
 func listenMic() -> MicrophoneDevice? {
     let sys = AudioObjectID(kAudioObjectSystemObject)
-    return chooseMic(Prefs.str("microphone"), microphones(), audioProp(sys, kAudioHardwarePropertyDefaultInputDevice, AudioDeviceID(0)).first ?? 0)
+    return chooseMic(Prefs.str("microphone"), microphones(), audioProp(sys, kAudioHardwarePropertyDefaultInputDevice, AudioDeviceID(0)).first ?? 0, lidClosed: lidClosed())
+}
+func lidClosed() -> Bool {   // a Mac with no lid has no AppleClamshellState
+    let root = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPMrootDomain"))
+    guard root != 0 else { return false }
+    defer { IOObjectRelease(root) }
+    return IORegistryEntryCreateCFProperty(root, "AppleClamshellState" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? Bool == true
 }
 // Opt-in, text-free timing; never write the user's settings or transcript log.
 final class SpeechTrace: @unchecked Sendable {
@@ -768,11 +785,19 @@ struct SpeechSentences {
 func readAloudText(_ text: String) -> String {
     let clean = text.replacingOccurrences(of: #"(?m)^[ \t]*```graph[ \t]*(?:\n[\s\S]*?(?:^[ \t]*```[^\n]*|\z)|\z)"#, with: " Graph on screen. ", options: .regularExpression)
         .replacingOccurrences(of: #"```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|`[^`]*(?:`|$)"#, with: " ", options: .regularExpression)
+        .replacingOccurrences(of: #"(?m)^[ \t]*-{3,}[ \t]*$[\s\S]*"#, with: "", options: .regularExpression)   // the card's divider: what follows is shown, not said
         .replacingOccurrences(of: #"</?[A-Za-z][A-Za-z0-9]*(?:\s+[A-Za-z_:][A-Za-z0-9_:.-]*(?:\s*=\s*(?:\"[^\"]*\"|'[^']*'|[^\s>]+))?)*\s*/?>"#, with: " ", options: .regularExpression)
         .replacingOccurrences(of: #"!?\[([^\]]*)\]\([^)]*\)"#, with: "$1", options: .regularExpression)
         .replacingOccurrences(of: #"(?i)<?\b(?:[a-z][a-z0-9+.-]*://|mailto:|www\.)[^\s<>]*>?"#, with: " ", options: .regularExpression)
         .replacingOccurrences(of: #"(?m)^[ \t]*(?:[-*+>]|\d+[.)])[ \t]+"#, with: "", options: .regularExpression)
     return spoken(clean) + (text.last?.isNewline == true ? "\n" : text.last?.isWhitespace == true ? " " : "")
+}
+// After a quiet spell the first sentence is the one they wait for: said in two at its first comma when three words or more
+// follow, so its start is made sooner ("Sure," plays while "I opened Safari for you." is made).
+func splitFirst(_ sentence: String) -> [String] {
+    guard let comma = sentence.range(of: #",\s+"#, options: .regularExpression),
+          sentence[comma.upperBound...].split(whereSeparator: \.isWhitespace).count >= 3 else { return [sentence] }
+    return [String(sentence[..<comma.lowerBound]) + ",", String(sentence[comma.upperBound...])]
 }
 
 // Read-aloud uses the Mac's saved voice explicitly: bare say can ignore Spoken Content.
@@ -848,6 +873,80 @@ func readAloudArguments(_ words: String, pick: (String) -> String? = usableReadA
     if voice == nil { compactTip() }
     return (voice.flatMap { $0.isEmpty ? nil : ["-v", $0] } ?? []) + (rate > 0 ? ["-r", String(Int(rate))] : []) + ["--", words]
 }
+// One sentence read aloud: made into a sound file first, then played from just before its first sound (the voice opens each
+// sentence with 0.2 to 0.4 s of quiet). The system voice (a saved Siri voice too) is made in this process: the same sound as bare
+// `say`, without loading the voice again for every sentence. A named Premium or Enhanced voice is made by `say -o`.
+final class SpokenSentence: NSObject, NSSpeechSynthesizerDelegate, AVAudioPlayerDelegate {
+    let arguments: [String]
+    private(set) var isRunning = true, playing = false
+    private let file = FileManager.default.temporaryDirectory.appendingPathComponent("atticus-voice-\(UUID().uuidString).aiff")
+    private var made: Bool?, synth: NSSpeechSynthesizer?, maker: Process?, player: AVAudioPlayer?, fallback: Process?
+    private var started: (() -> Void)?, finished: (() -> Void)?
+    init(_ arguments: [String]) {
+        self.arguments = arguments; super.init()
+        let words = arguments.last ?? "", options = Array(arguments.dropLast())
+        if !options.contains("-v") {
+            let s = NSSpeechSynthesizer(); s.delegate = self
+            if let r = options.firstIndex(of: "-r"), r + 1 < options.count, let rate = Float(options[r + 1]) { s.rate = rate }
+            if s.startSpeaking(words, to: file) { synth = s }
+        }
+        if synth == nil {
+            let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/say"); p.arguments = ["-o", file.path] + arguments
+            p.terminationHandler = { [weak self] p in DispatchQueue.main.async { self?.didMake(p.terminationStatus == 0) } }
+            if (try? p.run()) != nil { maker = p } else { made = false }
+        }
+        // a voice that never finishes making one sentence would hold every sentence after it
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4 + Double(words.count) / 8) { [weak self] in
+            guard let self, made == nil else { return }
+            synth?.stopSpeaking(); if maker?.isRunning == true { maker?.terminate() }; didMake(false)
+        }
+    }
+    func play(started: @escaping () -> Void, finished: @escaping () -> Void) {
+        self.started = started; self.finished = finished
+        if made != nil { begin() }
+    }
+    func terminate() {
+        guard isRunning else { return }
+        isRunning = false; started = nil; finished = nil
+        synth?.stopSpeaking(); if maker?.isRunning == true { maker?.terminate() }
+        player?.stop(); if fallback?.isRunning == true { fallback?.terminate() }
+        try? FileManager.default.removeItem(at: file)
+    }
+    func speechSynthesizer(_ sender: NSSpeechSynthesizer, didFinishSpeaking finishedSpeaking: Bool) { didMake(finishedSpeaking) }
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) { DispatchQueue.main.async { self.done() } }
+    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) { DispatchQueue.main.async { self.done() } }
+    private func didMake(_ ok: Bool) {
+        guard made == nil else { return }
+        made = ok
+        if finished != nil { begin() }
+    }
+    private func begin() {
+        guard isRunning, !playing else { return }
+        playing = true
+        if made == true, let p = try? AVAudioPlayer(contentsOf: file) {
+            p.delegate = self; p.currentTime = leadingQuiet(file)
+            if p.play() { player = p; started?(); return }
+        }
+        let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/say"); p.arguments = arguments   // not made or not playable: said straight
+        p.terminationHandler = { [weak self] _ in DispatchQueue.main.async { self?.done() } }
+        do { try p.run(); fallback = p; started?() } catch { telemetry(["error", "native", "speak"]); done() }
+    }
+    private func done() {
+        guard isRunning else { return }
+        isRunning = false; try? FileManager.default.removeItem(at: file)
+        let f = finished; started = nil; finished = nil; f?()
+    }
+}
+// Seconds of quiet before the first sound, less 20 ms so the first word's onset stays.
+func leadingQuiet(_ samples: [Float], rate: Double) -> TimeInterval {
+    guard let first = samples.firstIndex(where: { abs($0) > 0.01 }) else { return 0 }
+    return max(0, Double(first) / rate - 0.02)
+}
+func leadingQuiet(_ file: URL) -> TimeInterval {
+    guard let f = try? AVAudioFile(forReading: file), let b = AVAudioPCMBuffer(pcmFormat: f.processingFormat, frameCapacity: AVAudioFrameCount(f.length)),
+          (try? f.read(into: b)) != nil, let channel = b.floatChannelData?[0] else { return 0 }
+    return leadingQuiet(Array(UnsafeBufferPointer(start: channel, count: Int(b.frameLength))), rate: f.processingFormat.sampleRate)
+}
 
 // The talk shortcut, any key plus modifiers, recorded in Settings: Carbon modifiers to register, and the
 // modifier keys whose release ends listening (none for a lone F-key: its own key-up ends it).
@@ -879,6 +978,21 @@ func globeKeyTaken() -> Bool {
     guard dictateKeyOn(), h.code < 0, h.mods == atticusFnKey else { return false }
     CFPreferencesAppSynchronize(domain)
     return (CFPreferencesCopyAppValue("AppleFnUsageType" as CFString, domain) as? Int ?? 1) != 0
+}
+
+// Product names speech recognition mishears in a known way, put right as the words arrive. Only spans that are no
+// everyday phrase, so "face time with the team" or "their drop in sales" stays as said.
+let heardFixes: [(NSRegularExpression, String)] = [
+    (#"\b(?:versus|vs\.?|v\.? ?s\.?) code\b"#, "VS Code"), (#"\b(?:x|ex)[ -]code\b"#, "Xcode"),
+    (#"\b(?:supa|super) ?base\b"#, "Supabase"), (#"\bol[aiy]?ma\b"#, "Ollama"), (#"\blocal ?host\b"#, "localhost"),
+    (#"\bchat ?g\.? ?p\.? ?t\b|\bchat ?gbt\b"#, "ChatGPT"), (#"\bgit ?hub\b"#, "GitHub"), (#"\bair ?drop\b"#, "AirDrop"),
+    (#"\bi ?cloud\b"#, "iCloud"), (#"\bfacetime\b"#, "FaceTime"), (#"\bwhats ?app\b"#, "WhatsApp"), (#"\blinkedin\b"#, "LinkedIn"),
+    (#"\bdoor ?dash\b"#, "DoorDash"), (#"\bair ?b ?n ?b\b"#, "Airbnb"), (#"\bpost ?hog\b"#, "PostHog"),
+].map { (try! NSRegularExpression(pattern: $0.0, options: .caseInsensitive), $0.1) }
+func tidyHeard(_ text: String) -> String {
+    heardFixes.reduce(text) { text, fix in
+        fix.0.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: fix.1)
+    }
 }
 
 func transcriptKey(_ s: String) -> String {
@@ -1321,8 +1435,10 @@ struct DrawingRequest: Decodable {
     let steps: [DrawingStep], teaching: Bool, target: DrawingWindow, state: String
     let receipt: String?
     var cancelFile: String? = nil
+    var sketch: [Double]? = nil   // a fixed card in Quartz points; independent of narrated screen steps
     var guide: String? = nil   // a streamed answer's drawing: later requests with the same guide add its next steps
 }
+struct SketchCue: Decodable { let guide: String, cue: Int }   // the answer reached this step of its sketch card
 struct DrawingWindow: Decodable {
     let pid: Int32, windowID: String, windowFrame: [Double]
     var bounds: CGRect { CGRect(x:windowFrame[0], y:windowFrame[1], width:windowFrame[2], height:windowFrame[3]) }
@@ -1331,6 +1447,8 @@ struct DrawingWindow: Decodable {
 final class DrawingView: NSView {
     override var isFlipped: Bool { true }
     var origin = CGPoint.zero
+    var sketchFrame: CGRect?
+    static let card = NSColor(calibratedRed:0.09,green:0.10,blue:0.12,alpha:1)
     var visibleArea: CGRect?   // global Quartz work area for this display, excluding menu bar and Dock: where names go
     var workArea: CGRect { visibleArea ?? display }
     var display: CGRect { bounds.offsetBy(dx:origin.x,dy:origin.y) }   // marks show over the menu bar and Dock too, so a ring around a target beside them stays whole
@@ -1342,7 +1460,22 @@ final class DrawingView: NSView {
     var pick: ((CGPoint) -> Void)?
     var deferredLabels: [String] = []
     var hits: [(area: CGPath, step: Int, shape: Int)] = []   // local points: what a click on each mark selects
-    func reset() { layer?.sublayers?.forEach { $0.removeFromSuperlayer() }; hits = []; deferredLabels = [] }
+    var sketchShown = 0   // the card's shapes drawn so far: a later step adds after them
+    func reset() { layer?.sublayers?.forEach { $0.removeFromSuperlayer() }; hits = []; deferredLabels = []; sketchShown = 0 }
+    func renderSketch(_ shapes: [DrawingShape], frame: CGRect, previous: Int = 0, animate: Bool = true) {
+        sketchFrame = frame; defer { sketchShown = shapes.count }
+        if previous == 0 {
+            reset(); constrainInk()
+            let bg = CAShapeLayer(), local = frame.offsetBy(dx:-origin.x,dy:-origin.y)
+            bg.path = CGPath(roundedRect:local,cornerWidth:18,cornerHeight:18,transform:nil)
+            bg.fillColor = Self.card.cgColor
+            bg.strokeColor = NSColor.white.withAlphaComponent(0.16).cgColor; bg.lineWidth = 1
+            layer?.addSublayer(bg)
+        }
+        let oldHits = hits.count
+        render(Array(shapes.dropFirst(previous)),animate:animate,previous:nil,append:true,parts:Array(shapes.prefix(previous)))
+        for i in oldHits..<hits.count { hits[i].shape += previous }
+    }
     func mark(at p: CGPoint) -> (bounds: CGRect, step: Int, shape: Int)? {
         let l = CGPoint(x:p.x-origin.x, y:p.y-origin.y)
         return hits.last { $0.area.contains(l) }.map { ($0.area.boundingBoxOfPath.offsetBy(dx:origin.x,dy:origin.y), $0.step, $0.shape) }
@@ -1363,7 +1496,7 @@ final class DrawingView: NSView {
         constrainInk()
         guard workArea.intersects(frame) else { return }
         let local = frame.offsetBy(dx:-origin.x,dy:-origin.y), bg = CAShapeLayer()
-        bg.path = CGPath(roundedRect:local,cornerWidth:14,cornerHeight:14,transform:nil); bg.fillColor = NSColor(calibratedWhite:0.08,alpha:0.94).cgColor
+        bg.path = CGPath(roundedRect:local,cornerWidth:14,cornerHeight:14,transform:nil); bg.fillColor = NSColor(calibratedWhite:0.08,alpha:1).cgColor
         bg.strokeColor = NSColor.white.withAlphaComponent(0.22).cgColor; bg.lineWidth = 0.5
         bg.shadowColor = NSColor.black.cgColor; bg.shadowOpacity = 0.35; bg.shadowRadius = 8; bg.shadowOffset = .zero; bg.shadowPath = bg.path
         layer?.addSublayer(bg)
@@ -1430,7 +1563,7 @@ final class DrawingView: NSView {
         var labels: [Int:(text:NSAttributedString,image:NSImage?,box:CGRect,size:CGSize,anchor:CGPoint)] = [:]
         var connections: [Int:[Int:CGRect]] = [:]
         // Plip buddy/draw.py:804-812,1261-1267: name an arrow along its endpoint direction, then connect its placed pill.
-        for (i,shape) in shapes.enumerated() where shape.kind == "label" {
+        for (i,shape) in shapes.enumerated() where shape.kind == "label" && sketchFrame == nil {
             guard let at = shape.at else { continue }
             let color = colors[shape.color ?? "red"] ?? .systemRed
             let size = ScreenDrawing.labelSize(shape.size,display:bounds.height) * (DrawingMath.contains(shape.text ?? "") ? 1.4 : 1)
@@ -1492,8 +1625,8 @@ final class DrawingView: NSView {
             let path = CGMutablePath()
             var hand = ScreenDrawing.Hand((shape.rect.map { [[$0[0],$0[1]],[$0[2],$0[3]]] } ?? shape.points ?? []).map { CGPoint(x:$0[0],y:$0[1]) })
             if let v = shape.rect {
-                let exact = ScreenDrawing.outline(shape,among:ink), frame = exact.offsetBy(dx:-origin.x,dy:-origin.y)
-                if shape.fill == true, shape.kind == "rect", !ScreenDrawing.meets(shape,among:ink) {   // Plip ink_macos.py figure_layer: a highlighter, a rounded band wiped on left to right; a figure's filled part keeps its exact edge
+                let exact = sketchFrame != nil ? ScreenDrawing.rect(v) : ScreenDrawing.outline(shape,among:ink), frame = exact.offsetBy(dx:-origin.x,dy:-origin.y)
+                if sketchFrame == nil, shape.fill == true, shape.kind == "rect", !ScreenDrawing.meets(shape,among:ink) {   // Plip ink_macos.py figure_layer: a highlighter, a rounded band wiped on left to right; a figure's filled part keeps its exact edge
                     let area = frame.insetBy(dx:0,dy:-2), band = CAShapeLayer(), wipe = CALayer()
                     band.path = CGPath(roundedRect:area,cornerWidth:3,cornerHeight:3,transform:nil); band.fillColor = color.withAlphaComponent(0.24).cgColor
                     wipe.backgroundColor = NSColor.black.cgColor; wipe.anchorPoint = CGPoint(x:0,y:0.5); wipe.frame = area.insetBy(dx:0,dy:-2); band.mask = wipe
@@ -1536,6 +1669,16 @@ final class DrawingView: NSView {
                 }
             } else if let at = shape.at {
                 let point = CGPoint(x:at[0],y:at[1])
+                if shape.kind == "label", let card = sketchFrame {
+                    let size = ScreenDrawing.labelSize(shape.size,display:900) * min(1,card.width/600)
+                    let text = NSAttributedString(string:shape.text ?? "",attributes:[.font:NSFont.systemFont(ofSize:size,weight:.medium),.foregroundColor:color])
+                    let measured = text.size()
+                    let box = CGRect(x:point.x-measured.width/2,y:point.y-measured.height/2,width:ceil(measured.width)+2,height:ceil(measured.height)+2)
+                    guard card.insetBy(dx:6,dy:6).contains(box) else { deferredLabels.append(shape.text ?? ""); continue }
+                    let label = DrawingMath.layer(text,image:nil); label.contentsScale = window?.backingScaleFactor ?? 2
+                    label.frame = box.offsetBy(dx:-origin.x,dy:-origin.y)
+                    add(label,label.frame,quiet:false); hit(CGPath(rect:label.frame,transform:nil),i); pop(label); continue
+                }
                 if shape.kind == "label" {
                     guard screen.contains(point) else { continue }
                     guard let layout = labels[i] else { continue }
@@ -1571,8 +1714,13 @@ final class DrawingView: NSView {
             let stroke = CAShapeLayer(); stroke.path = path; stroke.fillColor = shape.fill == true ? color.withAlphaComponent(0.18).cgColor : NSColor.clear.cgColor
             stroke.strokeColor = color.cgColor; stroke.lineWidth = 3; stroke.lineCap = .round; stroke.lineJoin = .round
             if shape.dashed == true { stroke.lineDashPattern = [7,5] }
-            stroke.shadowColor = NSColor.black.cgColor; stroke.shadowOpacity = 0.45; stroke.shadowRadius = 2
-            stroke.opacity = 0.85   // Plip ink_macos.py STROKE_ALPHA: what's underneath still reads
+            if sketchFrame != nil {   // Plip DRAW_SKETCH: soft solid colours with outlines, so a later part covers what is behind it
+                if shape.fill == true { stroke.fillColor = color.blended(withFraction:0.72,of:Self.card)?.cgColor }
+                stroke.lineWidth = 2.5
+            } else {
+                stroke.shadowColor = NSColor.black.cgColor; stroke.shadowOpacity = 0.45; stroke.shadowRadius = 2
+                stroke.opacity = 0.85   // Plip ink_macos.py STROKE_ALPHA: what's underneath still reads
+            }
             add(stroke,path.boundingBoxOfPath.insetBy(dx:-3,dy:-3))
             hit(shape.fill == true ? path : path.copy(strokingWithWidth:12,lineCap:.round,lineJoin:.round,miterLimit:2),i)
             if animate {   // one pen: each mark is drawn after the last, at a pace set by its length
@@ -1655,7 +1803,7 @@ final class DrawingCalloutView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         let shape = CAShapeLayer(), path = Self.bubble(card,side:side,tip:tip)
-        shape.path = path; shape.fillColor = NSColor(calibratedWhite:0.08,alpha:0.94).cgColor
+        shape.path = path; shape.fillColor = NSColor(calibratedWhite:0.08,alpha:1).cgColor
         shape.strokeColor = NSColor.white.withAlphaComponent(0.22).cgColor; shape.lineWidth = 0.5
         shape.shadowColor = NSColor.black.cgColor; shape.shadowOpacity = 0.35; shape.shadowRadius = 8; shape.shadowOffset = .zero; shape.shadowPath = path
         layer?.addSublayer(shape)
@@ -2078,10 +2226,11 @@ final class ScreenDrawing {
         return best
     }
     static func valid(_ r: DrawingRequest) -> Bool {
-        guard r.target.valid, (1...12).contains(r.steps.count) else { return false }
+        guard r.target.valid, r.sketch.map(validRect) ?? true, (1...12).contains(r.steps.count) else { return false }
+        guard r.sketch == nil || r.teaching && (1...160).contains(r.steps.reduce(0) { $0 + $1.shapes.count }) else { return false }   // a sketch's later step may have no ink yet
         guard !r.teaching || r.steps.allSatisfy({ $0.target == nil && $0.say?.isEmpty == false }) else { return false }   // a teaching guide's marks are screen pixels, never AX frames
         return r.steps.allSatisfy { step in
-            guard (1...40).contains(step.shapes.count), (5...120).contains(step.timeout ?? 60), (step.say?.count ?? 0) <= 1000,
+            guard (r.sketch == nil ? 1...40 : 0...160).contains(step.shapes.count), (5...120).contains(step.timeout ?? 60), (step.say?.count ?? 0) <= 1000,
                   step.hit.map(validRect) ?? true, step.wait != true || step.target != nil || step.hit != nil else { return false }
             return step.shapes.allSatisfy { s in
                 guard ["red","blue","green","yellow","white"].contains(s.color ?? "red"),
@@ -2105,6 +2254,7 @@ final class ScreenDrawing {
         let displays = NSScreen.screens.map { screen in CGDisplayBounds(screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID ?? CGMainDisplayID()) }
         func point(_ p: [Double]) -> Bool { displays.contains { p[0] >= $0.minX && p[0] <= $0.maxX && p[1] >= $0.minY && p[1] <= $0.maxY } }
         func rect(_ v: [Double]) -> Bool { point([v[0],v[1]]) && point([v[0]+v[2],v[1]+v[3]]) }
+        guard r.sketch.map(rect) ?? true else { return false }
         return r.steps.allSatisfy { step in
             (step.hit.map(rect) ?? true) && step.shapes.allSatisfy { shape in
                 (shape.at.map(point) ?? true) && (shape.rect.map(rect) ?? true) && (shape.points?.allSatisfy(point) ?? true)
@@ -2114,11 +2264,13 @@ final class ScreenDrawing {
     @discardableResult func receive(_ data: Data) -> Bool {
         guard let r = try? JSONDecoder().decode(DrawingRequest.self,from:data), r.guide == nil || r.guide != dismissedGuide,
               Self.valid(r), Self.onDisplays(r) else { return false }
-        if r.teaching && !Self.current(r.target) {
+        if r.sketch == nil && r.teaching && !Self.current(r.target) {
             if let path = r.receipt { try? "The target changed; read again.".write(toFile:path,atomically:true,encoding:.utf8) }
             return false
         }
         clear(replacing:true); request = r; index = 0; last = data
+        if let cued, cued.guide == r.guide { index = min(cued.step,r.steps.count-1) }
+        cued = nil
         DrawingMath.changed = { [weak self] in
             guard let self, let request = self.request else { return }
             self.board = Self.board(request.steps,near:self.shapeBounds(request.steps.flatMap { $0.shapes.filter { $0.kind != "text" } }) ?? request.target.bounds,at:self.board?.frame.origin,avoiding:self.calloutLayout.map { [$0.card] } ?? [])
@@ -2162,6 +2314,17 @@ final class ScreenDrawing {
         let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys   // key order is otherwise not stable between two encodes
         func shown(_ r: DrawingRequest) -> Data? { try? encoder.encode(r.steps.prefix(index+1).map(\.shapes)) }
         func page() -> [CGRect] { board.flatMap { Self.boardPage($0,through:index) }.map { [$0.frame] + $0.lines.map(\.rect) } ?? [] }
+        if let frame = r.sketch, frame == old.sketch {
+            let ink = old.steps.flatMap(\.shapes), all = r.steps.flatMap(\.shapes)
+            guard r.steps.count == old.steps.count, all.count >= ink.count,
+                  (try? encoder.encode(Array(all.prefix(ink.count)))) == (try? encoder.encode(ink)) else { return false }
+            request = r; last = data
+            let shown = r.steps.prefix(index+1).flatMap(\.shapes), count = old.steps.prefix(index+1).reduce(0) { $0 + $1.shapes.count }
+            if shown.count > count {
+                for panel in panels { (panel.contentView as? DrawingView)?.renderSketch(shown,frame:Self.rect(frame),previous:count,animate:!NSWorkspace.shared.accessibilityDisplayShouldReduceMotion) }
+            }
+            return active
+        }
         let before = page()
         request = r; last = data
         board = Self.board(r.steps,near:shapeBounds(r.steps.flatMap { $0.shapes.filter { $0.kind != "text" } }) ?? r.target.bounds,at:board?.frame.origin,avoiding:calloutLayout.map { [$0.card] } ?? [])
@@ -2172,7 +2335,9 @@ final class ScreenDrawing {
         } else { showStep(forward:false,mathOnly:true) }
         return active
     }
-    func reveal(_ step: Int) {
+    var cued: (guide: String, step: Int)?   // a sketch still on its way opens at the step the voice reached
+    func reveal(_ step: Int, guide: String? = nil) {
+        if let guide, request?.guide != guide { if guide != dismissedGuide { cued = (guide, step) }; return }
         guard !manual, let r = request, step > index, r.steps.indices.contains(step) else { return }
         textPage = 0; index = step; showStep()
     }
@@ -2200,12 +2365,14 @@ final class ScreenDrawing {
     }
     func hold() { navigated?(false); driven = false; stopVoice(); manual = true }   // the user is asking about it: no more talking or stepping on
     func pick(_ point: CGPoint) {
-        guard let r = request, let m = panels.lazy.compactMap({ ($0.contentView as? DrawingView)?.mark(at:point) }).first,
-              r.steps.indices.contains(m.step), r.steps[m.step].shapes.indices.contains(m.shape) else { return }
+        guard let r = request, let m = panels.lazy.compactMap({ ($0.contentView as? DrawingView)?.mark(at:point) }).first else { return }
+        var (s, i) = (m.step, m.shape)   // a sketch card's marks count across its steps
+        while r.sketch != nil, r.steps.indices.contains(s), i >= r.steps[s].shapes.count { i -= r.steps[s].shapes.count; s += 1 }
+        guard r.steps.indices.contains(s), r.steps[s].shapes.indices.contains(i) else { return }
         clearInput(); hold()
         selected = (m.step,m.shape); panels.forEach { ($0.contentView as? DrawingView)?.highlight(selected) }
-        let step = r.steps[m.step], shape = step.shapes[m.shape]
-        picked?(m.bounds, "\(shape.kind)\(shape.text.map { " \"\($0)\"" } ?? "") in step \(m.step+1) of \(r.steps.count)\(step.say.map { ": " + $0 } ?? "")")
+        let step = r.steps[s], shape = step.shapes[i]
+        picked?(m.bounds, "\(shape.kind)\(shape.text.map { " \"\($0)\"" } ?? "") in step \(s+1) of \(r.steps.count)\(step.say.map { ": " + $0 } ?? "")")
     }
     func deselect() {
         guard selected != nil else { return }
@@ -2356,6 +2523,18 @@ final class ScreenDrawing {
                 view.pick = { [weak self] in self?.pick($0) }
                 panel.contentView = view; panel.orderFrontRegardless(); panels.append(panel)
             }
+        }
+        for panel in panels { panel.level = NSWindow.Level(rawValue:NSWindow.Level.statusBar.rawValue - (r.sketch == nil ? 0 : 1)) }   // an opaque card goes under the box and its callout
+        if let frame = r.sketch.map(Self.rect) {
+            driven = true; focus = frame; layoutBounds = [frame]
+            let shown = r.steps.prefix(index+1).flatMap(\.shapes), before = r.steps.prefix(index).reduce(0) { $0 + $1.shapes.count }
+            for panel in panels {   // a step on adds its parts to the card; Back or a fresh card draws it whole
+                guard let view = panel.contentView as? DrawingView else { continue }
+                view.renderSketch(shown,frame:frame,previous:forward && before > 0 && view.sketchShown == before ? before : 0,animate:animate)
+            }
+            showCallout(step.say ?? "",step:index+1,total:r.steps.count,marks:frame,avoid:[frame],fade:!mathOnly)
+            occupied = [frame] + (calloutLayout.map { [$0.card] } ?? [])
+            changed?(); return
         }
         // Each show redraws from scratch, so Back removes this step's marks; earlier steps stay, dimmed, so the drawing builds up.
         var marks = CGRect.null, earlier: [CGRect] = []
@@ -2783,6 +2962,22 @@ final class TalkPen: NSView {
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     var tap: CFMachPort?, claimed: Set<Int64> = []   // buttons pressed during the hold: their drags and release lose ⌃⌥ too
+    // Active taps edit or consume events: both listen access and Accessibility must already be granted.
+    static func prepareTap(_ tap: inout CFMachPort?) -> Bool {
+        guard AXIsProcessTrusted(), CGPreflightListenEventAccess() else {
+            if let tap { CFMachPortInvalidate(tap) }
+            tap = nil; return false
+        }
+        if let current = tap {
+            if CFMachPortIsValid(current) {
+                CGEvent.tapEnable(tap:current,enable:true)
+                if CGEvent.tapIsEnabled(tap:current) { return true }
+            }
+            CFMachPortInvalidate(current); tap = nil
+        }
+        return true
+    }
+    var nextTapCheck = 0.0
     // The shortcut's ⌃ makes a click a secondary click (a context menu), so a click pressed while the pen samples reaches the app
     // without the shortcut's ⌃⌥: a plain click. Atticus's own windows (a mark to pick) get theirs as sent.
     static func claims(_ type: CGEventType, button: Int64, holding: Bool, ours: Bool, claimed: inout Set<Int64>) -> Bool {
@@ -2796,6 +2991,7 @@ final class TalkPen: NSView {
         }
     }
     func claimClicks() {
+        guard Self.prepareTap(&tap) else { claimed.removeAll(); return }
         if tap == nil {
             let types: [CGEventType] = [.leftMouseDown,.leftMouseUp,.leftMouseDragged,.rightMouseDown,.rightMouseUp,.rightMouseDragged,.otherMouseDown,.otherMouseUp,.otherMouseDragged]
             tap = CGEvent.tapCreate(tap:.cgAnnotatedSessionEventTap, place:.headInsertEventTap, options:.defaultTap,
@@ -2804,7 +3000,7 @@ final class TalkPen: NSView {
                 let pen = Unmanaged<TalkPen>.fromOpaque(me!).takeUnretainedValue()
                 guard let tap = pen.tap else { return Unmanaged.passUnretained(event) }
                 if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-                    if pen.timer != nil || !pen.claimed.isEmpty { CGEvent.tapEnable(tap:tap,enable:true) }
+                    if pen.timer != nil || !pen.claimed.isEmpty { pen.claimClicks() }
                     return Unmanaged.passUnretained(event)
                 }
                 let mine = TalkPen.claims(type, button:event.getIntegerValueField(.mouseEventButtonNumber), holding:pen.timer != nil,
@@ -2822,7 +3018,7 @@ final class TalkPen: NSView {
         timer = NSScreen.main?.displayLink(target:self,selector:#selector(sample))
         timer?.preferredFrameRateRange = CAFrameRateRange(minimum:60,maximum:60,preferred:60)  // Plip's rate and the gesture sample budget.
         timer?.add(to:.main,forMode:.common)
-        claimClicks()
+        claimClicks(); nextTapCheck = ProcessInfo.processInfo.systemUptime + 1
     }
     func stop(fade: Bool = false) {
         timer?.invalidate(); timer = nil
@@ -2850,6 +3046,7 @@ final class TalkPen: NSView {
     @objc func sample() {
         guard let p = CGEvent(source:nil)?.location else { return }
         let now = ProcessInfo.processInfo.systemUptime
+        if now >= nextTapCheck { claimClicks(); nextTapCheck = now + 1 }
         samples.append([now,p.x,p.y]); if samples.count > 2400 { samples.removeFirst(600) }
         guard let first = samples.first, samples.contains(where: { hypot($0[1]-first[1],$0[2]-first[2]) > 24 }) else { return }
         if windows.isEmpty {
@@ -3125,11 +3322,13 @@ final class App: NSObject, WKScriptMessageHandler {
     let whisperAudio = WhisperAudio()
     var whisperListen = false, whisperBusy = false, whisperReleasing = false, whisperAsk = 0, whisperSent = 0.0, whisperQueued = 0.0, whisperPrompt = ""
     var whisperAsked = Date.distantPast, whisperVoice = Date.distantPast, whisperChain: Task<Void, Never>?
-    // Settings → Speech model: Apple's newer SpeechTranscriber, or the Dictation model the keyboard mic uses.
+    // Settings → Speech model: Apple's SpeechTranscriber (Whisper runs outside Apple's speech service), or DictationTranscriber
+    // for the session when this Mac's SpeechTranscriber can't serve the language (speechDictation, set by prepareSpeech).
     // Dictation drops fastResults / frequentFinalization (Apple: faster but less accurate); asks keep them for live commands.
+    var speechDictation = false
     func speechModule(dictate: Bool = false, locale: Locale? = nil) -> any SpeechModule {
         let locale = locale ?? supportedSpeechLocale(speechLocales[Prefs.str("speechModel")] ?? [])   // each engine has its own supported list
-        if Prefs.str("speechModel") == "dictation" {
+        if speechDictation {
             return dictate ? DictationTranscriber(locale: locale, contentHints: [.shortForm], transcriptionOptions: [.punctuation], reportingOptions: [.volatileResults], attributeOptions: [])
                 : DictationTranscriber(locale: locale, preset: .progressiveShortDictation)
         }
@@ -3144,11 +3343,18 @@ final class App: NSObject, WKScriptMessageHandler {
         let choice = Prefs.str("uiLanguage"), model = Prefs.str("speechModel")
         let language = choice == "auto" ? "en" : Prefs.uiLanguage
         Task { [weak self] in
-            let locales = model == "dictation" ? await DictationTranscriber.supportedLocales : await SpeechTranscriber.supportedLocales
+            var locales = await SpeechTranscriber.supportedLocales
+            let dictation = !speechTranscriberServes(supportedSpeechLocale(locales, language: language), available: SpeechTranscriber.isAvailable,
+                                                     locales: locales + (await SpeechTranscriber.installedLocales))
+            if dictation {
+                locales = await DictationTranscriber.supportedLocales
+                NSLog("Speech: SpeechTranscriber can't serve \(language) on this Mac, using DictationTranscriber")
+            }
             let locale = supportedSpeechLocale(locales, language: language)
             guard let self else { return }
             let m: (any SpeechModule)? = await MainActor.run {
                 guard model == Prefs.str("speechModel") else { self.preparingSpeech = false; self.prepareSpeech(); return nil }
+                self.speechDictation = dictation
                 return self.speechModule(locale: locale)
             }
             guard let m else { return }
@@ -3328,18 +3534,24 @@ final class App: NSObject, WKScriptMessageHandler {
         } catch { if p.isRunning { p.terminate() }; talkPath = []; telemetry(["error", "native", "talk_trail"]) }
     }
     var pointContext: [String:Any]?
-    var voice: Process?   // `say` preserves Premium/Enhanced and unlisted saved Siri voices.
+    var voice: SpokenSentence?, voiceAhead: SpokenSentence?   // the sentence being read aloud, and the next one, made while it plays
     var speechSentences = SpeechSentences(), speechQueue: [String] = []   // "\u{1}guide:N" in the queue: show that scene's step N there
     var spokenSoFar = "", drawQueued = (guide: "", steps: 0), pendingDrawings: [String:Data] = [:]
     var speechMuted = false
     var speechVoice: [String]?   // one voice per answer: a short sentence's language guess must not switch it
     func streamSpeech(_ text: String, final: Bool = false, preview: Bool = false) {
         guard (preview || Prefs.bool("speak")), !speechMuted, !speechSentences.capped, (preview || !(drawing.manual && drawing.request?.guide == drawQueued.guide)) else { return }
-        speechQueue += speechSentences.take(readAloudText(text), final: final)
+        queueSpeech(speechSentences.take(readAloudText(text), final: final))
         speakNext()
     }
+    func queueSpeech(_ sentences: [String]) {
+        guard voice == nil, speechQueue.isEmpty, let first = sentences.first else { speechQueue += sentences; return }
+        let parts = splitFirst(first)
+        if parts.count > 1, speechVoice == nil { speechVoice = Array(readAloudArguments(first) { voiceQualityTip() }.dropLast()) }   // the voice's language is guessed from the whole sentence, not "Sure,"
+        speechQueue += parts + sentences.dropFirst()
+    }
     func speakNext() {
-        guard voice == nil else { return }
+        if let voice { if voice.playing { makeAhead() }; return }
         while let mark = speechQueue.first, mark.hasPrefix("\u{1}") {
             let cue = mark.dropFirst().split(separator:":",maxSplits:1)
             if cue.count == 2, drawing.waiting, drawing.request?.guide == String(cue[0]), Int(cue[1]) ?? 0 > drawing.index { return }   // the next sentence waits with its step for the user's click
@@ -3347,20 +3559,25 @@ final class App: NSObject, WKScriptMessageHandler {
             guard cue.count == 2 else { continue }
             let guide = String(cue[0])
             if let data = pendingDrawings.removeValue(forKey:guide) { drawing.driven = true; if drawing.update(data) { leadToDrawing() } }
-            if drawing.request?.guide == guide { drawing.reveal(Int(cue[1]) ?? 0) }
+            drawing.reveal(Int(cue[1]) ?? 0, guide: guide)
         }
         guard !speechQueue.isEmpty else { return }
         stopWake()
-        let words = speechQueue.removeFirst(), p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/say")
+        let words = speechQueue.removeFirst()
         let arguments = speechVoice.map { $0 + [words] } ?? readAloudArguments(words) { voiceQualityTip() }
-        speechVoice = Array(arguments.dropLast()); p.arguments = arguments
-        p.terminationHandler = { [weak self] _ in DispatchQueue.main.async {
-            guard let self, self.voice === p else { return }
+        speechVoice = Array(arguments.dropLast())
+        let v = voiceAhead.flatMap { $0.arguments == arguments ? $0 : nil } ?? SpokenSentence(arguments)
+        if voiceAhead !== v { voiceAhead?.terminate() }
+        voiceAhead = nil; voice = v
+        v.play(started: { [weak self] in self?.speechTrace?.mark("first_sound"); self?.makeAhead() }) { [weak self] in
+            guard let self, self.voice === v else { return }
             self.voice = nil; self.speakNext()
             self.cueEnds = max(self.cueEnds, Date().addingTimeInterval(0.3)); self.hide(after: 2)
-        } }
-        do { try p.run(); voice = p } catch { telemetry(["error", "native", "speak"]); speakNext() }
+        }
+    }
+    func makeAhead() {
+        guard voiceAhead == nil, let speechVoice, let next = speechQueue.first(where: { !$0.hasPrefix("\u{1}") }) else { return }
+        voiceAhead = SpokenSentence(speechVoice + [next])
     }
     func voiceQualityTip() {
         guard !UserDefaults.standard.bool(forKey: "voiceQualityTip") else { return }
@@ -3371,9 +3588,13 @@ final class App: NSObject, WKScriptMessageHandler {
         let inlineVoice = drawing.request?.guide != nil && drawing.voice?.isRunning == true
         let active = voice?.isRunning == true || !speechQueue.isEmpty || inlineVoice
         if active { speechMuted = true }   // nothing stopped, nothing muted: a toggle's second press shushes before its own answer
+        if drawQueued.guide.isEmpty, let cue = speechQueue.last(where: { $0.hasPrefix("\u{1}") })?.dropFirst().split(separator:":",maxSplits:1), cue.count == 2 {
+            drawing.reveal(Int(cue[1]) ?? 0, guide: String(cue[0]))   // no DRAW scene: a sketch card shows the step its words already reached, as with read-aloud off
+        }
         speechQueue.removeAll(); speechSentences = SpeechSentences(); speechVoice = nil; spokenSoFar = ""
         let v = voice; voice = nil
         if v?.isRunning == true { v?.terminate() }
+        voiceAhead?.terminate(); voiceAhead = nil
         if inlineVoice { drawing.stopVoice() }
         drawing.driven = false   // a drawing that was waiting on the voice steps on by its reading time
         let data = pendingDrawings[drawQueued.guide]; pendingDrawings.removeAll()
@@ -3394,12 +3615,19 @@ final class App: NSObject, WKScriptMessageHandler {
         }
         let first = drawQueued.guide.isEmpty   // the words before the answer's first tag caption no step: its marks show now, ahead of their sentence
         if drawQueued.guide != guide { drawQueued = (guide, 0) }
-        speechQueue += speechSentences.take(readAloudText(spokenSoFar), final: true)   // the words before this step's tag go first
+        queueSpeech(speechSentences.take(readAloudText(spokenSoFar), final: true))   // the words before this step's tag go first
         if drawing.request?.guide == guide { drawing.update(data) }
         else if first { drawing.driven = true; if drawing.update(data) { leadToDrawing() } }
         else { pendingDrawings[guide] = data }
         for k in drawQueued.steps..<max(drawQueued.steps, steps) { speechQueue.append("\u{1}\(guide):\(k)") }
         drawQueued.steps = max(drawQueued.steps, steps)
+        speakNext()
+    }
+    // A stepped sketch's [EXPLAIN:{"step":n}]: read aloud, its step shows as that sentence starts; silent, as the words arrive.
+    func cueSketch(_ guide: String, step: Int) {
+        guard Prefs.bool("speak"), !speechMuted, !speechSentences.capped else { drawing.reveal(step, guide: guide); return }
+        queueSpeech(speechSentences.take(readAloudText(spokenSoFar), final: true))
+        speechQueue.append("\u{1}\(guide):\(step)")
         speakNext()
     }
     func leadToDrawing() {
@@ -3540,8 +3768,9 @@ final class App: NSObject, WKScriptMessageHandler {
             guard let self else { return }
             let voice = self.voice; self.voice = nil
             if voice?.isRunning == true { voice?.terminate() }
+            self.voiceAhead?.terminate(); self.voiceAhead = nil
             self.speechQueue.removeAll(); self.pendingDrawings.removeAll()
-            if dismissed { self.speechMuted = true }
+            if dismissed || self.drawing.request?.sketch != nil { self.speechMuted = true }   // a sketch card has no voice of its own: its answer stays quiet, never skipping the cleared sentences
             self.drawing.driven = false
         }
         drawing.status = { [weak self] words in self?.js("msg",words) }
@@ -3728,7 +3957,7 @@ final class App: NSObject, WKScriptMessageHandler {
                 f.size.height = CGFloat(h.doubleValue)
                 if Prefs.str("corner") == "top-right" { f.origin.x = f.maxX - width }; f.size.width = width
                 guard f != panel.frame else { done(); return }
-                if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion || !panel.isVisible {   // hidden: nothing to ease, and show() takes this frame
                     frame(f); done()
                 } else {
                     Motion.run(Motion.base, { frame(f, animate: true) }, done: done)
@@ -3775,6 +4004,7 @@ final class App: NSObject, WKScriptMessageHandler {
             }
             if b["kofi"] != nil { openTipJar("overlay") }
             if b["updateNews"] != nil { NSWorkspace.shared.open(Updater.news) }
+            if b["updateBox"] != nil { hide(after: 0); Atticus.settings.open(tab: "box") }
             if b["replace"] != nil, !busy { applyReplacement() }
             if b["retry"] != nil, !busy, !engine.isRunning { typed(text, keep: true) }
             if let choice = b["upgrade"] as? [String:String], let id = choice["id"], let action = choice["action"] {
@@ -3795,7 +4025,7 @@ final class App: NSObject, WKScriptMessageHandler {
             if b["pointCoached"] != nil { Prefs.set("pointCoached", true) }
             if b["mic"] != nil && (!busy || retryOffer) && (!engine.isRunning || quietFollowUp) { if quietFollowUp { hush() }; clickMicrophone() }
             if let on = b["autoMinimize"] as? Bool { Atticus.settings.apply("autoMinimize", on); Atticus.settings.push() }
-            if b["ready"] != nil { js("autoMinimize", Prefs.bool("autoMinimize")); js("tiny", Prefs.bool("tinyFold")); pageReady = true; if panel.isVisible && !pillOn { js("updated", Updater.takeNotice()) }; js("size", Prefs.num("boxH")); if Prefs.bool("tips") && !Prefs.bool("pointCoached") { js("pointCoach") } }
+            if b["ready"] != nil { js("autoMinimize", Prefs.bool("autoMinimize")); js("tiny", !Prefs.bool("fullFold")); pageReady = true; if panel.isVisible && !pillOn { js("updated", Updater.takeNotice()) }; js("size", Prefs.num("boxH")); if Prefs.bool("tips") && !Prefs.bool("pointCoached") { js("pointCoach") } }
             if b["safe"] != nil { Prefs.set("safe", true); js("mode", true); Atticus.settings.push() }
             if let m = b["model"] as? String {   // picked in the box: the same setting Settings shows; a worker warmed on the old model goes
                 Atticus.settings.apply(Prefs.str("apiBase").isEmpty ? "routing" : "apiModel", m); Atticus.settings.push()
@@ -3865,8 +4095,9 @@ final class App: NSObject, WKScriptMessageHandler {
         return ["list": serverModels.isEmpty ? [pick].filter { !$0.isEmpty } : serverModels, "pick": pick]
     }
     func show() {
+        if foldPreviewing && !previewShowing { foldPreviewing = false; if !previewOverOpen { panel.orderOut(nil); tiny = false }; js("foldPreview", false) }   // a real show takes the box from Settings' preview: it opens as from hidden (or stays where it was open), the page back to its own fold
         gen += 1; js("visible", true); js("mode", Prefs.bool("safe")); js("models", modelChoices())
-        if pageReady && !panel.isVisible && !pillOn { js("updated", Updater.takeNotice()) }
+        if pageReady && !panel.isVisible && !pillOn && !previewShowing { js("updated", Updater.takeNotice()) }   // a Settings preview keeps the notice for the real box
         startFollowingPointerScreen()
         if panel.isVisible {   // still up: stay where the user dragged it
             Motion.run(Motion.base) { panel.animator().alphaValue = 1 }
@@ -3877,7 +4108,7 @@ final class App: NSObject, WKScriptMessageHandler {
         let spot = Prefs.bool("followPointer") ? nil : lastSpot.flatMap { p in NSScreen.screens.first { $0.visibleFrame.contains(NSPoint(x: p.x + 1, y: p.y - 1)) }.map { (p, $0) } }
         let screen = spot?.1 ?? mouseScreen, vf = screen.visibleFrame
         var f = panel.frame
-        if !pillOn { f.size.width = boxWidth(Prefs.num("boxW"), vf) }
+        if !pillOn && !tiny { f.size.width = boxWidth(Prefs.num("boxW"), vf) }   // tiny: minimized to the 36 px circle
         f.origin = NSPoint(x: Prefs.str("corner") == "top-right" ? vf.maxX - f.width - 14 : vf.minX + 14, y: vf.maxY - f.height - 10)
         if !pillOn, let p = spot?.0 { f.origin = NSPoint(x: p.x, y: p.y - f.height) }
         frame(f, on: screen)
@@ -3887,6 +4118,21 @@ final class App: NSObject, WKScriptMessageHandler {
             RegisterEventHotKey(UInt32(kVK_Escape), 0, EventHotKeyID(signature: 0x41545443, id: 2), GetApplicationEventTarget(), 0, &escRef)
         }
         Motion.run(Motion.base) { panel.animator().alphaValue = 1 }
+    }
+
+    var foldPreviewing = false, previewShowing = false, previewOverOpen = false   // any other show() ends the preview (see show)
+    func foldPreview(_ on: Bool) {   // Settings' More info when minimized row: the real box, minimized, at its real spot (an open idle box minimizes where it is); never over a live box
+        if on {
+            guard !foldPreviewing, pageReady, !pillOn, !busy, !dictating, !engine.isRunning, !meeting.running, onboarding.win == nil else { return }
+            foldPreviewing = true; previewOverOpen = panel.isVisible; if previewOverOpen { gen += 1 }   // a waiting hide(after:) would take the box away mid-preview
+            web.evaluateJavaScript("ui.foldPreview(true)") { [weak self] _, _ in   // its fold message lands first: the box appears already minimized
+                guard let self, foldPreviewing, !previewOverOpen else { return }
+                previewShowing = true; show(); previewShowing = false
+            }
+        } else {
+            guard foldPreviewing else { return }
+            foldPreviewing = false; if !previewOverOpen { gone() }; js("foldPreview", false)   // an open box unfolds back to its answer, size and spot
+        }
     }
 
     func hide(after s: Double) {
@@ -4265,6 +4511,7 @@ final class App: NSObject, WKScriptMessageHandler {
 
     func speechPiece(_ piece: String, final: Bool, segment: Int, listeningID: Int) {
         guard self.listenID == listeningID, var part = speechText[segment] else { return }
+        let piece = tidyHeard(piece)
         if final { part.done += piece; part.live = "" } else { part.live = piece }
         speechText[segment] = part
         if activeSpeechSegment == segment { heard(stitchTranscript(part.base, part.done + part.live)) }
@@ -5117,8 +5364,15 @@ final class App: NSObject, WKScriptMessageHandler {
                     }
                     if line.hasPrefix("✎ ") {
                         let data = Data(line.dropFirst(2).utf8)
+                        if let cue = try? JSONDecoder().decode(SketchCue.self, from: data) { if Prefs.bool("draw") { self.cueSketch(cue.guide, step: cue.cue) }; continue }
                         if let r = try? JSONDecoder().decode(DrawingRequest.self, from: data), let guide = r.guide {
-                            if Prefs.bool("draw") { self.drawAlong(data, guide: guide, steps: r.steps.count) }
+                            if Prefs.bool("draw") {
+                                if r.sketch != nil {
+                                    let fresh = self.drawing.request?.guide != guide
+                                    self.drawing.driven = true; if self.drawing.update(data), fresh { self.leadToDrawing() }
+                                }
+                                else { self.drawAlong(data, guide: guide, steps: r.steps.count) }
+                            }
                         }
                         else if Prefs.bool("draw") {
                             self.pendingDrawings.removeAll(); self.drawing.driven = false
@@ -5812,7 +6066,7 @@ final class RoutineWake {
     }
 }
 
-// First-run window (ui/onboarding.html): welcome, the macOS permissions, the AI, one live try of the shortcut, then things to try.
+// First-run window (ui/onboarding.html): welcome, the AI, the macOS permissions, a first task done for real, then the rest of what Atticus does.
 // Shows until finished once; to see it again: defaults delete com.atticus.app onboarded, then restart the app.
 final class Onboarding: NSObject, WKScriptMessageHandler, NSWindowDelegate {
     var win: NSWindow?, web: WKWebView?, timer: Timer?
@@ -6127,6 +6381,10 @@ final class Onboarding: NSObject, WKScriptMessageHandler, NSWindowDelegate {
             return
         }
         if b["do"] == "kofi" { openTipJar("setup"); return }
+        if b["do"] == "task", let task = b["task"], task == "explain", let outcome = b["outcome"], ["done", "failed", "stopped"].contains(outcome) {
+            if Prefs.str("setupResult") != "done" { Prefs.set("setupTask", task); Prefs.set("setupResult", outcome) }   // setup's first task and how it went; once done, it stays done
+            return
+        }
         if b["do"] == "feedback" { Atticus.settings.open(tab: "feedback"); return }
         if b["do"] == "provider", let c = b["client"], ["claude", "devin", "pi"].contains(c) {   // the plan row's Change provider sheet
             Atticus.settings.apply("client", c)
@@ -6596,15 +6854,22 @@ enum Updater {
             let r = sh(#"""
                 cd "$0" 2>/dev/null || exit 3
                 pending=$(git rev-parse --git-path atticus-update-pending) || exit 3
-                [ -z "$(git status --porcelain)" ] || exit 5
+                [ -z "$(git status --porcelain --untracked-files=no)" ] || exit 5
                 git fetch -q 2>/dev/null || exit 4
                 # A failed build leaves HEAD ahead of the installed app; retry it on the next check.
                 if [ ! -f "$pending" ]; then
                     git merge-base --is-ancestor '@{u}' HEAD 2>/dev/null && exit 0
                 fi
                 git merge -q --ff-only '@{u}' >/dev/null 2>&1 || exit 7
-                git rev-parse HEAD > "$pending" || exit 6
-                ./build.sh >/dev/null 2>&1 || exit 6
+                { git rev-parse HEAD > "$pending"; } 2>/dev/null || { echo pending; exit 6; }
+                { mkdir -p "$HOME/.config/atticus" && : > "$HOME/.config/atticus/update-build.log"; } 2>/dev/null || { echo log; exit 6; }
+                ./build.sh > "$HOME/.config/atticus/update-build.log" 2>&1 || {
+                    case $? in
+                        60) echo prepare;; 61) echo compile;; 62) echo sign;;
+                        63) echo install;; 64) echo package;; *) echo unknown;;
+                    esac
+                    exit 6
+                }
                 rm -f "$pending"
                 exit 10
                 """#)
@@ -6616,11 +6881,17 @@ enum Updater {
                           10: "Updated. Restarting when you’re not using it…"][r.code] ?? "Update failed. Your current app is still running."
                 repair = [3, 5, 7].contains(r.code) ? "Open Source Folder" : [0, 10].contains(r.code) ? "" : "Retry"
                 if r.code == 10 { awaitingRestart = true }
-                if ![0, 4, 5, 10].contains(r.code) { telemetry(["error", "native", "update_\(r.code)"]) }   // offline and local edits are the user's state
+                if ![0, 4, 5, 10].contains(r.code) { telemetry(["error", "native", failureStage(r.code, r.out)]) }   // offline and local edits are the user's state
                 done(); settings.push()
                 if r.code == 10 { restartWhenIdle() }
             }
         }
+    }
+    static func failureStage(_ code: Int32, _ output: String) -> String {
+        guard code == 6 else { return "update_\(code)" }
+        // The step is the last line: zsh -c runs ~/.zshenv first, and its output shares the pipe.
+        let step = output.split(whereSeparator: \.isNewline).last.map(String.init) ?? ""
+        return "update_6_" + (["prepare", "compile", "package", "sign", "install", "pending", "log"].contains(step) ? step : "unknown")
     }
     static func restartWhenIdle() {
         if app.busy || app.dictating || app.dictateSelectionPending || app.composing || app.panel.isVisible || agentsUI.hasLive ||
@@ -6853,6 +7124,11 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
 
     var tab = "", timer: Timer?   // tab: shown once the page loads
     var revealing: [String: Any]?   // a memory item to show once the page loads
+    // About you › Bring in from ChatGPT / Claude / Gemini: the question goes on the clipboard and their AI opens; then only
+    // the clipboard's change count is polled, and a copy is read only when it changed (never a concealed one, a password)
+    var aiWatch: Timer?, aiSeen = 0, aiUntil = Date.distantPast, aiAnswer = "", aiRun = 0   // aiRun: each start or stop; older work does nothing
+    static let aiChats = ["chatgpt": ("com.openai.chat", "https://chatgpt.com/"), "claude": ("com.anthropic.claudefordesktop", "https://claude.ai/new"),
+                          "gemini": ("", "https://gemini.google.com/app")]
 
     func reveal(_ item: [String: Any]) {
         if win == nil { revealing = item; open(tab: "memory") } else { open(tab: "memory"); send("reveal", item) }
@@ -6867,7 +7143,7 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
         applySharing(w)
         w.titlebarAppearsTransparent = true; w.titleVisibility = .hidden; w.title = "Atticus Settings"
         w.isReleasedWhenClosed = false; w.delegate = self; w.animationBehavior = .documentWindow
-        w.contentMinSize = NSSize(width: 700, height: 460); w.contentMaxSize = NSSize(width: 1000, height: 820)   // wider only spreads the page into empty space
+        w.contentMinSize = NSSize(width: 700, height: 552); w.contentMaxSize = NSSize(width: 1000, height: 820)   // min: every sidebar row shows; wider only spreads the page into empty space
         w.collectionBehavior.insert(.fullScreenNone)   // the green button zooms up to the max size
         let bg = NSVisualEffectView(frame: w.contentRect(forFrameRect: w.frame))
         bg.material = .underWindowBackground; bg.blendingMode = .behindWindow; bg.state = .active
@@ -7003,6 +7279,53 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
         }
     }
 
+    func meCommand(_ args: [String], _ text: String = "") -> Data {   // atticus.py --me, with the copied answer on stdin
+        let p = py(["--me"] + args), input = Pipe(), out = Pipe(); p.standardInput = input; p.standardOutput = out
+        _ = fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
+        guard (try? p.run()) != nil else { return Data() }
+        try? input.fileHandleForWriting.write(contentsOf: Data(text.utf8)); try? input.fileHandleForWriting.close()
+        let data = out.fileHandleForReading.readDataToEndOfFile(); p.waitUntilExit()
+        return data
+    }
+
+    func aiImport(_ source: String) {
+        guard let (bundle, site) = Self.aiChats[source] else { return }
+        stopAIWatch(); aiAnswer = ""
+        let run = aiRun
+        DispatchQueue.global().async { [weak self] in
+            let prompt = String(data: self?.meCommand(["ai-prompt"]) ?? Data(), encoding: .utf8) ?? ""
+            DispatchQueue.main.async { [weak self] in
+                guard let self, run == aiRun else { return }   // cancelled, or Settings closed, while the question was read
+                guard !prompt.isEmpty else { send("aiImport", ["phase": "error"]); return }
+                let board = NSPasteboard.general; board.clearContents(); board.setString(prompt, forType: .string)
+                aiSeen = board.changeCount; aiUntil = Date().addingTimeInterval(300)
+                if let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) { NSWorkspace.shared.openApplication(at: app, configuration: NSWorkspace.OpenConfiguration()) }
+                else if let url = URL(string: site) { NSWorkspace.shared.open(url) }
+                aiWatch = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.aiLook() }
+            }
+        }
+    }
+
+    func aiLook() {
+        let board = NSPasteboard.general
+        if Date() > aiUntil { stopAIWatch(); send("aiImport", ["phase": "expired"]); return }
+        guard board.changeCount != aiSeen else { return }
+        aiSeen = board.changeCount
+        guard !(board.types ?? []).contains(NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")),
+              let text = board.string(forType: .string), text.count <= 60_000, text.localizedCaseInsensitiveContains("anything else") else { return }
+        let run = aiRun
+        DispatchQueue.global().async { [weak self] in
+            guard let self, let read = (try? JSONSerialization.jsonObject(with: meCommand(["ai-read"], text))) as? [String: Any],
+                  let facts = read["facts"] as? [[String: Any]] else { return }
+            DispatchQueue.main.async {
+                guard run == self.aiRun, self.aiWatch != nil else { return }   // cancelled meanwhile
+                self.stopAIWatch(); self.aiAnswer = text; self.send("aiImport", ["phase": "preview", "facts": facts])
+            }
+        }
+    }
+
+    func stopAIWatch() { aiRun += 1; aiWatch?.invalidate(); aiWatch = nil }
+
     func meetings(_ data: [String: Any], _ done: (([String: Any]) -> Void)? = nil) {
         if data["action"] as? String == "delete" {
             let alert = NSAlert(); alert.messageText = "Delete this meeting?"; alert.informativeText = "Its transcript, notes and recap will be removed from this Mac."; alert.addButton(withTitle: "Delete"); alert.addButton(withTitle: "Cancel"); applySharing(alert.window)
@@ -7106,7 +7429,7 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
         if k == "menuIcon" { bar.item.isVisible = v as? Bool == true }
         if k == "paused" { if v as? Bool == true { meeting.stop(paused: true); app.close(clear: false); agentsUI.stopAll() }; bar.paint() }
         if k == "autoMinimize" { app.js("autoMinimize", Prefs.bool("autoMinimize")) }
-        if k == "tinyFold" { app.js("tiny", Prefs.bool("tinyFold")) }
+        if k == "fullFold" { app.js("tiny", !Prefs.bool("fullFold")) }
         if k == "safe" { app.js("mode", v as? Bool == true) }
         if k == "login" {   // the LaunchAgent build.sh installed: enabled = starts at login
             if ProcessInfo.processInfo.environment["ATTICUS_DIR"] != nil { Prefs.set("login",false); push(); return }
@@ -7140,6 +7463,7 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
         case "meetingPrepPrompt": NSPasteboard.general.clearContents(); NSPasteboard.general.setString(meetingPrepPrompt, forType: .string); send("meetings", ["notice": "Prep prompt copied."])
         case "meetingPrepOpen": if Prefs.bool("meeting") { meeting.open() }
         case "meetingDemo": if Prefs.bool("meeting") { meeting.open(demo: true) }
+        case "foldPreview": app.foldPreview(b["on"] as? Bool == true)
         case "set":
             guard let k = b["k"] as? String, let v = b["v"] else { return }
             apply(k, v)
@@ -7197,6 +7521,20 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
             guard confirm("Forget this conversation?", "Follow-ups like “open the second one” will start fresh.", "Forget") else { return }
             try? FileManager.default.removeItem(atPath: app.recent); app.lastDone = .distantPast; send("notice", ["text": "Conversation forgotten."])
         case "profileImport": importProfile()   // the button is the only path that requests Contacts/Mail access
+        case "aiImport": if let source = b["source"] as? String { aiImport(source) }
+        case "aiImportCancel": stopAIWatch(); aiAnswer = ""
+        case "aiImportAdd":   // the answer the preview showed, saved as one batch
+            let text = aiAnswer; aiAnswer = ""
+            guard !text.isEmpty else { return }
+            DispatchQueue.global().async { [weak self] in
+                guard let self else { return }
+                let ids = ((try? JSONSerialization.jsonObject(with: meCommand(["ai-add"], text))) as? [String: Any])?["ids"] as? [String]
+                send("aiImport", ids.map { ["phase": "added", "ids": $0] } ?? ["phase": "error"])
+                DispatchQueue.main.async { self.refresh() }
+            }
+        case "aiImportUndo":
+            guard let ids = b["ids"] as? [String], !ids.isEmpty else { return }
+            DispatchQueue.global().async { [weak self] in self?.helper(["--me", "ai-undo"] + ids); DispatchQueue.main.async { self?.refresh() } }
         case "me":
             guard let action = b["action"] as? String else { return }
             var args = ["--me", action]
@@ -7237,11 +7575,13 @@ final class SettingsWindow: NSObject, WKScriptMessageHandler, WKNavigationDelega
         }
     }
 
-    func windowDidResignKey(_ n: Notification) { if monitor != nil { done(nil) } }
+    func windowDidResignKey(_ n: Notification) { app.foldPreview(false); if monitor != nil { done(nil) } }
 
     func windowWillClose(_ n: Notification) {
+        app.foldPreview(false)
         onboarding.permissionHelp.close()
         feedbackJob += 1; feedbackURL = nil
+        stopAIWatch(); aiAnswer = ""
         if let v = web { v.evaluateJavaScript("st.flush()") { [weak self] r, _ in _ = v; if let b = r as? [String: Any] { self?.handle(b) } } }   // a deletion still showing Undo
         if monitor != nil { done(nil) }   // closed mid-recording: keep the old shortcut
         timer?.invalidate(); timer = nil
@@ -7770,7 +8110,8 @@ final class MeetingCopilot: NSObject, WKScriptMessageHandler {
             } catch { if running && generation == g { stop(); js("error", "Allow Screen Recording in Settings") } }
         }
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            guard let self else { return }; let seconds = Int(Date().timeIntervalSince(began)); js("clock", seconds)
+            guard let self else { return }; watchEnter(running)
+            let seconds = Int(Date().timeIntervalSince(began)); js("clock", seconds)
             if seconds % 2 == 0 {
                 saveEvents([["kind": "partial", "seconds": seconds, "at": Date().timeIntervalSince1970, "them": pending + " " + partial, "you": micPending + " " + micPartial],
                             ["kind": "checkpoint", "duration": seconds]])
@@ -7889,12 +8230,12 @@ final class MeetingCopilot: NSObject, WKScriptMessageHandler {
             if let enterTap { CGEvent.tapEnable(tap: enterTap, enable: false); CFMachPortInvalidate(enterTap) }
             enterTap = nil; return
         }
-        guard enterTap == nil else { return }
+        guard TalkPen.prepareTap(&enterTap), enterTap == nil else { return }
         enterTap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
                                      eventsOfInterest: CGEventMask(1) << CGEventMask(CGEventType.keyDown.rawValue), callback: { _, type, event, me in
             let copilot = Unmanaged<MeetingCopilot>.fromOpaque(me!).takeUnretainedValue()
             if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-                if let tap = copilot.enterTap { CGEvent.tapEnable(tap: tap, enable: true) }
+                copilot.watchEnter(copilot.running)
                 return Unmanaged.passUnretained(event)
             }
             let key = event.getIntegerValueField(.keyboardEventKeycode)
@@ -9924,7 +10265,8 @@ func checkMic() {
         else if callSeen, let gone = callGone, Date().timeIntervalSince(gone) >= 2 { callSeen = false; callGone = nil; meeting.stop() }
         else if callSeen && callGone == nil { callGone = Date() }
     } else { callSeen = false; callGone = nil }
-    guard Prefs.bool("meeting"), Prefs.bool("meetingDetect"), !Prefs.bool("paused") else { onMicSince = [:]; return }
+    // Not until setup is done: its card asks to listen before setup has asked for the mic.
+    guard Prefs.bool("meeting"), Prefs.bool("meetingDetect"), !Prefs.bool("paused"), UserDefaults.standard.bool(forKey: "onboarded") else { onMicSince = [:]; return }
     let now = callAppsOnMic()
     onMicSince = onMicSince.filter { now.contains($0.key) }; callNudged.formIntersection(now)   // a call that ends can be noticed again next time
     for a in now where onMicSince[a] == nil { onMicSince[a] = Date() }

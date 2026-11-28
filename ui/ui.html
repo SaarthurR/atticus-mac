@@ -451,12 +451,13 @@
   }
   #updated { margin-top: 8px; color: var(--fg2); font: 11px -apple-system, system-ui, sans-serif; }
   #updated button { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }
+  #updated-box:not([hidden]) { display: block; margin-top: 2px; text-align: left; text-decoration: none; }
   body.dictate #updated { display: none; }
 </style></head>
 <body>
 <div id="card">
   <div id="head"><canvas id="orb"></canvas><div id="status"></div><button id="agents-pill" hidden><i></i><span></span></button><div id="mode" role="button" tabindex="0" title="Safe mode is off. Click to turn it on.">Full access</div><button id="fold" title="Minimize answer" aria-label="Minimize answer" aria-expanded="true"><svg viewBox="0 0 16 16"><path d="M3.5 8h9"/></svg></button><div id="x"><svg viewBox="0 0 10 10"><path d="M1 1L9 9M9 1L1 9"/></svg></div></div>
-  <div id="updated" role="status" hidden><span></span> · <button type="button">What’s new</button></div>
+  <div id="updated" role="status" hidden><span></span> · <button type="button">What’s new</button><button type="button" id="updated-box" hidden>Boxes now minimize to a small circle. To keep the bar, turn on More info when minimized in Settings → Box &amp; Display.</button></div>
   <span id="dictwave" role="img" aria-label="Listening"></span>
   <div id="thread"></div>
   <svg id="lock" viewBox="0 0 10 13" role="img" aria-label="Locked. Press the shortcut to finish."><path d="M2.5 6V4a2.5 2.5 0 0 1 5 0v2"/><rect x="0" y="5.5" width="10" height="7.5" rx="2"/></svg>
@@ -578,7 +579,7 @@
       post({ fold: id, h, tiny: false }); foldTimer = setTimeout(() => window.ui.foldSettled(id), FOLD_MS + 80);
     }
   };
-  let tinyFold = false, wideW = 0, autoMinimize = true, drawingActive = false, drawingThisTurn = false;
+  let tinyFold = false, previewWas = null, wideW = 0, autoMinimize = true, drawingActive = false, drawingThisTurn = false;
   const foldedOrFolding = () => document.body.classList.contains('fold-away') || folded && !document.body.classList.contains('fold-morph');
   const manualFold = on => {
     if (working || drawingActive) { autoMinimize = on; post({ autoMinimize: on }); }
@@ -871,7 +872,7 @@
     const k=AGENT_KINDS.find(k=>k[0].test((m.type||'')+' '+m.url.split(/[?#]/)[0]))||[0,'Link','<path d="M7 9a3 3 0 0 0 4.2 0l2-2a3 3 0 0 0-4.2-4.2l-.8.8M9 7a3 3 0 0 0-4.2 0l-2 2a3 3 0 0 0 4.2 4.2l.8-.8"/>'];
     if(!k[0]&&!m.title&&said.includes(m.url))return [];   // an untitled page the answer already links to is a source; a titled one came from a tool that made it
     let host='';try{host=new URL(m.url).hostname.replace(/^www\./,'');}catch{}const file=m.url.startsWith('/');
-    return [{url:m.url,title:m.title||(file?m.url.split('/').pop():host)||m.url,sub:k[1]+' · '+(file?'In its folder':host),svg:k[2]}];}).slice(0,3);};
+    return [{url:m.url,title:file?(m.title||m.url.split('/').pop()||m.url):E.linkTitle(m.title,m.url),sub:k[1]+' · '+(file?'In its folder':host),svg:k[2]}];}).slice(0,3);};
   const keyButton=(text,key,go)=>{const b=document.createElement('button');if(go)b.className='go';const label=document.createElement('span');label.textContent=text;const cap=document.createElement('kbd');cap.textContent=key;cap.setAttribute('aria-hidden','true');b.append(label,cap);b.setAttribute('aria-keyshortcuts',key==='↩'?'Enter':'Escape');return b;};
   const apiCost=u=>'≈'+(u<1?(u*100).toFixed(u<.1?2:1)+'¢':'$'+u.toFixed(2))+' at API prices';   // as Settings → Usage shows it
   const agentCard=row=>{   // an agent finished: its answer first, then what it made; Open ↩ opens the main thing, Details the full report
@@ -905,8 +906,9 @@
   $('thread').addEventListener('graphresize', () => fit());
   document.addEventListener('keydown',e=>{const b=defaultButton();if(b&&e.key==='Enter'&&!e.isComposing&&!e.target.closest('button,[role=button],input,textarea,select,a,[contenteditable=true]')){e.preventDefault();e.stopPropagation();b.click();}},true);
   $('updated').querySelector('button').onclick = () => post({ updateNews: true });
+  $('updated-box').onclick = () => post({ updateBox: true });
   window.ui = {
-    updated(version) { $('updated').hidden = !version; $('updated').querySelector('span').textContent = version ? 'Updated to ' + version : ''; fit(false); },
+    updated(version) { $('updated').hidden = !version; $('updated').querySelector('span').textContent = version ? 'Updated to ' + version : ''; $('updated-box').hidden = version !== '2.1.0'; fit(false); },
     autoMinimize(on) { autoMinimize = !!on; },
     tiny(on) {
       if (tinyFold === !!on) return;
@@ -928,6 +930,14 @@
       }
     },
     foldSettled(id) { if (id === foldSeq) finishFold(foldedOrFolding()); },   // twice per fold (page timer, native done): the second keeps what the first settled
+    foldPreview(on) {   // Settings' More info when minimized row: minimized at once with a sample status (ui.tiny morphs it); off puts the page back
+      if (!on && !previewWas) return;
+      if (on) { if (!folded && !previewWas) foldedScroll = $('thread').scrollTop; if (innerWidth >= 100) wideW = innerWidth; previewWas = previewWas || [folded, $('status').innerHTML, $('status').className, $('updated').hidden]; $('updated').hidden = true; status('Thinking…', true); previewWas[4] = $('status').firstChild; }
+      else { $('updated').hidden = previewWas[3]; if ($('status').firstChild === previewWas[4]) [, $('status').innerHTML, $('status').className] = previewWas; }   // an ask that took the box keeps its own status
+      const fold = on || previewWas[0]; if (!on) previewWas = null;
+      finishFold(fold); if (!fold && innerWidth < 100 && wideW) $('card').style.width = wideW + 'px';   // measure the answer at the width it opens to, as foldBox does
+      if (!document.body.classList.contains('dictate')) post({ fold: ++foldSeq, h: $('card').offsetHeight, tiny: fold && tinyFold });   // the dictation pill sizes itself
+    },
     agentDefaultAction(){defaultButton()?.click();},
     movePending(){turn()?.querySelectorAll('.pk,.ok:not(.agent-card)').forEach(e=>e.remove());status('Moving to an agent…',true);fit();},   // a waiting pick or Allow goes with the ask
     moveSource(){const r=$('orb').getBoundingClientRect();return [r.x,r.y,r.width,r.height];},

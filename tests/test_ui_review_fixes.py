@@ -192,7 +192,7 @@ if (apiCost(.0412) !== '≈4.12¢ at API prices' || apiCost(.1861) !== '≈18.6�
 
     def test_usage_splits_asks_from_agents_in_unambiguous_dollars(self):
         self.assertIn("const money = u => '$' + u.toFixed(u < .01 ? 4 : 2);", self.settings)
-        self.assertIn('${u.asks} asks ${money(u.askUsd ?? u.usd)} · ${u.agentCalls || 0} agent calls ${money(u.agentUsd || 0)}', self.settings)
+        self.assertIn('<span>${u.asks} asks ${money(u.askUsd ?? u.usd)}</span><span>${u.agentCalls || 0} agent calls ${money(u.agentUsd || 0)}</span>', self.settings)
 
     def test_a_new_ask_drops_a_paused_card_left_by_resuming_elsewhere(self):
         listen = self.box[self.box.index('    listen(mode)'):self.box.index('    level(v)')]

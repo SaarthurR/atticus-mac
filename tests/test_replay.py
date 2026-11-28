@@ -30,7 +30,7 @@ class ReplayTests(unittest.TestCase):
         show.assert_called_once_with('Fixture',True);hands.assert_called_once_with('menu','com.atticus.fixture','Fixture > Start meeting')
         shell.assert_not_called();ai.assert_not_called();self.assertEqual(len(atticus.skills()['make a fixture meeting']['cmds']),2)
 
-    def test_internal_partial_request_keys_are_pruned_when_skills_load(self):
+    def test_internal_partial_request_keys_are_skipped_without_rewriting_storage(self):
         command = atticus.SHOW + ' Fixture'
         junk = 'open fixture\nAlready completed: first step\nRemaining words: second step'
         (self.root / 'skills.json').write_text(json.dumps({
@@ -38,7 +38,82 @@ class ReplayTests(unittest.TestCase):
             junk: {'cmds': [command], 'reply': 'Opened.', 'mine': True},
         }))
         self.assertEqual(set(atticus.skills()), {'open fixture'})
-        self.assertEqual(set(json.loads((self.root / 'skills.json').read_text())), {'open fixture'})
+        self.assertEqual(set(json.loads((self.root / 'skills.json').read_text())), {'open fixture', junk})
+
+    def test_automatic_open_learning_rejects_generic_references(self):
+        document = self.root / 'Orchid-Report.pdf'
+        document.write_text('%PDF-1.7\n')
+        for task, target in [('open file path', str(document)),
+                             ('reopen the file', str(document)),
+                             ('settings', 'System Settings'), ('ur settings', 'Atticus'),
+                             ('open this', 'VellumFox')]:
+            command = f'{atticus.SHOW} {atticus.shlex.quote(target)}'
+            with self.subTest(task=task), patch.object(atticus, 'cached_hands', return_value=None):
+                self.assertIsNone(atticus.learn(task, [command], 'Opened.'))
+                # The old format remains readable, but cannot replay an ungrounded binding.
+                atticus.save_skills({task: {'cmds': [command], 'reply': 'Opened.', 'at': atticus._profile_date()}})
+                before = (self.root / 'skills.json').read_bytes()
+                with patch.object(atticus, 'show') as show:
+                    self.assertIsNone(atticus.replay(task))
+                show.assert_not_called()
+                self.assertEqual(before, (self.root / 'skills.json').read_bytes())
+
+    def test_resolved_spoken_names_learn_once_and_replay_without_ai(self):
+        document = self.root / 'Chapter-B-Review.pdf'
+        document.write_text('%PDF-1.7\n')
+        downloads = self.root / 'Downloads'
+        downloads.mkdir()
+        cases = [('open velum lights', 'Vellum Lights'),
+                 ('open velvet lights', 'Vellum Lights'),
+                 ('open vel lights', 'Vellum Lights'),
+                 ('open my chatter', 'ChatterBox'),
+                 ('launch copper loom', 'CopperLoom'),
+                 ('postbox', 'https://mail.example.test'),
+                 ('postbox, open', 'https://mail.example.test'),
+                 ('open classnest', 'https://classes.example.test/home'),
+                 ('open my downloads folder', str(downloads)),
+                 ('open my unit 3 chemistry study guide', str(document))]
+        for task, target in cases:
+            command = f'{atticus.SHOW} {atticus.shlex.quote(target)}'
+            key = atticus.learning_key(task)
+            with self.subTest(task=task), patch.object(atticus, 'cached_hands', return_value=None):
+                atticus.save_skills({})
+                self.assertTrue(atticus.learn('Like, can you ' + task, [command], 'Opened.'))
+                self.assertEqual(set(atticus.skills()), {key})
+                with patch.object(atticus, 'show', return_value='opened') as show, patch.object(atticus, 'start_claude') as ai:
+                    self.assertEqual(atticus.fast(task), 'Opened.')
+                    self.assertEqual(atticus.fast.shortcut['key'], key)
+                show.assert_called_once_with(target, False)
+                ai.assert_not_called()
+                # Existing automatic bindings have neither mine nor asked metadata.
+                atticus.save_skills({key: {'cmds': [command], 'reply': 'Opened.', 'at': atticus._profile_date()}})
+                with patch.object(atticus, 'show', return_value='opened') as show, patch.object(atticus, 'start_claude') as ai:
+                    self.assertEqual(atticus.fast(task), 'Opened.')
+                    self.assertEqual(atticus.fast.shortcut['key'], key)
+                show.assert_called_once_with(target, False)
+                ai.assert_not_called()
+
+    def test_say_it_once_for_unseen_apps_and_explicit_file_aliases(self):
+        self.assertEqual(atticus.learning_key('new project'), 'new project')
+        self.assertEqual(atticus.learning_key('Like, can you like open VellumFox?'), 'open vellumfox')
+        for app in ('VellumFox', 'Quasar Finch', 'CopperLoom'):
+            with patch.object(atticus, 'cached_hands', return_value=None):
+                self.assertTrue(atticus.learn(f'Like, can you open {app}?', [f'{atticus.SHOW} "{app}"'], 'Opened.'))
+            key = f'open {app.lower()}'
+            self.assertIn(key, atticus.skills())
+            with patch.object(atticus, 'show', return_value='opened') as show, patch.object(atticus, 'start_claude') as ai:
+                self.assertEqual(atticus.fast(f'Can you open {app}?'), 'Opened.')
+            show.assert_called_once_with(app, False)
+            ai.assert_not_called()
+        with patch.object(atticus, 'cached_hands', return_value=None):
+            document = self.root / 'Orchid-Report.pdf'
+            document.write_text('%PDF-1.7\n')
+            command = 'open ' + atticus.shlex.quote(str(document))
+            self.assertTrue(atticus.learn('orchid report', [command], 'Opened.'))
+            self.assertTrue(atticus.learn('reading time', [command], 'Opened.',
+                                          f'When I say reading time, open {document}'))
+        atticus.unlearn('Like, can you open VellumFox?')
+        self.assertNotIn('open vellumfox', atticus.skills())
 
     def test_new_shortcuts_drop_reads_and_keep_the_target_when_front_app_changes(self):
         with patch.object(atticus,'cached_hands',return_value=None): self.assertTrue(atticus.learn('make a fixture meeting',self.commands,'Started.'))
@@ -85,7 +160,7 @@ class ReplayTests(unittest.TestCase):
         (self.root/'skills.json').write_text(json.dumps({'unpause fixture':{'cmds':[play],'reply':'Fixture is playing. The first check still showed it paused, but a second check confirmed it.'}}))
         with patch.object(atticus.subprocess,'run',return_value=atticus.subprocess.CompletedProcess([],0,'','')):
             self.assertEqual(atticus.fast('unpause fixture'),'Fixture is playing.')
-        for whole in ['Done: focus mode.','Typed "Hi! See you." into Mail.','Opened 10 Hail Pl. Tell me the city.','Playing 1M. It runs in the background.','I typed your reply into the mail box. It isn’t sent yet.','Notes is open. Do not close it.']:
+        for whole in ['Done: focus mode.','Typed "Hi! See you." into Mail.','Opened 10 Bury Pl. Tell me the city.','Playing 1M. It runs in the background.','I typed your reply into the mail box. It isn’t sent yet.','Notes is open. Do not close it.']:
             self.assertEqual(atticus.outcome(whole),whole)
 
     def test_unsupported_peekaboo_falls_back_without_running(self):

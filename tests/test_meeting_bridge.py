@@ -54,6 +54,7 @@ print("pending")
         classes = classes.replace('EKEventStore.authorizationStatus(for: .event)', 'fixtureCalendar').replace('EKEventStore.authorizationStatus(for:.event)', 'fixtureCalendar')
         prefs = source[source.index('enum Prefs'):source.index('// Read-aloud uses')] + source[source.index('func callJS('):source.index('func currentRequestScreen(')] + 'func telemetry(_ args: [String]) {}\n'
         prefs += swift_motion(source)
+        prefs += "enum TalkPen {\n" + source[source.index("    static func prepareTap("):source.index("    var nextTapCheck")] + "}\n"
         swift = '''import Cocoa
 import Carbon
 import AVFoundation

@@ -63,6 +63,16 @@ print("read-aloud voice policy ok")
         self.assertIn('set(true, forKey: "voiceQualityTip")', tip)
         self.assertIn("Manage Voices", tip)
 
+    def test_read_aloud_starts_just_before_the_first_sound(self):
+        source = (ROOT / "Atticus.swift").read_text()
+        trim = source[source.index("func leadingQuiet(_ samples"):source.index("func leadingQuiet(_ file")]
+        run_swift(self, "import Foundation\n" + trim + """
+let quiet = [Float](repeating: 0.001, count: 6615), words: [Float] = [0.3, -0.2, 0.1]   // 0.3 s of quiet at 22050 Hz
+precondition(abs(leadingQuiet(quiet + words, rate: 22050) - 0.28) < 0.001, "the voice's own quiet was not cut to 20 ms")
+precondition(leadingQuiet(words + quiet, rate: 22050) == 0 && leadingQuiet(quiet, rate: 22050) == 0, "a sentence with no quiet first (or no sound) was cut")
+print("leading quiet ok")
+""")
+
     def test_say_voice_list_parser_handles_spaces_and_rejects_unknown_names(self):
         source = (ROOT / "Atticus.swift").read_text()
         parser = source[source.index("func sayVoiceNames"):source.index("func preferredReadAloudVoice")]
@@ -80,7 +90,7 @@ print("say voice list parser ok")
     def test_saved_voice_and_unavailable_voice_fallback(self):
         source = (ROOT / "Atticus.swift").read_text()
         policy = source[source.index("struct ReadAloudVoice"):source.index("let installedSayVoices")]
-        arguments = source[source.index("func readAloudArguments"):source.index("// The talk shortcut")]
+        arguments = source[source.index("func readAloudArguments"):source.index("// One sentence read aloud")]
         self.assertIn('language: NLLanguageRecognizer.dominantLanguage(for: words)', source[source.index("func usableReadAloudVoice"):source.index("func readAloudArguments")])
         run_swift(self, "import Foundation\nimport AVFoundation\nfunc usableReadAloudVoice(_ words: String) -> String? { nil }\n"
                   'enum Prefs { static func num(_ k: String) -> Double { k == "voiceRate" ? 230 : 0 } }\n' + policy + arguments + """
@@ -148,6 +158,8 @@ precondition(chooseMic("gone", devices, 2)?.id == 1, "missing choice did not use
 precondition(chooseMic("automatic", devices, 2)?.id == 1, "Automatic selected the Bluetooth input")
 precondition(chooseMic("automatic", devices, 3)?.id == 3, "Automatic ignored a non-Bluetooth default")
 precondition(chooseMic("automatic", [bluetooth], 2)?.id == 2, "Automatic lost the only available input")
+precondition(chooseMic("automatic", devices, 2, lidClosed: true)?.id == 2, "a closed lid still swapped in the built-in mic")
+precondition(chooseMic("automatic", devices, 3, lidClosed: true)?.id == 3 && chooseMic("built-in", devices, 2, lidClosed: true)?.id == 1, "a closed lid changed a non-Bluetooth default or a chosen mic")
 print("microphone policy ok")
 """
         )

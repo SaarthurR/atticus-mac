@@ -69,6 +69,29 @@ class LearningEndToEndTests(Ask):
             self.assertEqual(said, 'Opened the fixture board.')
             self.show.assert_called_once_with(URL, False)
 
+    def test_browser_target_open_learns_and_replays_only_named_targets(self):
+        for command in ("open -a 'Fixture Browser' https://quasar.tv",
+                        'open -g -a "Fixture Browser" "https://quasar.tv"'):
+            with self.subTest(command=command):
+                atticus.save_skills({})
+                self.assertEqual(atticus.shortcut_commands('open quasar tv', [command]), [command])
+                said, pill, model = self.ask('open quasar tv', 'Opened Quasar TV.', [command])
+                self.assertTrue(model)
+                self.assertIn('Learned:', pill)
+                self.assertEqual(atticus.skills()['open quasar tv']['cmds'], [command])
+                self.shell.reset_mock()
+                self.assertFalse(self.ask('open quasar tv')[2])
+                self.shell.assert_called_once()
+                self.assertEqual(self.shell.call_args.args[0], ['/bin/zsh', '-c', command])
+                for words in ('open the page', 'open file path', 'reopen the file', 'open this page'):
+                    atticus.save_skills({})
+                    self.assertIsNone(atticus.learn(words, [command], 'Opened.'))
+                    self.assertEqual(atticus.skills(), {})
+                    atticus.save_skills({words: {'cmds': [command], 'reply': 'Opened.'}})
+                    self.shell.reset_mock()
+                    self.assertIsNone(atticus.replay(words))
+                    self.shell.assert_not_called()
+
     def test_unpunctuated_when_i_say_saves_the_trigger_words_and_replays_them(self):
         # Oct 22: "when I say deep work full screen Chrome …" had no comma, so the whole sentence was saved and "deep work" never replayed
         cmds = [f'{atticus.SHOW} "{URL}"', f'{atticus.PLACE} "Fixture Board" left current']
@@ -82,6 +105,32 @@ class LearningEndToEndTests(Ask):
         self.assertEqual(said, 'Done.')
         self.show.assert_called_with(URL, False)
         self.place.assert_called_with(['Fixture Board', 'left', 'current'])
+
+    def test_trigger_said_as_its_own_sentence_learns_the_actions_of_a_checked_one_line_job(self):
+        # Nov 18: "when I say switch voice models. Quit …, open …" saved nothing: the name ran on past the period, and the
+        # model's one line (quit; sleep; pgrep && pkill; open; pgrep || echo; pgrep | head) had pipes and fallbacks
+        line = ('osascript -e \'tell application "Inkwell" to quit\' 2>&1; sleep 2; pgrep -x "Inkwell" && pkill -x "Inkwell"; '
+                'open -g -a "Postbox" >/dev/null; sleep 2; pgrep -x "Inkwell" || echo gone; pgrep -f "Postbox" | head -1')
+        quit_cmd = 'osascript -e \'tell application "Inkwell" to quit\''
+        quit_app = Mock(return_value=True)
+        with patch.multiple(atticus, app_running=lambda bid: bid != 'com.example.inkwell', quit_app=quit_app):
+            for words, reply in (('Okay, when I say switch mail apps. Quit Inkwell, open Postbox.', 'Inkwell is quit and Postbox is open.'),
+                                 ('Okay, but remember that when I say switch mail apps, you will quit Inkwell. Open Postbox.',
+                                  'Inkwell is quit and Postbox is open. [shortcut switch mail apps]')):
+                atticus.save_skills({})
+                with self.subTest(words=words):
+                    said, pill, model = self.ask(words, reply, [line])
+                    self.assertTrue(model)
+                    self.assertEqual(set(atticus.skills()), {'switch mail apps'})
+                    self.assertEqual(atticus.skills()['switch mail apps']['cmds'], [quit_cmd] + atticus.shortcut_commands(words, ['open -g -a Postbox']))
+                    self.assertTrue(atticus.skills()['switch mail apps']['mine'])
+                    quit_app.reset_mock()
+                    said, pill, model = self.ask('Switch mail apps.')
+                    self.assertFalse(model)   # no model the second time
+                    quit_app.assert_called_once_with('com.example.inkwell')
+        self.assertEqual(atticus.without_checks('pgrep -x Inkwell && open -a Postbox'), 'pgrep -x Inkwell && open -a Postbox')   # check && act stays whole
+        self.assertIsNone(atticus.without_checks('open -a Postbox | tee log'))   # a pipe that acts needs the AI
+        self.assertIsNone(atticus.shortcut_commands('x', ['pgrep -x Inkwell && pkill -x Inkwell']))   # a kill with no quit before it is no fallback
 
     def test_remember_wording_teaches_only_the_users_own_words(self):
         self.ask('Remember that when I say board time, open the fixture board site', 'Opened it. [shortcut board time]', [f'{atticus.SHOW} "{URL}"'])

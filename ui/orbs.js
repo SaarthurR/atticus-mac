@@ -1131,3 +1131,22 @@ const shut = s => {   // a streamed line waits at a **bold, `code, [link or $mat
   return !open.length || (s.match(/^\s*```/gm) || []).length % 2 ? s : s.slice(0, Math.min(...open));   // inside a code block every mark is text
 };
 export { MML, markdown, shut };
+
+// Plip buddy/results.py link_title (MIT; LICENSE-Plip), shared by source chips and made cards.
+function linkTitle(title, url) {
+  let parsed; try { parsed = new URL(url); } catch {}
+  const host = (parsed?.hostname || '').replace(/^www\./, '');
+  const squash = s => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+  const edges = s => s.replace(/^[\s–—|·•:\-]+|[\s–—|·•:\-]+$/g, '');
+  let clean = edges(String(title || '').replace(/\s+/g, ' ').normalize('NFD').replace(/(\p{M})\p{M}+/gu, '$1').normalize('NFC'));
+  const site = squash(host.includes('.') ? host.slice(0, host.lastIndexOf('.')) : host), whole = squash(host);
+  const parts = clean.split(/\s+[–—|·•\-]\s+/);
+  if (parts.length > 1 && [site, whole].includes(squash(parts.at(-1)))) clean = edges(parts.slice(0, -1).join(' – '));
+  if (clean && [site, whole].includes(squash(clean))) {
+    const slug = (parsed?.pathname || '').split('/').filter(Boolean).at(-1) || '';
+    const words = slug.replace(/\.[a-z0-9]{2,5}$/, '').replace(/[-_]/g, ' ').trim();
+    if (/[-_]/.test(slug) && /\p{L}{3}/u.test(words)) clean = words[0].toUpperCase() + words.slice(1);
+  }
+  return (clean || parsed?.host || url).slice(0, 120);
+}
+export { linkTitle };

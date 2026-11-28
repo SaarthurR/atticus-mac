@@ -59,22 +59,22 @@
   body.reduce .flash { animation-name:flash!important; }
 
   /* sidebar */
-  nav { position: relative; width: 208px; flex: none; padding: 46px 10px 14px; box-sizing: border-box; background: var(--side);
+  nav { position: relative; width: 208px; flex: none; padding: 44px 10px 12px; box-sizing: border-box; background: var(--side);
     box-shadow: inset -.5px 0 0 var(--line); display: flex; flex-direction: column; gap: 1px; overflow-y: auto; }
-  nav > * { flex-shrink: 0; }   /* a short window scrolls the sidebar instead of squashing it */
-  .me { display: flex; align-items: center; gap: 10px; padding: 4px 8px 16px; }
+  nav > * { flex-shrink: 0; }   /* every row fits the window's smallest height (Atticus.swift's contentMinSize); shorter scrolls, never squashes */
+  .me { display: flex; align-items: center; gap: 10px; padding: 4px 8px 12px; }
   .me img { width: 38px; height: 38px; }
   .me b { display: block; font: 600 14px system-ui; } .me span { color: var(--fg3); font-size: 11px; }
-  nav .grp { padding: 16px 8px 5px; font: 600 10.5px system-ui; letter-spacing: .08em; text-transform: uppercase; color: var(--fg3); }
-  nav button { all: unset; position: relative; flex-shrink: 0; display: flex; align-items: center; gap: 9px; height: 30px; padding: 0 8px; border-radius: 8px;
+  nav .grp { padding: 14px 8px 4px; font: 600 10.5px system-ui; letter-spacing: .08em; text-transform: uppercase; color: var(--fg3); }
+  nav button { all: unset; position: relative; flex-shrink: 0; display: flex; align-items: center; gap: 9px; height: 28px; padding: 0 8px; border-radius: 8px;
     font-size: 13px; color: var(--fg); transition: background var(--t-fast); }
   nav button:not(.on):hover { background: color-mix(in srgb, var(--sel) 50%, transparent); }   /* fainter than #navsel: hover never reads as the current page */
   nav button.on { font-weight: 500; }
   nav button:focus-visible { outline: 2px solid rgba(var(--blue-rgb),.5); }
   /* the current page: one soft pill that slides between items, with an accent tick */
-  #navsel { position: absolute; top: 0; left: 10px; right: 10px; height: 30px; border-radius: 8px; pointer-events: none; opacity: 0;
+  #navsel { position: absolute; top: 0; left: 10px; right: 10px; height: 28px; border-radius: 8px; pointer-events: none; opacity: 0;
     background: var(--sel); box-shadow: inset 0 0 0 .5px var(--line); transition: transform var(--t-slow) var(--spring), opacity var(--t-base); }
-  #navsel::before { content: ""; position: absolute; left: 0; top: 8px; width: 3px; height: 14px; border-radius: 2px; background: var(--accent); }
+  #navsel::before { content: ""; position: absolute; left: 0; top: 7px; width: 3px; height: 14px; border-radius: 2px; background: var(--accent); }
   .ni { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; flex: none; }
   .ni svg { width: 14px; height: 14px; fill: none; stroke: rgb(var(--white-rgb)); stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
   nav .spacer { flex: 1; min-height: 12px; }
@@ -121,7 +121,7 @@
   .row .t { flex: 1; min-width: 0; } .row .t b { display: block; font-weight: 500; }
   .row:has(> .seg) { flex-wrap: wrap; } .row:has(> .seg) > .t { min-width: 150px; }   /* a long translated choice drops below its text instead of squeezing it */
   .row .t span { display: block; color: var(--fg3); font-size: 12px; margin-top: 1px; line-height: 1.35; }
-  #routingwhy { flex-basis: 100%; color: var(--fg3); font-size: 12px; line-height: 1.35; }
+  #routingwhy { flex-basis: 100%; margin-top: -6px; color: var(--fg3); font-size: 12px; line-height: 1.35; }   /* reads with its choice, not as a row of its own */
   .info { display: inline-grid; place-items: center; width: 11px; height: 11px; margin-left: 2px; vertical-align: -1px; border-radius: 50%;
     box-shadow: inset 0 0 0 1px currentColor; font: 600 8px/1 -apple-system, system-ui; font-style: normal; cursor: help; }   /* the rare detail, on hover */
 
@@ -195,6 +195,7 @@
   .stat small, .dstats small { color: var(--fg3); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
   .stat b, .dstats b { display: block; font: 600 24px system-ui; letter-spacing: -.02em; margin: 6px 0 2px; font-variant-numeric: tabular-nums; }
   .stat span, .dstats span { color: var(--fg2); font-size: 12px; }
+  .stat span span { display: block; line-height: 1.45; font-variant-numeric: tabular-nums; }   /* one fact a line, not a ragged wrap */
   /* dictation: one card, four numbers split by hairlines */
   .dstats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .dstats > div { padding: 14px 16px 13px; min-width: 0; }
@@ -246,8 +247,8 @@
   .field::placeholder, textarea::placeholder { color: var(--fg3); }
   textarea.field { text-align: left; resize: none; height: 56px; line-height: 1.4; padding: 0; font: 13px system-ui; }
   .count { color: var(--fg3); font-size: 11px; font-variant-numeric: tabular-nums; flex: none; }
-  .profile-head { display:flex;align-items:center;justify-content:space-between;gap:12px;margin:30px 2px 9px; }
-  .profile-head h3 { margin:0; }
+  .profile-head { display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 12px;margin:30px 2px 9px; }
+  .profile-head h3 { margin:0; } .profile-head .wacts { flex:0 1 auto;flex-wrap:wrap; }
   .profile-category { overflow:hidden; }
   .profile-category + .profile-category { box-shadow:inset 0 .5px 0 var(--line); }
   .profile-category summary { list-style:none;display:flex;align-items:center;gap:10px;min-height:44px;padding:0 14px;cursor:pointer; }
@@ -262,6 +263,9 @@
   .source-pill { color:var(--fg2);background:var(--sel);border-radius:9px;padding:2px 7px;font-size:10.5px;white-space:nowrap; }
   .profile-add { margin-left:24px; }
   .profile-sources { display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 4px 0; }
+  #aiImport { margin-bottom:12px; }
+  #aiFacts { max-height:264px;overflow-y:auto; } #aiFacts > .row { min-height:36px;padding:7px 14px;box-shadow:inset 0 .5px 0 var(--line); }
+  #aiFacts .t { overflow-wrap:anywhere; } #aiFacts .row > span { color:var(--fg3);font-size:11.5px;flex:none; }
   #profileStatus { color:var(--fg3);font-size:11.5px;line-height:1.4; } #profileStatus:not(:empty) { margin-top:6px; } #profileStatus .btn { margin:6px 0 0;display:inline-flex;align-items:center; }
 
   .status { display: flex; align-items: center; gap: 8px; }
@@ -277,7 +281,8 @@
   .search { flex: 1; height: 28px; padding: 0 10px; border: 0; border-radius: 7px; font: 13px system-ui; color: var(--fg); outline: 0;
     background: var(--ctl); box-shadow: inset 0 0 0 .5px var(--line), 0 1px 1px rgba(var(--black-rgb),.05); }
   .search:focus { box-shadow: inset 0 0 0 .5px var(--line), 0 0 0 3px rgba(var(--blue-rgb),.35); }
-  .appbar .btn { height: 28px; } .appbar .seg { align-self: center; }
+  .appbar .btn { height: 28px; } .appbar .seg { align-self: center; } .appbar .search { min-width: 0; }   /* the field gives way, so Allow stays in the window */
+  #appsback { margin-bottom: 14px; }
   .btn.stop { background: rgb(var(--red-rgb)); } .btn:disabled { opacity: .45; pointer-events: none; }
   h3 .all { all: unset; float: right; color: var(--accent); text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 11.5px; cursor: pointer; }
   .app { min-height: 46px; cursor: pointer; } .app img { width: 30px; height: 30px; flex: none; }
@@ -390,7 +395,7 @@
     <div class="group">
       <div class="row"><div class="t"><b>Microphone</b></div><select data-k="microphone"></select></div>
       <div class="row"><div class="t"><b>Wake word</b><span>Listen on this Mac. Close the box to end hands-free chat.</span></div><input class="field" style="flex:0 0 110px" data-k="wakeWordName" maxlength="40" placeholder="Atticus" spellcheck="false" aria-label="Wake word to say"><label class="sw"><input type="checkbox" data-k="wakeWord"></label></div>
-      <div class="row"><div class="t"><b>Speech model</b><span>Speech is best for most people. All stay on this Mac. <i class="info" title="Pick a language under Interface language to use it for Speech and Dictation when supported. Automatic keeps speech in English (US). Whisper supports automatic language detection on this Mac.">i</i></span></div><div class="seg" data-k="speechModel"><button data-v="speech">Speech</button><button data-v="dictation">Dictation</button><button data-v="whisper">Whisper</button></div></div>
+      <div class="row"><div class="t"><b>Speech model</b><span>Speech is best for most people. All stay on this Mac. <i class="info" title="Pick a language under Interface language to use it for Speech and Dictation when supported. Automatic keeps speech in English (US). Whisper supports automatic language detection on this Mac.">i</i></span></div><div class="seg" data-k="speechModel"><button data-v="speech">Speech</button><button data-v="whisper">Whisper</button></div></div>
       <div class="row" data-w hidden><div class="t"><b>Whisper model <i class="info" title="Turbo: fast, very close to Large. Large v3: most accurate, slower. Small: lightest, least accurate. Downloaded once, then runs offline.">i</i></b></div><select data-k="whisperModel" aria-label="Whisper model"><option value="turbo">Turbo · 574 MB</option><option value="large">Large v3 · 1.1 GB</option><option value="small">Small · 190 MB</option></select></div>
       <div class="row" data-w hidden><div class="t"><b>Language</b></div><select data-k="whisperLanguage"><option value="auto">Auto-detect</option><option value="en">English</option><option value="id">Indonesian</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="pt">Portuguese</option><option value="it">Italian</option><option value="nl">Dutch</option><option value="ja">Japanese</option><option value="ko">Korean</option><option value="zh">Chinese</option><option value="hi">Hindi</option><option value="ar">Arabic</option><option value="ru">Russian</option><option value="tr">Turkish</option><option value="vi">Vietnamese</option><option value="th">Thai</option><option value="pl">Polish</option><option value="sv">Swedish</option><option value="uk">Ukrainian</option></select></div>
       <div class="row" data-w hidden><div class="t"><b>Whisper status</b><span class="status"><i class="dot bad" id="wdot"></i><span id="wtext" role="status" aria-live="polite">Checking…</span></span></div><div class="wacts"><button class="btn" id="winstall" hidden>Install</button><button class="btn blue" id="wdownload" hidden>Download</button><button class="btn" id="wcancel" hidden>Cancel</button></div></div>
@@ -411,7 +416,7 @@
       <div class="row"><div class="t"><b>Automatically minimize the box</b><span>Shrinks while working, opens when done.</span></div><label class="sw"><input type="checkbox" data-k="autoMinimize" aria-label="Automatically minimize the box"></label></div>
       <div class="row"><div class="t"><b>Show preview window</b><span>A small live view of the app Atticus is working in.</span></div><label class="sw"><input type="checkbox" data-k="miniScreen" aria-label="Show preview window"></label></div>
       <div class="row"><div class="t"><b>Follow my pointer</b><span>Moves to your pointer’s display. Off keeps it where you put it.</span></div><label class="sw"><input type="checkbox" data-k="followPointer" aria-label="Follow my pointer"></label></div>
-      <div class="row"><div class="t"><b>Tiny when minimized</b><span>A minimized box becomes a small circle. Click it to open.</span></div><label class="sw"><input type="checkbox" data-k="tinyFold" aria-label="Tiny when minimized"></label></div>
+      <div class="row"><div class="t"><b>More info when minimized</b><span>A minimized box shows what Atticus is doing, not a small circle.</span></div><label class="sw"><input type="checkbox" data-k="fullFold" aria-label="More info when minimized"></label></div>
       <div class="row"><div class="t"><b>Show answers</b></div><div class="seg" data-k="showAnswers"><button data-v="stream">As they arrive</button><button data-v="once">All at once</button></div></div>
     </div>
     <h3>Screen</h3>
@@ -448,8 +453,13 @@
 
   <section id="memory">
     <h1>Memory</h1>
-    <div class="profile-head"><h3>About you</h3><button class="btn blue" id="profileImport">Import from your Mac</button></div>
+    <div class="profile-head"><h3>About you</h3><div class="wacts"><button class="btn" id="aiOpen" aria-expanded="false">Bring in from ChatGPT / Claude / Gemini</button><button class="btn blue" id="profileImport">Import from your Mac</button></div></div>
     <p class="lede" style="margin:0 2px 9px;font-size:11.5px">Only your name and answer style go with every ask.</p>
+    <div class="group" id="aiImport" hidden>
+      <div class="row" id="aiPick"><div class="t"><b>Which AI knows you?</b><span>Atticus copies a question for it to answer.</span></div><div class="wacts"><button class="btn" data-ai="chatgpt">ChatGPT</button><button class="btn" data-ai="claude">Claude</button><button class="btn" data-ai="gemini">Gemini</button></div></div>
+      <div class="row" id="aiLine" hidden><div class="t"><b id="aiText" role="status" aria-live="polite"></b></div><div class="wacts"><button class="btn" id="aiCancel">Cancel</button><button class="btn blue" id="aiAdd" hidden>Add</button></div></div>
+      <div id="aiFacts"></div>
+    </div>
     <div class="group" id="profileCategories"></div>
     <div class="profile-sources" id="profileSources"></div>
     <div id="profileStatus" role="status" aria-live="polite"></div>
@@ -681,7 +691,7 @@
   }
   document.querySelectorAll('nav button[data-s]').forEach(b => b.onclick = () => openSection(b.dataset.s, true));
   // Settings search: matching rows from every page, under the page's name. Matches the English (read before i18n runs) and the words on screen.
-  const FIND = [...document.querySelectorAll('section .row')].filter(r => r.querySelector(':scope > .t > b') && !r.closest('#apps,#routines,#rules,#skills,#asklist,#dictationhistory,#dictationwords,#profileCategories'))
+  const FIND = [...document.querySelectorAll('section .row')].filter(r => r.querySelector(':scope > .t > b') && !r.closest('#apps,#routines,#rules,#skills,#asklist,#dictationhistory,#dictationwords,#profileCategories,#aiImport'))
     .map(r => ({ r, s: r.closest('section').id, en: r.querySelector('.t').textContent }));
   let findFrom = 'general';
   function find() {
@@ -764,6 +774,11 @@
     }
   }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['hidden'], attributeOldValue: true });
   document.querySelectorAll('[data-do]').forEach(b => b.onclick = () => post({ do: b.dataset.do }));
+  // More info when minimized: the real box shows its minimized shape while the row is hovered or keyboard-focused; its switch morphs it
+  const foldRow = document.querySelector('[data-k=fullFold]').closest('.row'), foldPreview = on => post({ do: 'foldPreview', on });
+  foldRow.onmouseenter = () => foldPreview(true); foldRow.onmouseleave = () => foldPreview(false);
+  foldRow.addEventListener('focusin', e => { if (e.target.matches(':focus-visible')) foldPreview(true); });
+  foldRow.addEventListener('focusout', () => foldPreview(false));
   $('meetingOn').onclick = () => set('meeting', true);
   let connected = false;   // Enable All opens claude.ai's connectors page only when none is connected
   document.getElementById('enableAll').onclick = () => post({ do: 'enableAll', connected: String(connected) });
@@ -929,7 +944,7 @@
   const money = u => '$' + u.toFixed(u < .01 ? 4 : 2);
   function state(s) {
     $('stats').innerHTML = [['Today', s.today], ['7 days', s.week], ['All time', s.all]].map(([n, u]) =>
-      `<div class="stat"><small>${n}</small><b>${u.unknown ? '≥' : ''}${money(u.usd)}</b><span>${u.asks} asks ${money(u.askUsd ?? u.usd)} · ${u.agentCalls || 0} agent calls ${money(u.agentUsd || 0)}${u.asks ? ' · ' + u.secs + ' s avg' : ''}</span></div>`).join('') +
+      `<div class="stat"><small>${n}</small><b>${u.unknown ? '≥' : ''}${money(u.usd)}</b><span><span>${u.asks} asks ${money(u.askUsd ?? u.usd)}</span><span>${u.agentCalls || 0} agent calls ${money(u.agentUsd || 0)}</span>${u.asks ? '<span>' + u.secs + ' s avg</span>' : ''}</span></div>`).join('') +
       (s.all.asks ? `<div class="stat"><small>Avg response</small><b>${s.all.secs} s</b><span>per ask, all time</span></div>` +
         `<div class="stat"><small>Avg ask cost</small><b>${s.all.unknown ? '≥' : ''}${money((s.all.askUsd ?? s.all.usd) / s.all.asks)}</b><span>per ask, all time</span></div>` : '');
     const typed = $('newrule')?.value || '';
@@ -989,7 +1004,7 @@
     row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash');
   }
 
-  const PROFILE = [['basics','Basics','name: Saarth'],['contact','Contact','email: me@example.com'],['places','Places','home address: …'],
+  const PROFILE = [['basics','Basics','name: Maya'],['contact','Contact','email: me@example.com'],['places','Places','home address: …'],
     ['school_work','School & work','school: …'],['links','Links & handles','website: …'],['preferences','Preferences','answers: concise'],
     ['people','People','dad: …'],['notes','Notes','Anything else']];
   const openProfile = new Set();
@@ -1014,7 +1029,7 @@
       const add = () => { if (input.value.trim()) post({do:'me',action:'add',category:input.dataset.profileAdd,text:input.value.trim()}); };
       input.nextElementSibling.onclick = add; input.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); add(); } };
     });
-    const sourceName = {you:'you',contacts:'contacts',mail:'mail',learned:'learned'};
+    const sourceName = {you:'you',contacts:'contacts',mail:'mail',learned:'learned',ai:'ChatGPT / Claude / Gemini'};
     $('profileSources').innerHTML = Object.keys(sourceName).filter(source => sourceCounts[source]).map(source =>
       `<button class="btn red" data-profile-source="${source}">Forget everything from ${sourceName[source]} · ${sourceCounts[source]}</button>`).join('');
     document.querySelectorAll('[data-profile-source]').forEach(b => b.onclick = () => post({do:'me',action:'forget-source',source:b.dataset.profileSource}));
@@ -1023,6 +1038,22 @@
     if (imported && !$('profileStatus').textContent) $('profileStatus').textContent = `${sourceCounts.contacts || 0} from Contacts · ${sourceCounts.mail || 0} from Mail`;
   }
   $('profileImport').onclick = () => { $('profileImport').disabled = true; $('profileStatus').textContent = 'Importing from Contacts and Mail…'; post({do:'profileImport'}); };
+  // Bring in from ChatGPT / Claude / Gemini: pick one, Atticus copies its question and opens it, then waits for the copied answer
+  let aiName = '';
+  const aiLine = (text, add = false, done = false) => {
+    $('aiPick').hidden = true; $('aiLine').hidden = false; $('aiText').textContent = text;
+    $('aiAdd').hidden = !add; $('aiAdd').disabled = false; $('aiCancel').textContent = done ? 'Done' : 'Cancel';
+  };
+  const aiClose = () => { $('aiImport').hidden = true; $('aiOpen').setAttribute('aria-expanded', 'false'); $('aiFacts').replaceChildren(); post({do:'aiImportCancel'}); };
+  $('aiOpen').onclick = () => {
+    if (!$('aiImport').hidden) return aiClose();
+    $('aiPick').hidden = false; $('aiLine').hidden = true; $('aiFacts').replaceChildren();
+    $('aiImport').hidden = false; $('aiOpen').setAttribute('aria-expanded', 'true');
+  };
+  document.querySelectorAll('[data-ai]').forEach(b => b.onclick = () => { aiName = b.textContent; aiLine('Paste it, send, then copy the answer.'); post({do:'aiImport', source:b.dataset.ai}); });
+  $('aiCancel').onclick = aiClose;
+  $('aiAdd').onclick = () => { $('aiAdd').disabled = true; post({do:'aiImportAdd'}); };
+  const CATEGORY = Object.fromEntries(PROFILE.map(([key, title]) => [key, title]));
   const SERVER = ['apiBase', 'apiKey', 'apiModel', 'agentApiModel'];   // Intelligence → Custom server, saved like About you
   const probe = () => {   // ask the saved server for its models; st.models says whether it answered
     $('srvnote').textContent = P.apiBase ? 'Checking the server…' : 'Needs vision for screen tasks.';
@@ -1143,6 +1174,22 @@
         const fix = document.createElement('button'); fix.className = 'btn'; fix.textContent = `Allow ${names} in Automation`;
         fix.onclick = () => post({ do: 'automation' }); $('profileStatus').append(fix);
       }
+    },
+    aiImport(r) {
+      if ($('aiImport').hidden && r.phase !== 'added') return;   // closed after Add: the batch was saved, so it still offers Undo
+      const n = r.facts?.length || r.ids?.length || 0, details = `${n} detail${n === 1 ? '' : 's'}`;
+      if (r.phase === 'preview') {
+        aiLine(n ? `Add ${details} from ${aiName}?` : `${aiName} shared nothing new.`, n > 0, !n);
+        $('aiFacts').replaceChildren(...r.facts.map(f => {
+          const row = document.createElement('div'), t = document.createElement('div'), cat = document.createElement('span');
+          row.className = 'row'; t.className = 't'; t.textContent = `${f.kind}: ${f.value}`; cat.textContent = CATEGORY[f.category] || '';
+          row.append(t, cat); return row;
+        }));
+      } else if (r.phase === 'added') {
+        const ids = r.ids; aiClose();
+        showNotice(`Added ${details} from ${aiName}.`, n ? 'Undo' : '', () => post({do:'aiImportUndo', ids}));
+      } else if (r.phase === 'expired') aiLine('Stopped waiting for the answer. Try again when you’re ready.', false, true);
+      else aiLine('Couldn’t start. Try again.', false, true);
     },
     motion(on){document.body.classList.toggle('reduce',on)},
     models(result) {   // Ignore answers from a server or credential that has since changed.

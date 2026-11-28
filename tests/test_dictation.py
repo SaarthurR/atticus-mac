@@ -164,6 +164,16 @@ precondition(stitchTranscript("", "First words") == "First words")
 print("dictation stitching ok")
 '''
         self.assertIn('dictation stitching ok', run_swift(self, swift))
+        fixes = source[source.index('let heardFixes'):source.index('func transcriptKey(')]
+        swift = 'import Foundation\n' + fixes + r'''
+precondition(tidyHeard("Open versus code and push it to git hub") == "Open VS Code and push it to GitHub")
+precondition(tidyHeard("ask chat gpt, then check post hog") == "ask ChatGPT, then check PostHog")
+precondition(tidyHeard("Open VS Code") == "Open VS Code", "a fixed name changed again")
+precondition(tidyHeard("their drop in sales came up in face time with the team") == "their drop in sales came up in face time with the team")
+print("heard fixes ok")
+'''
+        self.assertIn('heard fixes ok', run_swift(self, swift))
+        self.assertIn('let piece = tidyHeard(piece)', source[source.index('    func speechPiece('):source.index('    func rolloverSpeech(')])
         timer = source[source.index('Timer.scheduledTimer(withTimeInterval: 0.15'):source.index('    func heard(')]
         self.assertIn('rolloverSpeech(listeningID: listeningID)', timer)
         self.assertIn('if !dictating && held > 60', timer)
@@ -399,7 +409,29 @@ print("single delivery fallback ok")
         module = source[source.index('    func speechModule('):source.index('    func prepareSpeech(')]
         self.assertIn('let tr = speechModule(dictate: dictating)', source)
         self.assertIn('SpeechTranscriber(locale: locale, transcriptionOptions: [], reportingOptions: [.volatileResults]', module)
-        self.assertIn('transcriptionOptions: [.punctuation], reportingOptions: [.volatileResults]', module)
+
+    def test_speech_falls_back_to_dictation_transcriber_when_speech_transcriber_cannot_serve(self):
+        # Nov 26, 2026: macOS 26.6 in the VM lists 0 SpeechTranscriber locales but 20 DictationTranscriber ones.
+        source = (ROOT / 'Atticus.swift').read_text()
+        serves = source[source.index('func speechTranscriberServes('):source.index('\nfunc applySharing')]
+        module = source[source.index('    var speechDictation = false'):source.index('    func prepareSpeech(')]
+        swift = 'import Speech\nenum Prefs { static func str(_ k: String) -> String { "speech" } }\n' \
+            'func supportedSpeechLocale(_ l: [Locale]) -> Locale { Locale(identifier: "en-US") }\n' + serves + \
+            '\nfinal class App {\n    var speechLocales: [String: [Locale]] = [:]\n' + module + '}\n' + '''
+let en = Locale(identifier: "en-US"), app = App()
+for (available, locales) in [(true, [Locale]()), (false, [en]), (true, [en])] {
+    app.speechDictation = !speechTranscriberServes(en, available: available, locales: locales)
+    print(type(of: app.speechModule()), type(of: app.speechModule(dictate: true)))
+}
+'''
+        self.assertEqual(run_swift(self, swift).split('\n')[:3], [
+            'DictationTranscriber DictationTranscriber',   # no SpeechTranscriber locales
+            'DictationTranscriber DictationTranscriber',   # SpeechTranscriber not available on this Mac
+            'SpeechTranscriber SpeechTranscriber'])
+        prepare = source[source.index('    func prepareSpeech()'):source.index('    var text =')]
+        self.assertIn('locales = await DictationTranscriber.supportedLocales', prepare)
+        self.assertEqual(prepare.count('NSLog('), 1)
+        self.assertIn('if let d = tr as? DictationTranscriber', source[source.index('    func beginSpeechSegment('):source.index('    func speechPiece(')])
 
     def test_whisper_feeds_raw_samples_and_skips_apple_speech(self):
         # Oct 28, 2026: AnalyzerInput traps inside Speech.framework on a plain 16 kHz Float32 buffer, so Whisper gets raw samples.

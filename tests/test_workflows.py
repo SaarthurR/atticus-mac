@@ -18,6 +18,26 @@ class WorkflowTests(unittest.TestCase):
         p.start()
         self.addCleanup(p.stop)
 
+    def test_workflow_title_must_belong_to_this_request_and_tags_cannot_merge(self):
+        for reply in (
+            'Done. [workflow fetch channel video | Read the feed.]',
+            'Done. [workflow fetch channel video | Read the feed.] [workflow split desk | Place windows.]',
+        ):
+            with self.subTest(reply=reply):
+                _, saved = atticus.remember_workflow('split desk', reply, True, ['open -a VellumFox'])
+                self.assertFalse(saved)
+        self.assertEqual(atticus.workflows(), {})
+
+    def test_replay_tag_cannot_bypass_shared_learning_target_guard(self):
+        document = Path(atticus.DIR) / 'Orchid-Report.pdf'
+        document.write_text('%PDF-1.7\n')
+        command = 'open ' + atticus.shlex.quote(str(document))
+        _, saved = atticus.remember_workflow('open file path',
+            f'Opened. [workflow open file path | Locate the requested file and check it opens.] [replay {command}]',
+            True, [command])
+        self.assertTrue(saved)  # a procedure is guidance; the one-off path must not become an executable binding
+        self.assertNotIn('open file path', atticus.skills())
+
     def test_automatically_saves_and_retrieves_verified_browser_procedure(self):
         p = unittest.mock.Mock()
         p.stdin = io.StringIO(); p.ask = ''; p.returncode = 0

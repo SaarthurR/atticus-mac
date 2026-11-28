@@ -36,23 +36,30 @@ print("sentence order, final flush, cap, reset, markup, lines and CJK: OK")
     def test_shush_mutes_only_what_it_stopped_and_one_voice_reads_an_answer(self):
         source = (Path(__file__).resolve().parents[1] / 'Atticus.swift').read_text()
         spoken = source[source.index('func spoken('):source.index('// Read-aloud uses')]
-        speech = source[source.index('    var voice: Process?'):source.index('    func deliver(_ a: String')]
+        speech = source[source.index('    var voice: SpokenSentence?'):source.index('    func deliver(_ a: String')]
         along = source[source.index('    func drawAlong('):source.index('    func leadToDrawing(')]
         policy = next(line.strip() for line in source.splitlines() if 'drawing.speechEnabled =' in line)
         navigation = source[source.index('        drawing.navigated ='):source.index('        drawing.status =')]
         run_swift(self, 'import Foundation\n' + spoken + r'''
 enum Prefs { static var speak = true; static func bool(_ key: String) -> Bool { key == "speak" ? speak : true } }
 func telemetry(_ args: [String]) {}
-var picks = 0
-func readAloudArguments(_ words: String, compactTip: () -> Void) -> [String] { picks += 1; return ["-v", "Voice\(picks)", "--", words] }
+var picks = 0, pickedFrom: [String] = []
+func readAloudArguments(_ words: String, compactTip: () -> Void) -> [String] { picks += 1; pickedFrom.append(words); return ["-v", "Voice\(picks)", "--", words] }
 final class Process {
-    static var started: [Process] = []
-    var executableURL: URL?, arguments: [String]?, terminationHandler: ((Process) -> Void)?, isRunning = false
-    func run() throws { isRunning = true; Process.started.append(self) }
+    var isRunning = false
+    func run() throws { isRunning = true }
     func terminate() { isRunning = false }
-    func finish() { isRunning = false; terminationHandler?(self); RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
 }
-struct Guide { let guide: String }
+final class SpokenSentence {   // made: every sentence made into sound; started: the ones played, in order
+    static var made: [SpokenSentence] = [], started: [SpokenSentence] = []
+    let arguments: [String]; var isRunning = true, playing = false, finished: (() -> Void)?
+    init(_ arguments: [String]) { self.arguments = arguments; SpokenSentence.made.append(self) }
+    func play(started: @escaping () -> Void, finished: @escaping () -> Void) { playing = true; self.finished = finished; SpokenSentence.started.append(self); started() }
+    func terminate() { isRunning = false }
+    func finish() { isRunning = false; finished?() }
+}
+final class SpeechTrace { func mark(_ stage: String) {} }
+struct Guide { let guide: String; var sketch: [Double]? = nil }
 final class Drawing {
     var manual = false, waiting = false, index = 0   // ScreenDrawing: a step waiting for the user's click holds the next sentence
     var navigated: ((Bool) -> Void)?
@@ -60,10 +67,10 @@ final class Drawing {
     var speechEnabled: () -> Bool = { false }
     func stopVoice() { voice?.terminate(); voice = nil }
     func update(_ data: Data) -> Bool { let guide = String(decoding:data,as:UTF8.self); request = Guide(guide:guide); guides.append(guide); shown.append(0); return true }
-    func reveal(_ step: Int) { shown.append(step) }
+    func reveal(_ step: Int, guide: String? = nil) { if guide == nil || request?.guide == guide { shown.append(step) } }
 }
 final class Speaker {
-    var cueEnds = Date.distantPast
+    var cueEnds = Date.distantPast, speechTrace: SpeechTrace?
     let drawing = Drawing()
     func stopWake() {}; func show() {}; func js(_ name: String, _ value: Any? = nil) {}; func hide(after s: Double) {}; func leadToDrawing() {}
 ''' + '    init() { ' + policy + '\n' + navigation + ' }\n' + speech + along + r'''
@@ -71,48 +78,54 @@ final class Speaker {
 let c = Speaker()
 c.spokenSoFar = "Intro. "; c.streamSpeech(c.spokenSoFar)
 c.drawAlong(Data("g1".utf8), guide:"g1", steps:1)
-precondition(c.drawing.guides == ["g1"] && c.drawing.driven && c.voice?.arguments?.last == "Intro.", "the first scene waited behind words that caption no step")
+precondition(c.drawing.guides == ["g1"] && c.drawing.driven && c.voice?.arguments.last == "Intro.", "the first scene waited behind words that caption no step")
 c.drawAlong(Data("g1".utf8), guide:"g1", steps:1)
 c.spokenSoFar = "Intro. One. "; c.streamSpeech(c.spokenSoFar)
 c.drawAlong(Data("g2".utf8), guide:"g2", steps:1)
 precondition(c.drawing.guides == ["g1", "g1"], "a scene after a clear jumped ahead of the last scene's sentence")
-Process.started.last!.finish()
+SpokenSentence.started.last!.finish()
 precondition(c.drawing.guides.first == "g1", "A clear arriving ahead of speech replaced the queued first scene")
-Process.started.last!.finish()
+SpokenSentence.started.last!.finish()
 precondition(c.drawing.guides == ["g1", "g1", "g2"], "A scene was lost or drawn twice")   // the shown scene's second tag only grows it
-_ = c.shush(); Process.started.removeAll(); picks = 0
+_ = c.shush(); SpokenSentence.started.removeAll(); SpokenSentence.made.removeAll(); picks = 0
 let muted = Speaker()
 muted.spokenSoFar = "Intro. "; muted.streamSpeech(muted.spokenSoFar)
 muted.drawAlong(Data("g1".utf8), guide:"g1", steps:1)
 muted.drawAlong(Data("g2".utf8), guide:"g2", steps:1)
 precondition(muted.shush() && muted.drawing.guides == ["g1", "g2"] && !muted.drawing.driven && muted.pendingDrawings.isEmpty && !muted.drawing.speechEnabled(),
              "Shush did not hand the latest scene back to ordinary steps")
-Process.started.removeAll(); picks = 0
+SpokenSentence.started.removeAll(); SpokenSentence.made.removeAll(); picks = 0
 let fallback = Speaker()
 _ = fallback.drawing.update(Data("inline".utf8))
 let narration = Process(); try! narration.run(); fallback.drawing.voice = narration
 precondition(fallback.shush() && !narration.isRunning && !fallback.drawing.speechEnabled(), "Shush left the guide's fallback voice running")
 let legacy = Speaker(); legacy.speechMuted = true
 precondition(legacy.drawing.speechEnabled(), "Inline shush changed ordinary tool-guide narration")
-Process.started.removeAll(); picks = 0
+SpokenSentence.started.removeAll(); SpokenSentence.made.removeAll(); picks = 0
 let d = Speaker()   // a streamed drawing's steps show between the sentences that name them
 d.pendingDrawings["g"] = Data("g".utf8); d.speechQueue = ["Intro.", "\u{1}g:0", "Axes.", "\u{1}g:1", "Curve."]; d.speakNext()
-precondition(d.drawing.shown.isEmpty && Process.started.last!.arguments!.last == "Intro.")
-Process.started.last!.finish(); precondition(d.drawing.shown == [0, 0] && d.drawing.driven && Process.started.last!.arguments!.last == "Axes.")
-Process.started.last!.finish(); precondition(d.drawing.shown == [0, 0, 1])
-Process.started.last!.finish(); _ = d.shush(); precondition(!d.drawing.driven, "a shushed guide did not step on by itself")
-Process.started.removeAll(); picks = 0
+precondition(d.drawing.shown.isEmpty && SpokenSentence.started.last!.arguments.last == "Intro.")
+SpokenSentence.started.last!.finish(); precondition(d.drawing.shown == [0, 0] && d.drawing.driven && SpokenSentence.started.last!.arguments.last == "Axes.")
+SpokenSentence.started.last!.finish(); precondition(d.drawing.shown == [0, 0, 1])
+SpokenSentence.started.last!.finish(); _ = d.shush(); precondition(!d.drawing.driven, "a shushed guide did not step on by itself")
+SpokenSentence.started.removeAll(); SpokenSentence.made.removeAll(); picks = 0
 let s = Speaker()
 precondition(!s.shush() && !s.speechMuted)   // a toggle's second press: nothing playing, its answer still speaks
 s.streamSpeech("Hola. Two? Three", final: true)
-Process.started.last!.finish(); Process.started.last!.finish()
-precondition(Process.started.map { $0.arguments! } == [["-v", "Voice1", "--", "Hola."], ["-v", "Voice1", "--", "Two?"], ["-v", "Voice1", "--", "Three"]])
-Process.started.last!.finish()
+let ahead = s.voiceAhead
+precondition(ahead?.arguments == ["-v", "Voice1", "--", "Two?"] && SpokenSentence.made.count == 2, "the next sentence was not made while the first played")
+SpokenSentence.started.last!.finish()
+precondition(s.voice === ahead, "the sentence made ahead was made again")
+SpokenSentence.started.last!.finish()
+precondition(SpokenSentence.started.map { $0.arguments } == [["-v", "Voice1", "--", "Hola."], ["-v", "Voice1", "--", "Two?"], ["-v", "Voice1", "--", "Three"]])
+precondition(SpokenSentence.made.count == 3, "a sentence was made twice")
+SpokenSentence.started.last!.finish()
 precondition(!s.shush() && !s.speechMuted)
 s.streamSpeech("Next answer. More. ")
-precondition(s.shush() && s.speechMuted)   // stopped mid-answer: the rest of it stays quiet
+let madeAhead = s.voiceAhead
+precondition(s.shush() && s.speechMuted && madeAhead?.isRunning == false && s.voiceAhead == nil, "shush left the sentence made ahead")   // stopped mid-answer: the rest of it stays quiet
 s.streamSpeech("Next answer. More. Later.", final: true)
-precondition(Process.started.count == 4 && Process.started.last!.arguments! == ["-v", "Voice2", "--", "Next answer."] && !Process.started.last!.isRunning)
+precondition(SpokenSentence.started.count == 4 && SpokenSentence.started.last!.arguments == ["-v", "Voice2", "--", "Next answer."] && !SpokenSentence.started.last!.isRunning)
 let jumped = Speaker()
 jumped.drawAlong(Data("jump".utf8),guide:"jump",steps:2)
 jumped.streamSpeech("Old step. Next sentence. ")
@@ -126,18 +139,48 @@ jumped.drawAlong(Data("jump".utf8),guide:"jump",steps:3)
 precondition(jumped.speechQueue.isEmpty && !jumped.drawing.driven,"Late drawing cue overrode navigation")
 _ = jumped.shush(); jumped.speechMuted = false
 jumped.streamSpeech("Preview.",final:true,preview:true)
-precondition(jumped.voice?.arguments?.last == "Preview.","Guide navigation blocked an explicit voice preview")
+precondition(jumped.voice?.arguments.last == "Preview.","Guide navigation blocked an explicit voice preview")
 _ = jumped.shush(); jumped.speechMuted = false; jumped.drawQueued = ("",0)
 jumped.streamSpeech("Follow up.",final:true)
-precondition(jumped.voice?.arguments?.last == "Follow up.","An old guide blocked the next answer's narration")
-_ = jumped.shush(); Process.started.removeAll(); Prefs.speak = false
+precondition(jumped.voice?.arguments.last == "Follow up.","An old guide blocked the next answer's narration")
+_ = jumped.shush(); SpokenSentence.started.removeAll(); SpokenSentence.made.removeAll(); Prefs.speak = false
 let silent = Speaker()   // read-aloud off: the guide's own reading time steps it, never a sentence
 silent.spokenSoFar = "Intro. "; silent.streamSpeech(silent.spokenSoFar)
 silent.drawAlong(Data("quiet".utf8),guide:"quiet",steps:1)
 silent.drawAlong(Data("quiet".utf8),guide:"quiet",steps:2)
 precondition(silent.drawing.guides == ["quiet","quiet"] && !silent.drawing.driven && silent.speechQueue.isEmpty && silent.pendingDrawings.isEmpty
-             && Process.started.isEmpty && !silent.drawing.speechEnabled(),"A silent guide waited on narration")
+             && SpokenSentence.started.isEmpty && !silent.drawing.speechEnabled(),"A silent guide waited on narration")
 Prefs.speak = true
+SpokenSentence.started.removeAll(); SpokenSentence.made.removeAll()
+let quick = Speaker()   // after a quiet spell the first sentence's start is said on its own; later commas stay whole
+quick.streamSpeech("Sure, I opened it for you. Then, three more words here.", final: true)
+SpokenSentence.started.last!.finish(); SpokenSentence.started.last!.finish(); SpokenSentence.started.last!.finish()
+precondition(SpokenSentence.started.map { $0.arguments.last! } == ["Sure,", "I opened it for you.", "Then, three more words here."], "\(SpokenSentence.started.map { $0.arguments.last! })")
+precondition(pickedFrom.last == "Sure, I opened it for you.", "the voice's language was guessed from the split-off start")
+precondition(splitFirst("Yes, done.") == ["Yes, done."] && splitFirst("1,000 people came in.") == ["1,000 people came in."])
+SpokenSentence.started.removeAll(); SpokenSentence.made.removeAll()
+let card = Speaker()   // a sketch card's step comes in after the sentence before it, even if the card came after the cue
+card.spokenSoFar = "A right triangle. "; card.streamSpeech(card.spokenSoFar)
+card.cueSketch("card", step: 1)
+precondition(card.drawing.shown.isEmpty && card.speechQueue == ["\u{1}card:1"], "a sketch step jumped ahead of its sentence")
+_ = card.drawing.update(Data("card".utf8))
+SpokenSentence.started.last!.finish(); precondition(card.drawing.shown == [0, 1], "the voice did not bring in the sketch's step")
+Prefs.speak = false
+let quietCard = Speaker(); _ = quietCard.drawing.update(Data("card".utf8)); quietCard.cueSketch("card", step: 2)
+precondition(quietCard.drawing.shown == [0, 2] && quietCard.speechQueue.isEmpty, "a silent sketch card waited on narration")
+Prefs.speak = true
+let stopped = Speaker()   // the voice stopped mid-answer: the card catches up to the step its words reached
+_ = stopped.drawing.update(Data("card".utf8)); stopped.drawing.request?.sketch = [0, 0, 600, 380]
+stopped.streamSpeech("A triangle. ")
+stopped.spokenSoFar = "A triangle. Squares. "; stopped.cueSketch("card", step: 1)
+stopped.spokenSoFar = "A triangle. Squares. Big square. "; stopped.cueSketch("card", step: 2)
+precondition(stopped.drawing.shown == [0] && stopped.shush() && stopped.drawing.shown == [0, 2], "a shushed sketch card stayed behind its words: \(stopped.drawing.shown)")
+let walked = Speaker()   // Back, Next or a click on a sketch card: the rest of its answer stays quiet, never skipping ahead
+_ = walked.drawing.update(Data("card".utf8)); walked.drawing.request?.sketch = [0, 0, 600, 380]
+walked.streamSpeech("One. Two. ")
+walked.drawing.manual = true; walked.drawing.navigated?(false)
+walked.streamSpeech("One. Two. Three. ", final: true)
+precondition(walked.speechMuted && walked.voice == nil && walked.speechQueue.isEmpty, "the voice skipped to a later sentence after a sketch card was navigated")
 print("shush and per-answer voice: OK")
 ''')
 

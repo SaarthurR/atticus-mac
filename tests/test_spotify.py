@@ -462,3 +462,84 @@ class CatalogTests(unittest.TestCase):
     def test_credited_bare_name_and_unknown_song_find_nothing(self):
         self.assertIsNone(self.lookup('minecraft', {}, [{'id': 'Q4', 'label': 'Minecraft'}], [self.row('Q4', 'album', 'M' * 22)], credited=True))
         self.assertIsNone(self.lookup('janice stfu by drake', {'trackName': 'Janice STFU', 'artistName': 'Drake'}, [{'id': 'Q5', 'label': 'Janice STFU'}], [], credited=True))
+
+
+class BarePlayTests(unittest.TestCase):
+    """Nov 26, 2026: "play Spotify" went to the AI (6.5 s, a paid call) and "play some music" searched for a title called that."""
+    def setUp(self):
+        root = tempfile.TemporaryDirectory(); self.addCleanup(root.cleanup)
+        for p in (patch.object(atticus, 'DIR', root.name), patch.object(atticus, 'PICKS', os.path.join(root.name, 'music-picks.json')),
+                  patch.object(atticus, 'spotify_installed', return_value=True)):
+            p.start(); self.addCleanup(p.stop)
+        self.facts = []
+        p = patch.object(atticus, 'me', lambda: {'version': 2, 'facts': self.facts}); p.start(); self.addCleanup(p.stop)
+
+    def fact(self, category, kind, value):
+        self.facts.append({'category': category, 'kind': kind, 'value': value})
+
+    def test_play_the_music_resumes_only_whats_paused(self):
+        with patch.object(atticus, 'osa', return_value='resumed\tFixture Song\tFixture Band') as osa:
+            self.assertEqual(atticus.bare_play('Spotify.'), 'Playing Fixture Song by Fixture Band.')
+            self.assertIn('if application "Spotify" is running', osa.call_args[0][0])
+            atticus.bare_play('Apple Music')
+            self.assertIn('application "Music"', osa.call_args[0][0])
+        with patch.object(atticus, 'osa', return_value='') as osa, patch.object(atticus, 'play') as play:
+            self.assertEqual(atticus.bare_play('the music'), 'Nothing is paused.')
+            self.assertEqual([c[0][0].split('"')[1] for c in osa.call_args_list], ['Spotify', 'Music'])
+            self.assertEqual(atticus.bare_play('spotify'), 'Nothing is paused in Spotify.')
+            play.assert_not_called()
+        with patch.object(atticus, 'spotify_installed', return_value=False), patch.object(atticus, 'osa', return_value='') as osa:
+            self.assertEqual(atticus.bare_play('spotify'), 'Nothing is paused in Spotify.')
+            osa.assert_not_called()   # never names an app that isn't there (AppleScript would ask where it is)
+        self.assertIsNone(atticus.bare_play('the music video'))
+        self.assertIsNone(atticus.bare_play('some drake'))
+
+    def test_fast_waits_for_the_whole_ask_then_handles_it_without_ai(self):
+        with patch.object(atticus, 'pref', side_effect=lambda _, default: default), patch.object(atticus, 'skills', return_value={}), \
+             patch.object(atticus, 'fast_hands', return_value=None), patch.object(atticus, 'bare_play', return_value='Playing X.') as bare:
+            with patch.dict(atticus.os.environ, {'ATTICUS_LIVE': '1'}):
+                self.assertIsNone(atticus.fast('play the music'))
+            bare.assert_not_called()
+            self.assertEqual(atticus.fast('play some music'), 'Playing X.')
+            bare.assert_called_once_with('some music')
+            self.assertEqual(atticus.fast.cmds, [f"{atticus.PLAY} 'some music'"])   # "when I say chill, play some music" learns it, so the AI never redoes it
+
+    def picked(self, hour=9, times=1):
+        uris = []
+        def play(name, anything=True, credited=False, item=None):
+            uris.append(item and item[0] or name)
+            return f'Playing {item[1] if item else name} on Spotify.' if item or name.startswith('Fixture') else None
+        with patch.object(atticus, 'play', side_effect=play), patch.object(atticus, 'catalog_item', return_value=None):
+            replies = [atticus.pick_music(hour) for _ in range(times)]
+        return replies, uris
+
+    def test_some_music_picks_from_taste_and_says_why(self):
+        self.fact('preferences', 'favorite genres', 'jazz, lo-fi')
+        self.fact('notes', 'note', 'Loves k-pop')
+        self.fact('notes', 'hobby', 'rock climbing')
+        replies, uris = self.picked(times=3)
+        self.assertEqual(sorted(uris), sorted('spotify:playlist:' + atticus.MIXES[n] for n in ('Jazz Vibes', 'lofi beats', 'K-Pop ON!')))
+        self.assertTrue(all(', since you like ' in r for r in replies), replies)
+        self.fact('preferences', 'main playlist', 'Fixture Road Trip')
+        self.assertEqual(atticus.music_taste()[3], ['Fixture Road Trip'])
+
+    def test_with_no_taste_the_hour_picks_and_the_last_3_never_repeat(self):
+        replies, uris = self.picked(hour=23, times=8)
+        self.assertIn(', a good one for tonight.', replies[0])
+        self.assertTrue(all(len(set(uris[i:i + 4])) == len(uris[i:i + 4]) for i in range(len(uris))), uris)
+        self.fact('notes', 'music', "doesn't like jazz")
+        _, uris = self.picked(hour=8, times=6)
+        self.assertNotIn('spotify:playlist:' + atticus.MIXES['Jazz Vibes'], uris)
+
+    def test_a_spotify_failure_is_said_not_retried(self):
+        with patch.object(atticus, 'play', return_value='Could not control Spotify: macOS denied Automation permission.') as play:
+            self.assertIn('denied', atticus.pick_music(10))
+        play.assert_called_once()
+
+    def test_play_cli_routes_bare_asks(self):
+        with patch.object(atticus, 'pick_music', return_value='Playing Chill Vibes on Spotify, a good one for this evening.'), \
+             patch.object(atticus, 'play') as play, patch('sys.argv', ['atticus.py', '--play', 'some', 'music']), \
+             patch('sys.stdout', new_callable=io.StringIO) as out:
+            atticus.main()
+        play.assert_not_called()
+        self.assertIn('Chill Vibes', out.getvalue())

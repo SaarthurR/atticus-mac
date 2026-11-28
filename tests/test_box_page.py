@@ -215,6 +215,25 @@ return document.getElementById('ask') === document.activeElement;
         self.assertFalse(got['result'], 'What’s new must not open the composer')
         self.assertEqual([p for p in got['posts'] if isinstance(p, dict) and p.get('updateNews')], [{'updateNews': True}])
 
+    def test_2_1_0_notice_says_boxes_minimize_small_and_opens_the_setting(self):
+        got = self.render(r'''
+const line = document.getElementById('updated-box'), out = {};
+ui.listen(); ui.words('Hello'); ui.line('✓ Ready.'); ui.updated('2.0.2'); out.older = line.hidden;
+ui.updated('2.1.0'); out.shown = !line.hidden; out.text = line.textContent;
+out.look = ['font', 'color'].map(k => getComputedStyle(line)[k] === getComputedStyle(document.getElementById('updated'))[k]);
+document.getAnimations().filter(a => a.effect.getTiming().iterations !== Infinity).forEach(a => a.finish());
+const r = line.getBoundingClientRect(); ui.tap([r.x + r.width / 2, r.y + r.height / 2]);
+ui.updated(''); out.cleared = line.offsetParent === null;
+return out;
+''')
+        r = got['result']
+        self.assertTrue(r['older'], 'only the 2.1.0 notice carries the line')
+        self.assertTrue(r['shown'])
+        self.assertIn('Settings → Box & Display', r['text'])
+        self.assertEqual(r['look'], [True, True], 'same font and colour as the Updated line')
+        self.assertTrue(r['cleared'])
+        self.assertEqual([p for p in got['posts'] if isinstance(p, dict) and p.get('updateBox')], [{'updateBox': True}])
+
     def test_one_click_on_the_drawn_x_closes(self):
         # Nov 15: the lit, hover-grown × reaches below native's 42 pt × corner; a click there opened the typing box instead
         got = self.render(r'''

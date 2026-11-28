@@ -227,7 +227,7 @@ return {lines,translated,fits};
               {id:'large',name:'Large v3',size:'1.1 GB',have:true,progress:null},{id:'small',name:'Small',size:'190 MB',have:false,progress:.42}],...over});
             const shown=()=>[$('wtext').textContent,['winstall','wdownload','wcancel'].filter(b=>!$(b).hidden).join()];
             st.whisper(W({server:false}));
-            const early=rows(); set('speechModel','dictation'); const dictation=rows(), stored=[!$('wstored').hidden,$('wstoredb').textContent];
+            const early=rows(); set('speechModel','speech'); const speech=rows(), stored=[!$('wstored').hidden,$('wstoredb').textContent];
             document.querySelector('[data-k=speechModel] [data-v=whisper]').click(); const whisper=rows();
             const states=[shown()]; st.whisper(W({server:false,installing:true})); states.push(shown());
             st.whisper(W({server:true})); states.push(shown(), [$('wdownload').textContent]);
@@ -237,7 +237,7 @@ return {lines,translated,fits};
             document.querySelector('[data-k=whisperModel]').value='turbo'; document.querySelector('[data-k=whisperModel]').onchange();
             st.whisper(W({error:'Download failed. Check your connection and try again.'})); states.push(shown()); $('wdownload').click();
             const lang=document.querySelector('[data-k=whisperLanguage]'); lang.value='id'; lang.onchange();
-            return [early,dictation,whisper,states,P.whisperLanguage,lang.value,stored,after];""")
+            return [early,speech,whisper,states,P.whisperLanguage,lang.value,stored,after];""")
         self.assertEqual(out['result'], [[False] * 3, [False] * 3, [True] * 3,
             [['Needs whisper.cpp.', 'winstall'], ['Installing whisper.cpp… You can keep using your Mac.', ''], ['Model not downloaded.', 'wdownload'], ['Download 574 MB'], ['Downloading 42%…', 'wcancel'],
              ['Ready. Runs on this Mac.', ''], [True], ['Download failed. Check your connection and try again.', 'wdownload']], 'id', 'id', [True, 'Delete Large v3 · 1.1 GB'], 'speech'])
@@ -322,6 +322,21 @@ return {lines,translated,fits};
             return [scrolled,top,$('apps').classList.contains('on'),document.querySelector('nav button.on')?.dataset.s];""")
         self.assertEqual(out['result'], [True, 0, True, 'account'])
         self.assertIn({'do': 'apps'}, out['posts'])
+
+    def test_smallest_window_shows_every_sidebar_row_and_clips_no_page(self):
+        native = (ROOT / 'Atticus.swift').read_text()
+        width, height = map(int, re.search(r'w\.contentMinSize = NSSize\(width: (\d+), height: (\d+)\)', native[native.index('final class SettingsWindow'):]).groups())
+        out = self.page(f"""const html=document.documentElement;html.style.width=document.body.style.width='{width}px';html.style.height=document.body.style.height='{height}px';
+            st.apps([{{id:'Notes',name:'Notes',icon:'',suggested:true,status:'new'}},{{id:'Mail',name:'Mail',icon:'',suggested:true,status:'new'}}]);
+            st.state({{today:{{asks:140,usd:12.5,secs:3.8,agentCalls:20,agentUsd:4.25}},week:{{asks:140,usd:12.5,secs:3.8}},all:{{asks:140,usd:12.5,secs:3.8}},rules:[],skills:[],plan:{{ok:true,text:'Ready'}}}});
+            const nav=document.querySelector('nav'), out=[];
+            if(nav.scrollHeight>nav.clientHeight) out.push('sidebar '+nav.scrollHeight+' > '+nav.clientHeight);
+            for(const s of [...document.querySelectorAll('main > section')].map(e=>e.id).filter(id=>id!=='find')){{
+              st.tab(s); await tick(350); const edge=$(s).getBoundingClientRect().right+1;
+              for(const e of $(s).querySelectorAll('*')){{const r=e.getBoundingClientRect(); if(r.width&&r.right>edge) out.push(s+': '+(e.id||e.className||e.tagName)+' '+Math.round(r.right-edge));}}
+            }}
+            return out;""")
+        self.assertEqual(out['result'], [])
 
     def test_nix_install_shows_its_real_update_path(self):
         out = self.page("""st.load({prefs:{hotkeyLabel:'⌃⌥Space'},managedUpdates:true,update:'Run nix profile upgrade or nix run again.',version:'1.3.3 · Nix'});
@@ -485,6 +500,33 @@ return {lines,translated,fits};
         self.assertIn('3 from Contacts', one); self.assertIn('Allow Mail in Automation', one)
         self.assertIn('Allow Contacts and Mail in Automation', both)
         self.assertIn({'do': 'automation'}, out['posts'])
+
+    def test_ai_import_waits_for_the_answer_shows_it_and_adds_one_undoable_batch(self):
+        out = self.page("""st.tab('memory'); $('aiOpen').click();
+            const picking = !$('aiImport').hidden && !$('aiPick').hidden;
+            document.querySelector('[data-ai=claude]').click(); const waiting = $('aiText').textContent;
+            st.aiImport({phase:'preview', facts:[{category:'people', kind:'sister', value:'Maya'}, {category:'notes', kind:'plan', value:'Trip in March'}]});
+            const preview = [$('aiText').textContent, $('aiFacts').textContent, $('aiAdd').hidden];
+            $('aiAdd').click(); st.aiImport({phase:'added', ids:['a1', 'a2']});
+            const added = [$('aiImport').hidden, $('noticetext').textContent]; $('noticebtn').click();
+            $('aiOpen').click(); document.querySelector('[data-ai=gemini]').click(); st.aiImport({phase:'preview', facts:[]});
+            const nothing = [$('aiText').textContent, $('aiAdd').hidden, $('aiCancel').textContent]; $('aiCancel').click();
+            const closed = $('aiImport').hidden;
+            $('aiOpen').click(); document.querySelector('[data-ai=chatgpt]').click(); st.aiImport({phase:'preview', facts:[{category:'notes', kind:'note', value:'Cello'}]});
+            $('aiAdd').click(); $('aiCancel').click(); st.aiImport({phase:'added', ids:['a3']});
+            return {picking, waiting, preview, added, nothing, closed, late: $('noticetext').textContent};""")
+        r = out['result']
+        self.assertTrue(r['picking'])
+        self.assertEqual(r['waiting'], 'Paste it, send, then copy the answer.')
+        self.assertEqual(r['preview'], ['Add 2 details from Claude?', 'sister: MayaPeopleplan: Trip in MarchNotes', False])
+        self.assertEqual(r['added'], [True, 'Added 2 details from Claude.'])
+        self.assertEqual(r['nothing'], ['Gemini shared nothing new.', True, 'Done'])
+        self.assertTrue(r['closed'])
+        self.assertEqual(r['late'], 'Added 1 detail from ChatGPT.')   # closed while adding: Undo is still offered
+        self.assertIn({'do': 'aiImport', 'source': 'claude'}, out['posts'])
+        self.assertIn({'do': 'aiImportAdd'}, out['posts'])
+        self.assertIn({'do': 'aiImportUndo', 'ids': ['a1', 'a2']}, out['posts'])
+        self.assertIn({'do': 'aiImportCancel'}, out['posts'])
 
     def test_import_read_failure_offers_retry_without_false_permission_action(self):
         out = self.page("""st.profileImport({errors:['contacts','mail'],errorReasons:{contacts:'read',mail:'automation'},counts:{}});

@@ -346,7 +346,6 @@ print(json.dumps({{"type": "result", "is_error": True, "result": "Authentication
                     escalates = mode == 'balanced' and (reply == '[sonnet]' or not ok and bool(actions))
                     self.assertEqual(brain.call_count, 2 if escalates else 1)
                     self.assertEqual(brain.call_args_list[0].args[0].endswith(atticus.MODEL_OFFER), mode == 'balanced')
-                    self.assertEqual(brain.call_args_list[0].args[3], mode == 'balanced')
                     if escalates:
                         start.assert_called_once_with('sonnet'); ask.assert_not_called()
                         self.assertNotIn(atticus.MODEL_OFFER, brain.call_args.args[0])
@@ -417,13 +416,27 @@ print(json.dumps({{"type": "result", "is_error": True, "result": "Authentication
         self.assertIn('[explain] to show, explain or teach', atticus.MODEL_OFFER)
         self.assertTrue(atticus.agent_routing_result('[explain]'))
 
+    def test_plain_math_answers_with_no_model(self):
+        # Nov 26: "16 times 5." and "910 times 305." waited ~3 s for a model start
+        with patch.dict(os.environ, {'ATTICUS_LIVE': ''}):
+            for said, reply in [('16 times 5.', '16 × 5 = 80'), ('910 times 305.', '910 × 305 = 277,550'), ('12 divided by 4', '12 ÷ 4 = 3'),
+                                ('3 squared plus 4', '3² + 4 = 13'), ("What's 15 percent of 80?", '15% of 80 = 12'),
+                                ('2026-1977.', '2026 - 1977 = 49'), ('(3 + 4) x 2', '(3 + 4) × 2 = 14'), ('10 over 4', '10 ÷ 4 = 2.5'),
+                                ('what is 0.1 plus 0.2', '0.1 + 0.2 = 0.3'), ('123456789 times 987654321', '123456789 × 987654321 = 121,932,631,112,635,269')]:
+                with self.subTest(said=said): self.assertEqual(atticus.fast(said), reply)
+        with patch.dict(os.environ, {'ATTICUS_LIVE': '1'}): self.assertIsNone(atticus.fast('16 times 5'))   # the words may go on
+        for said in ('solve x plus 2 = 5', '910 over 305 plus P is equal to 66', 'open 1Password', '2026', '5 divided by 0', '9 ^ 9999',
+                     '3 miles plus 4', '100 - 15%', 'version 2.0.2', '__import__("os")', '2 ** 3 ** 99',
+                     'what is the time', '5 reasons to learn Python', 'minus 5', '10 over 3', '2 ^ 0.5'):   # no sum, or no exact answer
+            with self.subTest(said=said): self.assertIsNone(atticus.arithmetic(atticus.plain(said)))
+
     def test_balanced_picks_the_model_from_the_ask_before_it_runs(self):
         # Nov 16: "Teach me how to use orca." stayed on Haiku, which skipped [explain] and listed text instead of pointing
         asks = {'show': ['Teach me how to use orca.', 'Can you teach me how to use orga', 'explain how to use these apps',
                          'how do i solve problem 21', 'can you show me on my screen how to do problem 36'],
                 'easy': ["Hey, how's it going?", 'Hey, what’s up?', 'Open Notes', 'Atticus, can you open up Spotify?', 'turn dark mode off',
                          'Can you skip?', 'What does CRT mean in trading?', 'How much is 50 Celsius in Fahrenheit?', '2026-1977.',
-                         'type see you at five',
+                         'type see you at five', '16 times 5.', '910 times 305.', '12 divided by 4', '3 squared plus 4',
                          # Nov 21: one-step asks in other words went to the work model
                          'what app is in front', "Yo, how's it going bro?", 'hey whats up', 'And then what is an H-O-R-I?', 'Can you quit? Zoom.', 'Unpause.'],
                 'work': ['answer problem 30', 'How do you calculate discriminant?', 'Is x squared minus 2 x plus 4 factorable?',
@@ -448,7 +461,7 @@ print(json.dumps({{"type": "result", "is_error": True, "result": "Authentication
                 brain, start, _, log = self.routing_ask({'routing':'balanced', 'drawModel':chosen}, [('Click the sidebar first.',True,[])],
                                                         task='Teach me how to use orca.')
                 self.assertEqual(brain.call_count, 1); start.assert_called_once_with(chosen)
-                self.assertFalse(brain.call_args.args[0].endswith(atticus.MODEL_OFFER)); self.assertFalse(brain.call_args.args[3])
+                self.assertFalse(brain.call_args.args[0].endswith(atticus.MODEL_OFFER))
                 self.assertEqual(log.call_args.kwargs['model'], chosen)
         with patch.object(atticus, 'pref', side_effect=lambda k,d:{'drawModel':'sonnet'}.get(k,d)):
             self.assertIn(atticus.DRAWING, atticus.system_prompt(atticus.NEVER, 'sonnet'))
@@ -1548,7 +1561,7 @@ print(json.dumps({{'type':'message_end','message':{{'role':'assistant','content'
                 p.stdin=io.StringIO(); p.ask=''; p.returncode=0
                 p.stdout=map(json.dumps,events+[{'type':'result','result':answer,'total_cost_usd':.001}])
                 with patch.object(atticus,'stop_claude') as stop, patch.object(atticus,'say'), patch.object(atticus,'preview_commands'):
-                    reply,cost,_=atticus.run('Fixture request'+(atticus.MODEL_OFFER if auto else ''),p,auto_work=auto)
+                    reply,cost,_=atticus.run('Fixture request'+(atticus.MODEL_OFFER if auto else ''),p)
                 self.assertEqual(reply,expected); self.assertEqual(atticus.run.ok,ok)
                 if events: self.assertEqual(atticus.run.observed[0]['result'],'Observed state 1')
                 stop.assert_not_called(); self.assertEqual(cost,.001)
@@ -1577,7 +1590,7 @@ print(json.dumps({{'type':'message_end','message':{{'role':'assistant','content'
         p=unittest.mock.Mock(); p.stdin=io.StringIO(); p.ask=''; p.returncode=0
         p.stdout=map(json.dumps,events+[{'type':'result','result':'A sourced answer.'}])
         with patch.object(atticus,'TURN',{}), patch.object(atticus,'stop_claude') as stop, patch.object(atticus,'say'), patch.object(atticus,'preview_commands'):
-            reply,_,_=atticus.run('A question'+atticus.MODEL_OFFER,p,auto_work=True)
+            reply,_,_=atticus.run('A question'+atticus.MODEL_OFFER,p)
         stop.assert_not_called(); self.assertFalse(atticus.run.work)
         self.assertEqual(reply,'A sourced answer.'); self.assertTrue(atticus.run.ok)
 
@@ -1590,7 +1603,7 @@ print(json.dumps({{'type':'message_end','message':{{'role':'assistant','content'
         p=unittest.mock.Mock(); p.stdin=io.StringIO(); p.ask=''; p.returncode=0; p.stdout=map(json.dumps,events)
         with patch.object(atticus,'TURN',{}), patch.object(atticus,'stop_claude') as stop, \
              patch.object(atticus,'say'), patch.object(atticus,'preview_commands'):
-            reply,cost,_=atticus.run('Research',p,auto_work=True)
+            reply,cost,_=atticus.run('Research',p)
         stop.assert_not_called(); self.assertEqual((reply,cost),('Research complete.',.001)); self.assertTrue(atticus.run.ok)
 
     def test_failed_tool_can_retry_another_method_on_haiku(self):
@@ -1602,7 +1615,7 @@ print(json.dumps({{'type':'message_end','message':{{'role':'assistant','content'
         p=unittest.mock.Mock(); p.stdin=io.StringIO(); p.ask=''; p.returncode=0; p.stdout=map(json.dumps,events)
         with patch.object(atticus,'TURN',{}), patch.object(atticus,'stop_claude') as stop, \
              patch.object(atticus,'say'), patch.object(atticus,'preview_commands'):
-            reply,_,_=atticus.run('Routine action'+atticus.MODEL_OFFER,p,auto_work=True)
+            reply,_,_=atticus.run('Routine action'+atticus.MODEL_OFFER,p)
         stop.assert_not_called(); self.assertEqual(reply,'Done another way.'); self.assertTrue(atticus.run.ok)
         self.assertEqual(atticus.run.cmds,['different method'])
 

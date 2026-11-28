@@ -261,10 +261,11 @@ class GuideTests(unittest.TestCase):
         retry.assert_not_called(); self.assertFalse(atticus.run.ok)
 
     def test_prompt_budget_against_base(self):
-        baseline = {'cheapest': 'c59b4f952d7f3dfe8e0b20341f4fa75be79299bcebfdfa09d412d75e845dcbcf',
-                    'balanced': '7587c7ad353b11d698f49e44e4e3afbb0ee923972d946bf6174cca2b9f25e90a'}
+        baseline = {'cheapest': '963c425d5194558013b597d21253730267aba9b3db2ffc56c24d3ab8f75a9f1e',
+                    'balanced': 'f2e62b355bca6e999c0f3ed34ad435af2a1f1e2232324c19ca215c988314f845'}
         # the one charts line; the rest is the a3e1175 prompt with one same-length handoff phrase: "unwatched look-act loops" (Nov 18),
-        # and the helper path named once, its flags bare after it (Nov 20)
+        # the helper path named once, its flags bare after it (Nov 20), same-length memory/workflow learning guards (Nov 26),
+        # and a corrected fact replacing the fact, not a rule (+12 chars, Nov 26)
         graphs = next(l for l in atticus.SYSTEM.splitlines() if l.startswith('Graphs: ')) + '\n'
         for mode, model in [('cheapest','haiku'), ('balanced','haiku'), ('capable','sonnet')]:
             with patch.object(atticus, 'pref', side_effect=lambda k,d:d), patch.object(atticus, 'routing_mode', return_value=mode):

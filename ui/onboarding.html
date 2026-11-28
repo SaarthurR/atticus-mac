@@ -1,8 +1,8 @@
 <!doctype html>
 <html><head><meta charset="utf-8">
-<!-- Atticus first-run window, ten steps: welcome, AI, work model (Claude plans only), Mac access, try it, dictation, show me how, improve, tip and all set. Atticus.swift loads this (orbs.js goes in place of
-     the marker), calls ob.set({...}) every second with which permissions are on, mirrors the box's calls into ob.app(call, arg),
-     and gets {do:'grant', id} / {do:'provider', ...} / {do:'done'} back. -->
+<!-- Atticus first-run window, eleven steps: welcome, AI, Mac access, try it (a first task), work model (Claude plans only), dictation, show me how, Meeting Copilot, improve, tip and all set.
+     Atticus.swift loads this (orbs.js goes in place of the marker), calls ob.set({...}) every second with which permissions are on, mirrors the box's
+     calls into ob.app(call, arg), and gets {do:'grant', id} / {do:'provider', ...} / {do:'task', task, outcome} / {do:'done'} back. -->
 <style>
 /*TOKENS*/
   :root {
@@ -153,7 +153,8 @@
     box-shadow: 0 0 0 .5px rgba(var(--black-rgb),.3), 0 0 0 4px rgba(var(--blue-rgb),.18), 0 0 24px rgba(var(--blue-rgb),.45); }
   .key.yes { color: rgb(var(--white-rgb)); background: linear-gradient(rgb(var(--green-top-rgb)), var(--green));
     box-shadow: 0 0 0 .5px rgba(var(--black-rgb),.3), 0 0 0 4px rgba(var(--green-traffic-rgb),.16), 0 0 24px rgba(var(--green-traffic-rgb),.4); transition-duration: var(--t-slow); }
-  #live-title { margin-top: 22px; font: 600 16px/1.3 system-ui; letter-spacing: -.01em; animation: rise var(--t-slow) var(--ease); }
+  #live-title, #tryask, #dictate-say { font: 600 16px/1.3 system-ui; letter-spacing: -.01em; color: var(--fg); }   /* what to say is the step's main line, not a hint */
+  #live-title { margin-top: 22px; animation: rise var(--t-slow) var(--ease); }
   #live-said { margin-top: 4px; min-height: 18px; font-size: 13px; line-height: 1.4; color: var(--fg2);
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   #live.listen #live-title { color: var(--accent); } #live.done #live-title { color: var(--ok-text); } #live.error #live-title { color: var(--warn); }
@@ -164,6 +165,9 @@
   .says { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; align-items: center; margin-top: 14px; }
   .says span { font-size: 12px; color: var(--fg3); margin-right: 2px; }
   .says i { font: 12px system-ui; font-style: normal; padding: 5px 11px; border-radius: 13px; color: var(--fg2); background: var(--card); box-shadow: inset 0 0 0 .5px var(--line); }
+  #tryask { margin-top: 18px; } #tryask :is(span, i) { font: inherit; color: inherit; margin: 0; padding: 0; background: none; box-shadow: none; }
+  #tryask .check { width: 20px; height: 20px; } #tryask.ok .check { display: block; } #try .stage { margin-top: 18px; }
+  #dictate-say { margin: 24px 0 0; max-width: 420px; text-wrap: balance; }
 
   /* show me how: one held ask on a small screen, built from Atticus's own parts at their real sizes, scaled to fit (--s): the shortcut
      keys, the box in its corner (ui.html's card on the native glass tint), and TalkPen's fading trail around a photo the mouse circles.
@@ -202,8 +206,41 @@
   .demo .elapsed { margin-top: 16px; font-size: 10.5px; line-height: 16px; color: var(--fg2); }
   .demo .pen { left: 0; top: 0; width: 640px; height: 300px; }
   .demo .cursor { left: 0; top: 0; filter: drop-shadow(0 1px 1.5px rgba(var(--black-rgb),.35)); }
-  #showkeys { margin-top: 16px; gap: 8px; }
-  #showkeys .key { height: 36px; min-width: 36px; padding: 0 10px; border-radius: 8px; font-size: 15px; } #showkeys .key.wide { min-width: 100px; font-size: 13px; }
+  #showkeys, #meetkeys { margin-top: 16px; gap: 8px; }
+  :is(#showkeys, #meetkeys) .key { height: 36px; min-width: 36px; padding: 0 10px; border-radius: 8px; font-size: 15px; } #showkeys .key.wide { min-width: 100px; font-size: 13px; }
+  /* Meeting Copilot: a call with live captions, then ⌘↩ and the panel's answer card, at meeting.html's own sizes. drawMeet paints each moment */
+  .demo .call { left: 14px; top: 23px; width: 330px; height: 254px; border-radius: 12px; overflow: hidden; color: rgb(var(--gray-96-rgb)); background: rgb(var(--gray-15-rgb));
+    box-shadow: 0 0 0 .5px rgba(var(--black-rgb),.3), 0 8px 24px rgba(var(--black-rgb),.18); }
+  .demo .call > i { position: absolute; top: 11px; left: 12px; width: 10px; height: 10px; border-radius: 50%; background: rgba(var(--white-rgb),.18); }
+  .demo .call > i + i { left: 28px; } .demo .call > i + i + i { left: 44px; }
+  .demo .call > span { position: absolute; top: 8px; left: 0; right: 0; text-align: center; font: 500 11px/16px system-ui; color: rgb(var(--gray-63-rgb)); }
+  .demo .tiles { position: absolute; left: 10px; right: 10px; top: 32px; height: 112px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .demo .tile { position: relative; display: grid; place-items: center; border-radius: 8px; background: rgba(var(--white-rgb),.06); transition: box-shadow var(--t-base) var(--ease); }
+  .demo .tile.talk { box-shadow: inset 0 0 0 1.5px rgb(var(--green-rgb)); }
+  .demo .tile b { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font: 600 16px system-ui; color: rgb(var(--white-rgb)); background: var(--c); }
+  .demo .tile span { position: absolute; left: 8px; bottom: 6px; font-size: 10px; color: rgb(var(--gray-78-rgb)); }
+  .demo .cc { position: absolute; left: 10px; right: 10px; top: 154px; height: 56px; border-radius: 8px; overflow: hidden; background: rgba(var(--black-rgb),.55); }
+  .demo .cc div { position: absolute; left: 12px; right: 12px; top: 10px; height: 36px; overflow: hidden; }
+  .demo .cc p { margin: 0; font-size: 12px; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .demo .cc b { margin-right: 5px; font-weight: 600; color: rgb(var(--gray-78-rgb)); }
+  .demo .ctl { position: absolute; left: 0; right: 0; bottom: 12px; display: flex; gap: 8px; justify-content: center; }
+  .demo .ctl i { width: 22px; height: 22px; border-radius: 11px; background: rgba(var(--white-rgb),.12); } .demo .ctl i:last-child { width: 36px; background: rgb(var(--red-rgb)); }
+  .demo .cop { left: 356px; top: 23px; width: 270px; height: 254px; box-sizing: border-box; padding: 12px 14px; border-radius: 16px; overflow: hidden; font-size: 13px; line-height: 1.4;
+    color: rgb(var(--gray-96-rgb)); background: rgba(var(--gray-7-rgb),.85); -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6);
+    box-shadow: 0 0 0 .5px rgba(var(--black-rgb),.3), 0 12px 32px rgba(var(--black-rgb),.35); --fg3: rgb(var(--gray-56-rgb)); --line: rgba(var(--white-rgb),.12); }
+  .demo .cop header { display: flex; align-items: center; gap: 8px; min-height: 34px; }
+  .demo .cop canvas { width: 30px; height: 30px; flex: none; margin-left: -3px; }
+  .demo .cop header b { display: block; font-size: 13px; font-weight: 600; letter-spacing: -.1px; }
+  .demo .cop header span { display: block; font-size: 11.5px; color: rgb(var(--gray-63-rgb)); font-variant-numeric: tabular-nums; }
+  .demo .question { padding: 12px; margin: 12px 0 0; border-radius: 11px; opacity: 0; background: rgba(var(--white-rgb),.06); box-shadow: inset 0 0 0 .5px var(--line); }
+  .demo .question .meta { font-size: 11px; color: var(--fg3); font-variant-numeric: tabular-nums; }
+  .demo .question p { margin: 4px 0 0; font-size: 12.5px; line-height: 1.4; }
+  .demo .question .wait { margin-top: 9px; font-size: 12px; color: var(--fg3); }
+  .demo .response { margin-top: 10px; padding-top: 10px; border-top: .5px solid var(--line); }
+  .demo .response :is(strong, span) { display: block; font-size: 12.5px; line-height: 1.45; }
+  .demo .response strong { font-weight: 600; }
+  .demo .response span { position: relative; margin-top: 3px; padding-left: 12px; }
+  .demo .response span::before { content: ""; position: absolute; left: 2px; top: .62em; width: 4px; height: 4px; border-radius: 50%; background: var(--fg3); }
   @keyframes in { from { opacity: 0; transform: translateY(5px); } }
   @keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
   @keyframes blink { 50% { opacity: 0; } }
@@ -323,6 +360,27 @@
   </div></div>
 </section>
 
+<section class="page" id="perms">
+  <h2 class="r">Set up Mac access</h2>
+  <p class="sub r">Allow Atticus to hear you, see your screen and control your Mac.</p>
+  <div class="list r" id="list"></div>
+  <div class="note r" id="perms-note">Still says Allow after you switched it on? Click Allow again.</div>
+  <div id="perms-done" class="r">Mac access is ready.</div>
+</section>
+
+
+<section class="page" id="try">
+  <h2 class="r" id="try-h">Now try it</h2>
+  <p class="sub r" id="try-talk">Hold the keys, say what you want, then let go.</p>
+  <div id="block" hidden><span id="block-text"></span><button class="allow" id="block-fix"></button></div>
+  <div class="says r" id="tryask"><span>Say</span><i>“What’s on my screen?”</i><svg class="check" viewBox="0 0 22 22" aria-hidden="true"><circle cx="11" cy="11" r="11"/><path d="M6.5 11.3l3 3 6-6.3"/></svg></div>
+  <div class="stage r idle" id="live" aria-live="polite">
+    <div class="keys" id="trykeys"><div class="key">⌃</div><div class="key">⌥</div><div class="key wide">Space</div></div>
+    <div id="live-title">Ready</div>
+    <div id="live-said"></div>
+  </div>
+</section>
+
 <section class="page" id="model">
   <h2 class="r" id="model-h">Pick a work model</h2>
   <p class="sub r">Atticus uses it for bigger asks.</p>
@@ -342,32 +400,12 @@
   </div>
 </section>
 
-<section class="page" id="perms">
-  <h2 class="r">Set up Mac access</h2>
-  <p class="sub r">Allow Atticus to hear you, see your screen and control your Mac.</p>
-  <div class="list r" id="list"></div>
-  <div class="note r" id="perms-note">Still says Allow after you switched it on? Click Allow again.</div>
-  <div id="perms-done" class="r">Mac access is ready.</div>
-</section>
-
-
-<section class="page" id="try">
-  <h2 class="r">Now try it</h2>
-  <p class="sub r" id="try-talk">Hold the keys, say what you want, then let go.</p>
-  <div id="block" hidden><span id="block-text"></span><button class="allow" id="block-fix"></button></div>
-  <div class="stage r idle" id="live" aria-live="polite">
-    <div class="keys" id="trykeys"><div class="key">⌃</div><div class="key">⌥</div><div class="key wide">Space</div></div>
-    <div id="live-title">Ready</div>
-    <div id="live-said"></div>
-  </div>
-  <div class="says r"><span>Try</span><i>“Hey Atticus, what’s up?”</i></div>
-</section>
-
 <section class="page" id="dictate">
   <h2 class="r">Dictation</h2>
   <p class="sub r" id="dictate-talk"></p>
   <div class="keys r" id="dictatekeys" style="margin-top:24px"></div>
-  <textarea class="fld r" id="dictate-field" aria-label="Dictation practice" placeholder="Try dictating here" style="max-width:480px;height:140px;padding:12px;margin-top:24px;resize:none"></textarea>
+  <p class="r" id="dictate-say" hidden><span>Hold</span> <span id="dictate-key"></span> <span>and say:</span> “Hey, running five minutes late, see you soon.”</p>
+  <textarea class="fld r" id="dictate-field" aria-label="Dictation practice" placeholder="Try dictating here" style="max-width:480px;height:140px;padding:12px;margin-top:12px;resize:none"></textarea>
 </section>
 
 <section class="page" id="show">
@@ -422,6 +460,29 @@
     <span hidden id="show-q">What is this?</span><span hidden id="show-a">A flat white, with a latte-art heart on top.</span>
   </div></div>
   <div class="keys r" id="showkeys"><div class="key">⌃</div><div class="key">⌥</div><div class="key wide">Space</div></div>
+</section>
+
+<section class="page" id="meeting">
+  <h2 class="r">Meeting Copilot</h2>
+  <p class="sub r">On a call, press ⌘↩ and Atticus tells you what to say.</p>
+  <div class="demo r" aria-hidden="true"><div class="scr">
+    <div class="call"><i></i><i></i><i></i><span>Weekly sync</span>
+      <div class="tiles"><div class="tile" style="--c:rgb(var(--teal-rgb))"><b>D</b><span>Dana</span></div><div class="tile" style="--c:rgb(var(--indigo-rgb))"><b>Y</b><span>You</span></div></div>
+      <div class="cc"><div>
+        <p><b>Dana</b>Thanks, that demo was really helpful.</p>
+        <p><b>Dana</b>Before we go, one quick question.</p>
+        <p><b>Dana</b>How long does setup usually take?</p>
+      </div></div>
+      <div class="ctl"><i></i><i></i><i></i></div>
+    </div>
+    <div class="cop">
+      <header><canvas></canvas><div><b>Meeting Copilot</b><span>Listening · 12:04</span></div></header>
+      <article class="question"><div class="meta">You asked · 12:04</div><p>“What should I say?”</p><div class="wait">Waiting…</div>
+        <div class="response"><strong>About a week for most teams.</strong><span>Day one: connect your accounts.</span><span>We handle the data import for you.</span></div></article>
+    </div>
+  </div></div>
+  <div class="keys r" id="meetkeys"><div class="key">⌘</div><div class="key">↩</div></div>
+  <p class="note r">It’s on. You can turn it off in Settings → Meetings.</p>
 </section>
 
 <section class="page" id="improve">
@@ -481,7 +542,7 @@
 <script type="module">
   const $ = id => document.getElementById(id);
   const post = m => window.webkit?.messageHandlers.ob.postMessage(m);
-  const pages = ['welcome', 'ai', 'model', 'perms', 'try', 'dictate', 'show', 'improve', 'tip', 'done'];
+  const pages = ['welcome', 'ai', 'perms', 'try', 'model', 'dictate', 'show', 'meeting', 'improve', 'tip', 'done'];
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
   let practice = null;
   let cur = '', orbWake = null, ahead = 0, arrivedReady = false, askedLocal = false, ideaTimer = 0, ideaAt = 0;
@@ -515,7 +576,7 @@
     if (id === 'ai' && !askedLocal && !saved.apiBase) { askedLocal = true; post({ do: 'localServers' }); }
     paint();
     if (id === 'dictate') $('dictate-field').focus();
-    if (id === 'show') playDemo(); else cancelAnimationFrame(demoFrame);
+    if (demos[id]) playDemo(); else cancelAnimationFrame(demoFrame);
   };
   // Once its job is done, a step moves on by itself, unless it was already done when you got there.
   const autoAhead = (id, ms) => {
@@ -554,7 +615,7 @@
 
   // Back and Continue: Continue is the main button once the step's job is done; until then it says you can come back to it.
   const paint = () => {
-    const done = cur === 'try' ? tried : ['model', 'dictate', 'show', 'improve', 'tip', 'done'].includes(cur) || ready(cur);
+    const done = cur === 'try' ? tried : ['model', 'dictate', 'show', 'meeting', 'improve', 'tip', 'done'].includes(cur) || ready(cur);
     $('later').hidden = cur !== 'improve';
     $('next').textContent = cur === 'improve' ? 'Help Improve' : cur === 'tip' ? 'Next' : cur === 'done' ? doneNext : done ? 'Continue' : cur === 'try' ? 'Try It Later' : 'Skip for Now';
     $('next').classList.toggle('quiet', !done);
@@ -627,11 +688,12 @@
       paintProv(); if ($('srv-base').value) probe(); else $('srv-base').focus();
     } else if (pick !== provider) use(pick);
   });
-  // Plip web/index.html Segmented (d_), MIT, LICENSE-Plip: providers are one keyboard choice.
-  document.querySelector('#ai [role=radiogroup]').onkeydown = e => {
+  // Plip web/index.html Segmented (d_), MIT, LICENSE-Plip: the providers are one keyboard choice.
+  const providers = document.querySelector('#ai [role=radiogroup]');
+  providers.onkeydown = e => {
     const step = ['ArrowRight', 'ArrowDown'].includes(e.key) ? 1 : ['ArrowLeft', 'ArrowUp'].includes(e.key) ? -1 : 0;
-    if (!step || !e.target.matches('.opt')) return;
-    e.preventDefault(); const options = [...document.querySelectorAll('.opt')], i = options.indexOf(e.target);
+    if (!step || !e.target.matches('[role=radio]')) return;
+    e.preventDefault(); const options = [...providers.querySelectorAll('[role=radio]')], i = options.indexOf(e.target);
     const next = options[(i + step + options.length) % options.length]; next.click(); next.focus();
   };
   document.querySelectorAll('#srv .chip').forEach(c => c.onclick = () => { $('srv-base').value = c.dataset.base; $('srv-model').value = ''; paintProv(); probe(); });
@@ -651,6 +713,13 @@
     $('block-text').textContent = b[0];
     if (!$('block-fix').classList.contains('wait')) $('block-fix').textContent = b[1];
     $('block-fix').onclick = typeof b[2] === 'function' ? b[2] : () => grant($('block-fix'), b[2]);
+  };
+  // One first task to say (Plip tour.py's TASKS), and how each ask on this step went (its RESULTS), saved by Atticus.swift.
+  const task = 'explain'; let asking = false;
+  const result = outcome => {   // done, failed or stopped: once per ask
+    if (!asking) return;
+    asking = false; post({ do: 'task', task, outcome });
+    if (outcome === 'done') $('tryask').classList.add('ok');
   };
   // The live line follows the box: Atticus.swift mirrors each of the box's calls here while setup is open.
   let liveState = 'idle', liveSaid = '';
@@ -713,14 +782,16 @@
     app(call, v) {   // the box's own calls, mirrored
       if (cur !== 'try') return;
       const tag = call === 'line' && typeof v === 'string' ? v[0] : '';   // ui.line's tags: … the answer arriving, ✓ the final one; steps, points and tips stay in the box
+      if (call === 'stopped' && v) result('stopped');   // Esc or the shortcut cut it off; an empty one is nothing heard
+      if (call === 'listen') asking = v !== 'dict';   // an ask starts; dictation isn't one
       if (call === 'listen' && v !== 'dict') live('listen', '');
       else if (call === 'words' && ['listen', 'think'].includes(liveState)) live(liveState, String(v || ''));
       else if (call === 'think') live('think');
       else if (tag === '…' && v.length > 2) live('answer', v.slice(2));
-      else if (tag === '✓') live('done', v.slice(2));
-      else if (call === 'finished' && ['think', 'answer'].includes(liveState)) live('done');   // the worker always exits: an error or a ✓ already said how it went
-      else if (call === 'msg' && v) live('error', String(v));
-      else if ((call === 'msg' || call === 'stopped') && ['listen', 'think'].includes(liveState)) live('idle', '');
+      else if (tag === '✓') { live('done', v.slice(2)); result('done'); }
+      else if (call === 'finished' && ['think', 'answer'].includes(liveState)) { live('done'); result('done'); }   // the worker always exits: an error or a ✓ already said how it went
+      else if (call === 'msg' && v) { live('error', String(v)); result('failed'); }
+      else if ((call === 'msg' || call === 'stopped') && ['listen', 'think'].includes(liveState)) { live('idle', ''); asking = false; }   // nothing heard: no ask to count
     },
     plan(c) {   // the AI client: installed, signed in, paid plan? The row says which, the button fixes it
       if (want && c.client !== want) return; want = null;
@@ -759,6 +830,7 @@
       const key = p.dictateHotkeyLabel;
       const reason = !key ? 'Choose a dictation shortcut in Settings.' : p.dictateHotkeyTaken ? 'This shortcut is in use by another app.' : p.globeTaken ? 'Set the Globe key to Do Nothing in Keyboard Settings.' : p.paused ? 'Atticus is paused.' : last && !last.ax ? 'Allow Accessibility on the Mac access page.' : '';
       $('dictate-talk').textContent = reason || 'Hold the keys and say anything.';
+      $('dictate-key').textContent = key || ''; $('dictate-say').hidden = !!reason;
       if ($('dictatekeys').textContent !== (key || '')) $('dictatekeys').replaceChildren(...capsOf(key || '').map(c => Object.assign(document.createElement('div'), { className: c.length > 3 ? 'key wide' : 'key', textContent: c })));
       $('idea-dict').hidden = !key; $('idea-key').replaceChildren(...capsOf(key || '').map(c => Object.assign(document.createElement('kbd'), { textContent: c })));
       if (p.hotkeyLabel && p.hotkeyLabel !== talkLabel) {   // the talk shortcut as set; redrawn only when it changes, so held keys stay lit
@@ -903,18 +975,36 @@
     const cur = scr.querySelector('.cursor'), [mx, my] = at(t);
     cur.style.transform = `translate(${mx - (+cur.dataset.x || 2)}px, ${my - (+cur.dataset.y || 2)}px)`;
   };
+  // Meeting Copilot: the same kind of loop. Captions arrive, ⌘↩, the card rises in waiting, then its answer line and two bullets.
+  const M = { lines: [300, 1300, 2300], press: 3300, card: 3450, answer: 4300, out: 7300, loop: 8000, still: 5200 };
+  const meet = $('meeting').querySelector('.demo'), meetCall = meet.querySelector('.call'), card = meet.querySelector('.question');
+  const drawMeet = t => {
+    const out = 1 - ease(span(t, M.out, 280));
+    const scroll = -18 * M.lines.slice(2).reduce((a, at) => a + ease(span(t, at, 280)), 0);   // two lines show; a third scrolls them up
+    meetCall.querySelectorAll('.cc p').forEach((p, i) => { p.style.opacity = ease(span(t, M.lines[i], 200)) * out; p.style.transform = `translateY(${scroll}px)`; });
+    meetCall.querySelector('.tile').classList.toggle('talk', t >= M.lines[0] && t < M.press);
+    [...$('meetkeys').children].forEach((k, i) => k.classList.toggle('lit', t >= M.press + i * 90 && t < M.press + 400));
+    const pop = spring(span(t, M.card, 280));
+    card.style.opacity = Math.min(1, span(t, M.card, 120) * 2) * out;
+    card.style.transform = `translateY(${6 * (1 - pop)}px) scale(${.96 + .04 * pop})`;
+    card.querySelector('.wait').hidden = t >= M.answer; card.querySelector('.response').hidden = t < M.answer;
+    card.querySelectorAll('.response > *').forEach((e, i) => { const p = ease(span(t, M.answer + i * 120, 280)); e.style.opacity = p; e.style.transform = `translateY(${4 * (1 - p)}px)`; });
+    demoOrb?.(meet.querySelector('canvas'), t >= M.card && t < M.answer ? 'solving' : 'listening', t / 1000);
+  };
+  const demos = { show: [draw, D], meeting: [drawMeet, M] };
   const tick = now => {
     demoFrame = 0;
-    if (cur !== 'show') return;
-    draw(demoHold ?? (reduced.matches ? D.still : (now - demoStart) % D.loop));
+    const [paint, times] = demos[cur] || [];
+    if (!paint) return;
+    paint(demoHold ?? (reduced.matches ? times.still : (now - demoStart) % times.loop));
     if (demoHold === null && !reduced.matches) demoFrame = requestAnimationFrame(tick);
   };
   const playDemo = () => { cancelAnimationFrame(demoFrame); demoStart = performance.now(); tick(demoStart); };
-  new ResizeObserver(() => demo.style.setProperty('--s', demo.clientWidth / 640)).observe(demo);
-  ob.showAt = ms => { demoHold = ms; playDemo(); };   // one fixed moment (null plays again): screenshots
+  for (const d of [demo, meet]) new ResizeObserver(() => d.style.setProperty('--s', d.clientWidth / 640)).observe(d);
+  ob.showAt = ms => { demoHold = ms; playDemo(); };   // one fixed moment of this step's loop (null plays again): screenshots
 
   paintProv(); go(pages.includes(window.obStart) ? window.obStart : 'welcome');
-  reduced.addEventListener('change', () => { orbWake?.(); orbWake = null; welcomeGeneration++; keys().forEach(k => k.classList.remove('down')); clearTimeout(ideaTimer); document.querySelectorAll('.idea').forEach(e => e.classList.remove('hi')); if (!reduced.matches) { setTimeout(press, 1200); if (cur === 'done') ideaTimer = setTimeout(shine, 1600); } if (cur === 'show') playDemo(); });
+  reduced.addEventListener('change', () => { orbWake?.(); orbWake = null; welcomeGeneration++; keys().forEach(k => k.classList.remove('down')); clearTimeout(ideaTimer); document.querySelectorAll('.idea').forEach(e => e.classList.remove('hi')); if (!reduced.matches) { setTimeout(press, 1200); if (cur === 'done') ideaTimer = setTimeout(shine, 1600); } if (demos[cur]) playDemo(); });
 
   // The same orb as the overlay, breathing, on the first and last steps.
   try {
@@ -933,7 +1023,7 @@
       const c = canvas.getContext('2d'), p = E.r(state, S); if (canvas.width !== S * 2) canvas.width = canvas.height = S * 2;
       c.setTransform(2, 0, 0, 2, 0, 0); c.clearRect(0, 0, S, S); E.p(c, E.M[p.mode](S, reduced.matches ? 0 : secs * p.speed, p.opts), true, null);
     };
-    if (cur === 'show') playDemo();
+    if (demos[cur]) playDemo();
   } catch (e) {}
 </script>
 </body></html>

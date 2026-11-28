@@ -1672,7 +1672,8 @@ class AgentTests(unittest.TestCase):
 class BoxAgentDoneTests(unittest.TestCase):
     def test_done_card_leads_with_the_answer_and_lists_only_what_was_made(self):
         page = (Path(__file__).resolve().parents[1] / 'ui' / 'ui.html').read_text()
-        code = page[page.index('  const agentAnswer='):page.index('  const keyButton=')]
+        from tests.test_link_titles import title_script
+        code = title_script() + page[page.index('  const agentAnswer='):page.index('  const keyButton=')]
         script = code + r'''
 const fail = m => { console.error(m); process.exit(1); };
 const cite = 'https://example.com/review', made = 'https://example.org/new-page';
@@ -1717,7 +1718,8 @@ rows = [{ id: 'f', status: 'failed', ended: now - 60 }]; onScreen.set('f', 0); s
 
     def test_agent_view_keeps_titled_made_links_and_drops_cited_sources(self):
         page = (Path(__file__).resolve().parents[1] / 'ui' / 'agents.html').read_text()
-        code = page[page.index('const host='):page.index('\n', page.index('const host='))] + '\n' + page[page.index('const KINDS='):page.index('function madeCards')] + page[page.index('const answer=r=>'):page.index('\n', page.index('const answer=r=>'))]
+        from tests.test_link_titles import title_script
+        code = title_script() + page[page.index('const host='):page.index('\n', page.index('const host='))] + '\n' + page[page.index('const KINDS='):page.index('function madeCards')] + page[page.index('const answer=r=>'):page.index('\n', page.index('const answer=r=>'))]
         script = code + r'''
 const cite = 'https://example.com/review', issue = 'https://tracker.example.com/issues/12';
 const kept = things({ result: 'See [Review](' + cite + '). Filed ' + issue, made: [{ url: cite, title: '', type: '' }, { url: issue, title: 'Login fails', type: '' }] }).map(m => m.title);

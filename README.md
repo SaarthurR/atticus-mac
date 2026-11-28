@@ -57,24 +57,26 @@ Needs **macOS 26** and an AI client: Claude Code on a Claude plan, Devin, Pi or 
 |---|---|
 | *"Code on my big screen, Chrome and Terminal on the laptop."* | Arranges three windows across two displays. |
 | *"Open Spotify."* · *"Open Gmail."* · *"Terminal on the left."* | Runs instantly, with no AI at all. |
+| *"What's 16 times 5?"* | Answers instantly, with no AI at all. |
 | *"Play Blinding Lights by The Weeknd."* | Starts it in Spotify in about a second. |
 | *"Find my notes about the Tokyo trip."* | Searches your files by what's inside them. |
 | *"What's wrong with this code?"* | Looks at your screen and answers in a line. |
 | *"Move my dentist appointment to 4."* | Shows the change on a card. Adding is immediate; moving or deleting asks first. |
 | *"Find me a desk lamp under $30 on Amazon."* | Works in Chrome behind your apps. |
 | *"Where do I turn on Night Shift?"* | Points at the exact spot on your screen. |
-| *"When I say focus mode, close Slack and open my to-do list."* | Remembers it. Next time, two words do it all. |
+| *"When I say focus mode, close Slack and open my to-do list."* | Remembers it, even said as a full sentence. Next time, two words do it all. |
 
 ## What it does
 
-- **Learns.** Ask once and it works out the steps. Ask again and it runs in a blink, with no AI.
+- **Learns.** Ask once and it works out the steps. Ask again and it runs in a blink, with no AI. Actions start and talk back faster than before.
 - **Sees your screen.** Ask about anything on it. Point or circle with your mouse while you hold the shortcut, or use **Point at your screen** to mark a spot first.
-- **Teaches and draws.** "Teach me…" points at each spot, one step at a time. "Explain this and draw it" builds a labeled diagram over your screen.
+- **Teaches and draws.** "Teach me…" points at each spot, one step at a time. "Explain this and draw it" builds a labeled sketch step by step as it talks, with Back and Next.
 - **Picks the right model.** Easy asks go to a quick model; harder ones go to a stronger one. Change it in Settings → Intelligence.
 - **Dictate anywhere.** Hold fn, talk, let go. Your words land in any text field, cleaned up. One switch in Settings turns it off.
+- **Stays out of the way.** A minimized answer box shrinks to a small circle. To keep the bar with more info, turn on **More info when minimized** in Settings → Box & Display.
 - **Hands-free.** Turn on the wake word and just say "Atticus".
 - **Background agents.** Big jobs run behind your apps while you keep working.
-- **Meeting Copilot.** Answers and notes during calls, saved on your Mac. Press ⌘↩ any time for what to say next.
+- **Meeting Copilot.** On by default. Answers and notes during calls, saved on your Mac. Press ⌘↩ any time for what to say next.
 - **Watch and routines.** "Tell me when Codex is done." "Every weekday at 8, summarize my calendar."
 - **Your plan, no API key.** Runs on Claude, Devin, Pi or a [local model](docs/GUIDE.md#use-a-local-model).
 - **Private and safe.** Your voice stays on your Mac. Deletes, sends and purchases ask first.

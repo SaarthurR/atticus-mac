@@ -59,7 +59,7 @@ await until(()=>on()==='try','auto-advance to Try it',3000);page('try');await po
 d.querySelector('[data-to="try"]').click();await until(()=>on()==='try','Try it dot');page('try');
 assert($('block').hidden&&$('next').textContent==='Try It Later','Nothing blocks a first ask; Continue waits for one');
 w.ob.set({...ALL,mic:false,speech:false});assert($('block').hidden,'Missing voice access does not block Try it');
-assert($('try').querySelector('.says i').textContent==='“Hey Atticus, what’s up?”','Try it shows one thing to say');
+assert(!$('try').querySelector('[role=radio]')&&$('tryask').textContent.includes('What’s on my screen?'),'Try it offers one first task to say');
 w.ob.set(ALL);w.ob.plan({ok:false,need:'login',client:'devin',text:'Sign in to Devin.'});assert($('block-text').textContent.includes('needs an AI')&&$('block-fix').textContent==='Pick One','No AI says so, ahead of the rest');
 $('block-fix').click();await until(()=>on()==='ai','back to the AI step');w.ob.plan({ok:true,need:'',client:'devin',text:'Devin is signed in.'});await until(()=>on()==='perms','ready here moves on',3000);
 d.querySelector('[data-to="ai"]').click();await until(()=>on()==='ai','AI dot');assert(!await until(()=>on()!=='ai','a jump',1900).then(()=>true,()=>false),'Already ready on arrival: no jump');
@@ -90,9 +90,14 @@ assert($('next').textContent==='Continue'&&!$('next').classList.contains('quiet'
  w.ob.showAt(4700);assert(!lit()&&inked()===0,'Released: the keys are up and the trail is gone');
  assert(box.querySelector('.status').textContent==='Done'&&box.querySelector('.a').textContent==='A flat white, with a latte-art heart on top.','The box answers');
  w.ob.showAt(7690);assert(+box.style.opacity<0.01&&cur()===home,'The loop ends with the box closed and the mouse back where it started');w.ob.showAt(null);}
+$('next').click();await until(()=>on()==='meeting','meeting');page('meeting');
+{const card=$('meeting').querySelector('.question'),lit=()=>[...$('meetkeys').children].every(k=>k.classList.contains('lit'));
+ w.ob.showAt(2000);assert(+card.style.opacity===0&&!lit(),'Meeting Copilot: captions first, no card yet');
+ w.ob.showAt(3500);assert(lit()&&+card.style.opacity>0&&card.querySelector('.response').hidden,'⌘↩ brings the card in, still waiting');
+ w.ob.showAt(5200);assert(!lit()&&+card.style.opacity===1&&!card.querySelector('.response').hidden&&card.querySelectorAll('.response span').length===2,'The answer line and two bullets');w.ob.showAt(null);}
 $('next').click();await until(()=>on()==='improve','improve');page('improve');
 assert($('back').textContent==='Back'&&!$('later').hidden&&$('later').textContent==='Not Now'&&$('next').textContent==='Help Improve','Improve offers two explicit choices beside a real Back');
-$('back').click();await until(()=>on()==='show','back from improve');$('next').click();await until(()=>on()==='improve','improve again');assert(true,'Back on Help improve goes back a page');
+$('back').click();await until(()=>on()==='meeting','back from improve');$('next').click();await until(()=>on()==='improve','improve again');assert(true,'Back on Help improve goes back a page');
 $('next').click();await posted(m=>m.do==='set'&&m.k==='improve'&&m.v==='true','improve yes');page('tip');assert($('later').hidden,'Not Now is only on Help improve');
 $('back').click();await until(()=>on()==='improve','back from tip');$('later').click();await posted(m=>m.do==='set'&&m.k==='improve'&&m.v==='false','improve no');page('tip');assert(true,'Back on Tip goes to Help improve; Not Now moves on');
 $('kofi').click();await posted(m=>m.do==='kofi','tip');assert(on()==='tip','Tip leaves setup open');
@@ -104,9 +109,9 @@ assert($('done').scrollHeight<=$('done').clientHeight,'All set fits without scro
 await until(()=>d.querySelectorAll('.idea.hi').length===1,'One idea lights up around the orb',3000);assert(true,'One idea lights up around the orb');
 $('feedback-link').click();await posted(m=>m.do==='feedback','feedback');assert(on()==='done','Feedback stays on All set');
 $('back').click();await until(()=>on()==='tip','back');
-for(const id of ['improve','show','dictate','try','perms','ai','welcome']){$('back').click();await until(()=>on()===id,'Back to '+id);}assert($('bar').hidden,'Back walks one page at a time to the start');
+for(const id of ['improve','meeting','show','dictate','try','perms','ai','welcome']){$('back').click();await until(()=>on()===id,'Back to '+id);}assert($('bar').hidden,'Back walks one page at a time to the start');
 d.querySelector('[data-to="done"]').click();await until(()=>on()==='done','dot jump');assert(true,'Back and the dots move between steps');
-for(const id of ['ai','perms','try','dictate','show','improve','tip','done']){d.querySelector(`[data-to="${id}"]`).click();await until(()=>on()===id,'dot '+id);const r=[...$('dots').children].map(b=>b.getBoundingClientRect());assert(Math.abs((r[0].left+r.at(-1).right)/2-w.innerWidth/2)<1,'Dots centered on the window on '+id);}
+for(const id of ['ai','perms','try','dictate','show','meeting','improve','tip','done']){d.querySelector(`[data-to="${id}"]`).click();await until(()=>on()===id,'dot '+id);const r=[...$('dots').children].map(b=>b.getBoundingClientRect());assert(Math.abs((r[0].left+r.at(-1).right)/2-w.innerWidth/2)<1,'Dots centered on the window on '+id);}
 $('next').click();await posted(m=>m.do==='done','finish');assert(true,'Start Using Atticus finishes setup');
 await until(()=>w.getComputedStyle($('done-check').querySelector('circle')).opacity==='1','done check (it only reaches its last frame by animating)');assert(true,'Done check finishes');
 const reduced=await load('reduced',true);

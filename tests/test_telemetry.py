@@ -318,10 +318,12 @@ func open(_ i: Int) {
     for n in ["h", "c", "drawingMath", "agents"] { cfg.userContentController.add(sink, name: n) }
     let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 600), configuration: cfg); webs.append(web)
     loadPage(web, pages[i].0); loadPage(web, pages[i].0)   // a reload adds no second handler
+    var tries = 0
     func ready() {
         web.evaluateJavaScript("document.readyState") { state, _ in
             guard state as? String == "complete" else { return DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: ready) }
             web.evaluateJavaScript(pages[i].1) { r, e in
+                if r as? Bool != true, tries < 25 { tries += 1; return DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: ready) }   // the reload can still be swapping documents
                 works[pages[i].0] = r ?? String(describing: e)
                 callJS(web, pages[i].2, ["private words"]); callJS(web, pages[i].2, ["private words"])
                 web.evaluateJavaScript(boom) { _, _ in DispatchQueue.main.asyncAfter(deadline: .now() + 1) { open(i + 1) } }
@@ -420,6 +422,8 @@ NSApplication.shared.run()
     def test_handled_feature_failures_send_stage_enums_only(self):
         source = Path(atticus.ME).with_name('Atticus.swift').read_text()
         stages = re.findall(r'telemetry\(\["error", "native", "([^"\\]*)', source)
+        self.assertIn('telemetry(["error", "native", failureStage(r.code, r.out)])', source)
+        stages += ['update_6_' + step for step in ('prepare', 'compile', 'package', 'sign', 'install', 'pending', 'log', 'unknown')]
         self.assertGreaterEqual(len(stages), 5)
         with patch.object(atticus, 'report_error') as sent:
             for stage in stages:

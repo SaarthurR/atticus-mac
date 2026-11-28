@@ -140,18 +140,22 @@ class NativeTests(unittest.TestCase):
     def test_memory_receipts_fall_through_when_drawing_parser_rejects_them(self):
         source = (ROOT/'Atticus.swift').read_text()
         branch = source.split('                    if line.hasPrefix("✎ ") {', 1)[1].split('                    if line.hasPrefix("@ ")', 1)[0]
+        cue = next(l for l in source.splitlines() if l.startswith('struct SketchCue:'))
         out = run_swift(self, '''import Cocoa
 final class Prefs { static func bool(_ key: String) -> Bool { true } }
-struct DrawingRequest: Decodable { let steps: [String]; var guide: String? }
+struct DrawingRequest: Decodable { let steps: [String]; var guide: String?; var sketch: [Double]? }
+''' + cue + '''
 final class Drawing {
-    var focus: CGRect?, driven = false
+    var focus: CGRect?, driven = false, request: DrawingRequest?
     func receive(_ data: Data) -> Bool { String(decoding: data, as: UTF8.self).contains("steps") }
+    func update(_ data: Data) -> Bool { print("sketch"); return true }
 }
 final class Harness {
     let drawing = Drawing(), panel = NSPanel()
     var pendingDrawings: [String:Data] = [:]
     func drawAlong(_ data: Data, guide: String, steps: Int) { print("along") }
     func leadToDrawing() {}
+    func cueSketch(_ guide: String, step: Int) { print("cue \\(guide) \\(step)") }
     func shush() { print("guide") }
     func js(_ call: String, _ value: String) { print(value) }
     func feed(_ lines: [String]) {
@@ -163,9 +167,9 @@ final class Harness {
         print(guided)
     }
 }
-Harness().feed(["✎ {\\"remembered\\":[\\"Use concise answers\\"]}", "✎ {\\"steps\\":[],\\"guide\\":\\"g\\"}", "✎ {\\"steps\\":[]}"])
+Harness().feed(["✎ {\\"remembered\\":[\\"Use concise answers\\"]}", "✎ {\\"steps\\":[],\\"guide\\":\\"g\\"}", "✎ {\\"steps\\":[],\\"guide\\":\\"s\\",\\"sketch\\":[0,0,9,9]}", "✎ {\\"guide\\":\\"s\\",\\"cue\\":1}", "✎ {\\"steps\\":[]}"])
 ''')
-        self.assertEqual(out.splitlines(), ['✎ {"remembered":["Use concise answers"]}', 'along', 'guide', 'true'])   # a streamed guide never mutes the answer
+        self.assertEqual(out.splitlines(), ['✎ {"remembered":["Use concise answers"]}', 'along', 'sketch', 'cue s 1', 'guide', 'true'])   # a streamed guide never mutes the answer
 
     def test_page_calls_skip_values_json_cannot_hold(self):
         source = (ROOT / 'Atticus.swift').read_text()

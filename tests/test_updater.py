@@ -27,7 +27,8 @@ class UpdaterTests(unittest.TestCase):
         self.git(self.other, 'add', '.'); self.git(self.other, 'commit', '-qm', 'update'); self.git(self.other, 'push', '-q')
 
     def run_update(self):
-        return subprocess.run(['/bin/zsh', '-c', SCRIPT, str(self.src)], capture_output=True).returncode
+        self.result = subprocess.run(['/bin/zsh', '-c', SCRIPT, str(self.src)], env=dict(os.environ, HOME=str(self.root / 'home')), capture_output=True, text=True)
+        return self.result.returncode
 
     def test_repeated_checks_do_not_start_overlapping_updates(self):
         source = (ROOT / 'Atticus.swift').read_text()
@@ -36,11 +37,7 @@ class UpdaterTests(unittest.TestCase):
         self.assertLess(updater.index('checking = true'), updater.index('status = "Checking…"'))
         self.assertIn('DispatchQueue.main.async {\n                checking = false', updater)
 
-    def test_signing_failure_keeps_entire_installed_app(self):
-        home = self.root / 'home'; app = home / 'Applications/Atticus.app/Contents'
-        (app / 'MacOS').mkdir(parents=True); (app / 'Resources').mkdir()
-        for name in ['Info.plist', 'MacOS/Atticus', 'Resources/atticus.py']:
-            (app / name).write_text('old app')
+    def build_source(self, security):
         source = self.root / 'build-source'; source.mkdir(); (source / 'ui').mkdir()
         (source / 'build.sh').write_text((ROOT / 'build.sh').read_text())
         for name in ['Atticus.swift', 'atticus.py', 'ui/page.html', 'ui/page.js', 'ui/page.css', 'ui/AppIcon.icns']:
@@ -49,15 +46,97 @@ class UpdaterTests(unittest.TestCase):
         commands = self.root / 'bin'; commands.mkdir()
         for name, script in {
             'swiftc': 'for arg do target="$arg"; done; printf new > "$target"',
-            'security': 'echo 1\\) ABC Atticus Local Signing',
-            'codesign': 'echo intentional-signing-failure >&2; exit 1',
+            'security': security,
+            'codesign': 'echo "$2" > "$HOME/signed-with"',
         }.items():
             path = commands / name; path.write_text('#!/bin/sh\n' + script + '\n'); path.chmod(0o755)
-        result = subprocess.run(['/bin/bash', str(source / 'build.sh')], env=dict(os.environ, HOME=str(home), PATH=str(commands) + ':' + os.environ['PATH'], ATTICUS_NO_RESTART='1'), capture_output=True)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn(b'intentional-signing-failure', result.stderr)
+        return source, commands
+
+    def run_build(self, source, commands):
+        return subprocess.run(['/bin/bash', str(source / 'build.sh')], env=dict(os.environ, HOME=str(self.root / 'home'), PATH=str(commands) + ':' + os.environ['PATH'], ATTICUS_NO_RESTART='1'), capture_output=True)
+
+    def test_signing_key_never_needs_a_password_prompt(self):
+        # codesign prompts for a key whose partition list lacks apple:, which only the keychain's password can add.
+        home = self.root / 'home'; kc = home / 'Library/Keychains/atticus-signing.keychain-db'; calls = home / 'security-calls'
+        source, commands = self.build_source(r'''echo "$*" >> "$HOME/security-calls"
+case $1 in
+  find-identity) case "$*" in *atticus-signing*) echo '1) OWN "Atticus Local Signing"';; *) echo '1) OLD "Atticus Local Signing"';; esac;;
+  dump-keychain) cat "$HOME/login-acl";;
+  create-keychain) touch "$4";;
+  list-keychains) [ "$3" = -s ] || echo '    "/fake/login.keychain-db"';;
+esac''')
+        acl = 'keychain: "/fake/login.keychain-db"\n        description: a.p12\n        authorizations (1): partition_id\n        description: {}\n'
+        for partitions, expected, created in [('apple-tool:', 'OWN', True), ('apple-tool:, apple:', 'OLD', False), (None, 'OWN', False)]:
+            with self.subTest(partitions=partitions):
+                kc.parent.mkdir(parents=True, exist_ok=True); calls.write_text('')
+                if partitions: kc.unlink(missing_ok=True); (home / 'login-acl').write_text(acl.format(partitions))
+                else: kc.touch()
+                result = self.run_build(source, commands)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((home / 'signed-with').read_text().strip(), expected)
+                log = calls.read_text()
+                self.assertEqual('set-key-partition-list -S apple-tool:,apple: -s -k atticus ' + str(kc) in log, created, log)
+                self.assertEqual(('unlock-keychain -p atticus ' + str(kc)) in log, expected == 'OWN', log)
+                self.assertEqual(('list-keychains -d user -s ' + str(kc) + ' /fake/login.keychain-db') in log, expected == 'OWN', log)
+
+    def test_build_failure_steps_keep_entire_installed_app(self):
+        home = self.root / 'home'; app = home / 'Applications/Atticus.app/Contents'
+        (app / 'MacOS').mkdir(parents=True); (app / 'Resources').mkdir()
         for name in ['Info.plist', 'MacOS/Atticus', 'Resources/atticus.py']:
-            self.assertEqual((app / name).read_text(), 'old app', name + ' changed after failed signing')
+            (app / name).write_text('old app')
+        source, commands = self.build_source('echo 1\\) ABC Atticus Local Signing')
+        for command, code, script in [
+            ('swiftc', 61, 'exit 1'),
+            ('cp', 64, 'exit 1'),
+            ('codesign', 62, 'exit 1'),
+            ('mv', 63, '[ "$1" != "$HOME/Applications/Atticus.app" ] || exit 1; exec /bin/mv "$@"'),
+        ]:
+            with self.subTest(command=command):
+                path = commands / command
+                original = path.read_text() if path.exists() else None
+                path.write_text('#!/bin/sh\necho intentional-failure >&2\n' + script + '\n'); path.chmod(0o755)
+                result = self.run_build(source, commands)
+                self.assertEqual(result.returncode, code, result.stderr)
+                self.assertIn(b'intentional-failure', result.stderr)
+                for name in ['Info.plist', 'MacOS/Atticus', 'Resources/atticus.py']:
+                    self.assertEqual((app / name).read_text(), 'old app', name + ' changed after failed ' + command)
+                if original is None: path.unlink()
+                else: path.write_text(original)
+
+    def test_build_log_overwrites_and_only_fixed_steps_reach_telemetry(self):
+        self.push()
+        log = self.root / 'home/.config/atticus/update-build.log'
+        for code, step in [(60, 'prepare'), (61, 'compile'), (62, 'sign'), (63, 'install'), (64, 'package'), (1, 'unknown')]:
+            (self.other / 'build.sh').write_text('#!/bin/sh\necho private-build-detail-' + str(code) + ' >&2\nexit ' + str(code) + '\n')
+            self.git(self.other, 'commit', '-qam', 'failure'); self.git(self.other, 'push', '-q')
+            self.assertEqual(self.run_update(), 6)
+            self.assertEqual(self.result.stdout.strip(), step)
+            self.assertEqual(log.read_text(), 'private-build-detail-' + str(code) + '\n')
+        from tests import run_swift
+        source = (ROOT / 'Atticus.swift').read_text()
+        mapping = source[source.index('    static func failureStage('):source.index('    static func restartWhenIdle()')]
+        swift = 'import Foundation\nenum Updater {\n' + mapping + '}\n' + r'''
+for step in ["prepare", "compile", "package", "sign", "install", "pending", "log"] {
+ precondition(Updater.failureStage(6, step + "\n") == "update_6_" + step)
+}
+precondition(Updater.failureStage(6, "/Users/private/example.swift: error") == "update_6_unknown")
+precondition(Updater.failureStage(6, "hello from a shell profile\ncompile\n") == "update_6_compile")
+precondition(Updater.failureStage(7, "private") == "update_7")
+print("private output stays local")
+'''
+        self.assertIn('private output stays local', run_swift(self, swift))
+
+    def test_pending_marker_failure_is_distinct_from_build_failure(self):
+        self.push(); (self.src / '.git/atticus-update-pending').mkdir()
+        self.assertEqual(self.run_update(), 6)
+        self.assertEqual(self.result.stdout.strip(), 'pending')
+        self.assertFalse((self.src / 'built').exists())
+
+    def test_unwritable_log_is_reported_before_build(self):
+        self.push(); (self.root / 'home/.config/atticus/update-build.log').mkdir(parents=True)
+        self.assertEqual(self.run_update(), 6)
+        self.assertEqual(self.result.stdout.strip(), 'log')
+        self.assertFalse((self.src / 'built').exists())
 
     def test_restart_waits_for_each_activity(self):
         from tests import run_swift
@@ -206,9 +285,17 @@ try! JSONSerialization.data(withJSONObject: UserDefaults.values).write(to: state
 
     def test_local_changes_skip_without_pulling(self):
         before = self.git(self.src, 'rev-parse', 'HEAD'); self.push()
-        (self.src / 'local').write_text('keep me')
+        (self.src / '.gitignore').write_text('edited')
         self.assertEqual(self.run_update(), 5); self.assertEqual(self.git(self.src, 'rev-parse', 'HEAD'), before)
         self.assertFalse((self.src / 'built').exists())
+
+    def test_untracked_file_does_not_block_update(self):
+        self.push(); (self.src / 'notes.txt').write_text('keep me')
+        self.assertEqual(self.run_update(), 10); self.assertTrue((self.src / 'built').exists())
+        self.assertEqual((self.src / 'notes.txt').read_text(), 'keep me')
+        (self.src / 'built').unlink(); (self.src / 'new2').write_text('mine')
+        (self.other / 'new2').write_text('theirs'); self.git(self.other, 'add', '.'); self.git(self.other, 'commit', '-qm', 'u2'); self.git(self.other, 'push', '-q')
+        self.assertEqual(self.run_update(), 7); self.assertEqual((self.src / 'new2').read_text(), 'mine')
 
     def test_failed_build_recovers_after_source_is_fast_forwarded(self):
         (self.src / 'fail').touch(); self.push()

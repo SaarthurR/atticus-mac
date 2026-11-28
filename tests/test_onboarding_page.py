@@ -95,11 +95,11 @@ PERMISSION_ROWS = '''
   if (!tap($('start'), $('welcome'))) return stuck('Get Started is unreachable');
   out.push(...rows('ai'));
   if (!tap($('next'), document.body)) return stuck('AI has no reachable way on');
-  if ($('model').classList.contains('on') !== on) return stuck('the work model step shows only once the Claude plan works');
-  if (on && !tap($('next'), document.body)) return stuck('work model has no reachable way on');
   if (!$('perms').classList.contains('on')) return stuck('AI has no way on to Mac access');
   out.push(...rows('perms'));
   if (!tap($('next'), document.body) || !$('try').classList.contains('on')) return stuck('permissions have no reachable way on');
+  if (!tap($('next'), document.body)) return stuck('try it has no reachable way on');
+  if ($('model').classList.contains('on') !== on) return stuck('the work model step shows only once the Claude plan works');
   return JSON.stringify(out);
 '''
 
@@ -152,7 +152,7 @@ return {waiting,text,buttons,cleared:!document.querySelector('.permission')};
         for width, height in ((640, 612), (480, 420), (360, 320)):
             with self.subTest(size=(width, height)):
                 measured = json.loads(self.run_page(self.page, width, height, EVERY_PAGE)['result'])
-                self.assertEqual([page['id'] for page in measured['rows']], ['welcome', 'ai', 'model', 'perms', 'try', 'dictate', 'show', 'improve', 'tip', 'done'])
+                self.assertEqual([page['id'] for page in measured['rows']], ['welcome', 'ai', 'perms', 'try', 'model', 'dictate', 'show', 'meeting', 'improve', 'tip', 'done'])
                 for page in measured['rows']:
                     self.assertTrue(page['horizontal'], f"{page['id']} overflows horizontally at {width}×{height}")
                     self.assertGreater(page['actions'], 0, f"{page['id']} has no action")
@@ -220,7 +220,7 @@ return {selected,server:!document.getElementById('srv').hidden,tab:buttons.map(b
         out = self.run_page(self.live, 640, 612, """
 while (!window.ob) await new Promise(r=>setTimeout(r,10));
 const $=id=>document.getElementById(id), visit=id=>document.querySelector(`[data-to="${id}"]`).click();
-visit('show');$('next').click();
+visit('meeting');$('next').click();
 const improve=$('improve').classList.contains('on')&&!$('later').hidden&&$('later').textContent==='Not Now'&&$('next').textContent==='Help Improve';
 $('later').click();const no=$('tip').classList.contains('on');
 $('back').click();$('next').click();const yes=$('tip').classList.contains('on');
@@ -239,7 +239,7 @@ return {improve,no,yes,stays,keys,hidden,label,done:$('done').classList.contains
         out = self.run_page(self.live, 640, 612, """
 while (!window.ob) await new Promise(r=>setTimeout(r,10));
 const $=id=>document.getElementById(id), on=()=>document.querySelector('.page.on').id, dot=()=>!document.querySelector('[data-to=model]').hidden;
-const after=(plan, prefs={}, server='')=>{ob.server({apiBase:server,apiModel:''});ob.prefs({routing:'balanced',...prefs});ob.plan(plan);$('ai').classList.contains('on')||document.querySelector('[data-to=ai]').click();$('next').click();const next=on();$('back').click();return [next,dot(),on()];};
+const after=(plan, prefs={}, server='')=>{ob.server({apiBase:server,apiModel:''});ob.prefs({routing:'balanced',...prefs});ob.plan(plan);$('try').classList.contains('on')||document.querySelector('[data-to=try]').click();$('next').click();const next=on();$('back').click();return [next,dot(),on()];};
 const ok=c=>({ok:true,need:'',client:c,text:'Ready.'});
 const claude=after(ok('claude')), devin=after(ok('devin')), pi=after(ok('pi')), server=after(ok('server'),{},'http://localhost:11434');
 const cheapest=after(ok('claude'),{routing:'cheapest'}), signedOut=after({ok:false,need:'login',client:'claude',text:'Sign in'});
@@ -248,9 +248,9 @@ const picked=document.querySelector('.mc[aria-checked=true]').dataset.m;
 document.querySelector('.mc[data-m=opus]').click();const opus=document.querySelector('.mc[aria-checked=true]').dataset.m;$('next').click();
 return {claude,devin,pi,server,cheapest,signedOut,picked,opus,after:on()};
 """)
-        self.assertEqual(out['result'], {'claude': ['model', True, 'ai'], 'devin': ['perms', False, 'ai'], 'pi': ['perms', False, 'ai'],
-                                         'server': ['perms', False, 'ai'], 'cheapest': ['perms', False, 'ai'], 'signedOut': ['perms', False, 'ai'],
-                                         'picked': 'sonnet', 'opus': 'opus', 'after': 'perms'})
+        self.assertEqual(out['result'], {'claude': ['model', True, 'try'], 'devin': ['dictate', False, 'try'], 'pi': ['dictate', False, 'try'],
+                                         'server': ['dictate', False, 'try'], 'cheapest': ['dictate', False, 'try'], 'signedOut': ['dictate', False, 'try'],
+                                         'picked': 'sonnet', 'opus': 'opus', 'after': 'dictate'})
         self.assertEqual([p for p in out['posts'] if p.get('do') == 'set'], [{'do': 'set', 'k': 'model', 'v': 'opus'}])
 
     def test_work_model_skip_and_continue_keep_the_default(self):
@@ -263,8 +263,51 @@ document.querySelector('.mc[data-m=sonnet]').click();$('next').click();const nex
 document.querySelector('[data-to=model]').click();$('skip').click();
 return {label,main,next,skip:on()};
 """)
-        self.assertEqual(out['result'], {'label': 'Continue', 'main': True, 'next': 'perms', 'skip': 'improve'})
+        self.assertEqual(out['result'], {'label': 'Continue', 'main': True, 'next': 'dictate', 'skip': 'improve'})
         self.assertEqual([p for p in out['posts'] if p.get('do') == 'set'], [])
+
+    def test_first_task_records_how_each_ask_went(self):
+        out = self.run_page(self.live, 640, 612, """
+while (!window.ob) await new Promise(r=>setTimeout(r,10));
+const ask=document.getElementById('tryask');
+document.querySelector('[data-to=try]').click();const first=[ask.textContent,ask.classList.contains('ok'),document.querySelectorAll('#try [role=radio]').length];
+ob.app('listen');ob.app('words','what is on my screen');ob.app('think');ob.app('line','✓ A setup window.');ob.app('finished');
+const ok=ask.classList.contains('ok');
+ob.app('listen');ob.app('think');ob.app('msg','The screen changed. Ask again to continue.');ob.app('finished');
+ob.app('listen');ob.app('stopped','Stopped listening');
+ob.app('listen');ob.app('stopped','');ob.app('msg','Not an answer to anything');
+ob.app('listen','dict');ob.app('msg','Dictation failed');
+document.querySelector('[data-to=dictate]').click();ob.app('listen');ob.app('line','✓ Asked on another step.');
+return {first,ok};
+""")
+        self.assertEqual(out['result'], {'first': ['Say“What’s on my screen?”', False, 0], 'ok': True})
+        self.assertEqual([p for p in out['posts'] if p.get('do') == 'task'], [
+            {'do': 'task', 'task': 'explain', 'outcome': 'done'}, {'do': 'task', 'task': 'explain', 'outcome': 'failed'},
+            {'do': 'task', 'task': 'explain', 'outcome': 'stopped'}])
+
+    def test_dictation_line_names_the_real_dictation_key(self):
+        out = self.run_page(self.live, 640, 612, """
+while (!window.ob) await new Promise(r=>setTimeout(r,10));
+const say=document.getElementById('dictate-say'), seen=()=>[say.hidden,say.textContent.replace(/\\s+/g,' ').trim()];
+document.querySelector('[data-to=dictate]').click();
+ob.prefs({dictateHotkeyLabel:'⌃⌥D'});const set=seen();ob.prefs({dictateHotkeyLabel:''});const none=seen()[0];
+return {set,none};
+""")
+        self.assertEqual(out['result'], {'set': [False, 'Hold ⌃⌥D and say: “Hey, running five minutes late, see you soon.”'], 'none': True})
+
+    def test_what_to_say_reads_as_the_main_line_and_holds_still_when_checked(self):
+        out = self.run_page(self.live, 480, 420, """
+while (!window.ob) await new Promise(r=>setTimeout(r,10));
+const $=id=>document.getElementById(id), look=e=>{const s=getComputedStyle(e);return [s.fontSize,s.fontWeight,s.color]};
+document.querySelector('[data-to=try]').click();
+const ask=$('tryask'), before=ask.getBoundingClientRect().height, lines=Math.round(before/parseFloat(getComputedStyle(ask).lineHeight));
+ask.classList.add('ok');const after=ask.getBoundingClientRect().height;
+document.querySelector('[data-to=dictate]').click();ob.prefs({dictateHotkeyLabel:'fn'});
+const main=look($('live-title'));
+return {main:main[0],same:[...ask.querySelectorAll('span,i'),$('dictate-say')].map(e=>look(e).join()===main.join()),
+  hint:look(document.querySelector('#try p.sub')).join()===main.join(),lines,still:before===after};
+""")
+        self.assertEqual(out['result'], {'main': '16px', 'same': [True, True, True], 'hint': False, 'lines': 1, 'still': True})
 
     def test_every_permission_row_scrolls_into_reach(self):
         for width, height in ((640, 612), (480, 420)):

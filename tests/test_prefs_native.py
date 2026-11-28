@@ -1,4 +1,5 @@
 """Native settings and usage regressions in a scratch ATTICUS_DIR."""
+import json
 import os
 import re
 from pathlib import Path
@@ -27,6 +28,51 @@ if CommandLine.arguments.count > 1 { precondition(Prefs.set("autoMinimize", Comm
             for args, expected in [(['false'], 'true'), (['true'], 'false'), ([], 'true')]:
                 run = subprocess.run([str(binary)] + args, capture_output=True, text=True,
                                      env={**os.environ, 'ATTICUS_DIR': root})
+                self.assertEqual(run.returncode, 0, run.stderr)
+                self.assertEqual(run.stdout.strip(), expected)
+
+    def test_meeting_copilot_defaults_on_and_keeps_a_switch_off(self):
+        source = (ROOT / "Atticus.swift").read_text()
+        prefs = source[source.index("enum Prefs"):source.index("func applySharing(")]
+        swift = "import Foundation\nlet controlKey = 1, optionKey = 2\n" + prefs + r'''
+print(Prefs.bool("meeting"))
+if CommandLine.arguments.count > 2 { precondition(Prefs.set(CommandLine.arguments[1], CommandLine.arguments[2] == "true")) }
+'''
+        with tempfile.TemporaryDirectory() as folder:
+            src, binary = Path(folder)/'prefs.swift', Path(folder)/'prefs'
+            src.write_text(swift)
+            built = subprocess.run(['swiftc', str(src), '-o', str(binary)], capture_output=True, text=True)
+            self.assertEqual(built.returncode, 0, built.stderr)
+            # Settings files as 2.0.2 wrote them: every write saved the whole dict, so an untouched install says "meeting": false too.
+            cases = [('new install', None, False, ['true', 'false']),
+                     ('old file, never touched', {'meeting': False, 'speak': True}, False, ['true', 'true']),
+                     ('old file, on', {'meeting': True}, False, ['true', 'true']),
+                     ('old file, off after using the panel', {'meeting': False, 'meetingFrames': {'1': [0, 0, 340, 650]}}, False, ['false', 'false']),
+                     ('old file, off after typing notes', {'meeting': False, 'meetingPrep': 'Agenda'}, False, ['false', 'false']),
+                     ('old file, off with saved meetings', {'meeting': False}, True, ['false', 'false']),
+                     ('switched off after the update', {'meeting': False, 'meetingOnByDefault': True}, False, ['false', 'false'])]
+            for name, saved, meetings, expected in cases:
+                with self.subTest(name), tempfile.TemporaryDirectory() as root:
+                    if saved is not None: (Path(root)/'settings.json').write_text(json.dumps(saved))
+                    if meetings: (Path(root)/'meetings'/'m1').mkdir(parents=True)
+                    env = {**os.environ, 'ATTICUS_DIR': root}
+                    # first launch writes something (the switch off on a new install, any other setting otherwise), then a relaunch reads it back
+                    write = ['meeting', 'false'] if saved is None else ['speak', 'true']
+                    seen = [subprocess.run([str(binary)] + args, capture_output=True, text=True, env=env).stdout.strip() for args in (write, [])]
+                    self.assertEqual(seen, expected)
+
+    def test_saved_dictation_speech_model_reads_as_speech(self):
+        source = (ROOT / "Atticus.swift").read_text()
+        prefs = source[source.index("enum Prefs"):source.index("func applySharing(")]
+        swift = "import Foundation\nlet controlKey = 1, optionKey = 2\n" + prefs + '\nprint(Prefs.str("speechModel"))\n'
+        with tempfile.TemporaryDirectory() as root:
+            src, binary = Path(root)/'prefs.swift', Path(root)/'prefs'
+            src.write_text(swift)
+            built = subprocess.run(['swiftc', str(src), '-o', str(binary)], capture_output=True, text=True)
+            self.assertEqual(built.returncode, 0, built.stderr)
+            for saved, expected in [('dictation', 'speech'), ('whisper', 'whisper'), ('speech', 'speech')]:
+                (Path(root)/'settings.json').write_text('{"speechModel": "%s"}' % saved)
+                run = subprocess.run([str(binary)], capture_output=True, text=True, env={**os.environ, 'ATTICUS_DIR': root})
                 self.assertEqual(run.returncode, 0, run.stderr)
                 self.assertEqual(run.stdout.strip(), expected)
 

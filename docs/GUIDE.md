@@ -91,7 +91,7 @@ Plain questions and answers can be saved in the Agents window: switch to **Chats
 
 ## Meeting Copilot
 
-Enable Meeting Copilot in Settings → Meetings → Meeting Copilot settings, then open it for a call or try the demo. Drag its header or empty background in any state; the minimized pill also drags. Positions and expanded sizes are remembered per display. Double-click the header to return to the default spot. Frames stay inside the display’s usable area, including after a display change.
+Meeting Copilot is on by default (turn it off in Settings → Meetings → Meeting Copilot settings). Open it for a call or try the demo. Drag its header or empty background in any state; the minimized pill also drags. Positions and expanded sizes are remembered per display. Double-click the header to return to the default spot. Frames stay inside the display’s usable area, including after a display change.
 
 **Answer now.** While it listens, press ⌘Return anywhere, or Return when no text box has focus, and Atticus asks “What should I say?” about the last 45 seconds of the call (with the few minutes before as background and your notes). It answers a question asked at the end, explains a term just mentioned, suggests follow-up questions after a story, or says there is nothing to answer yet. Each answer is one line to say, plus up to two short points. Pressing again while it answers starts over with the newest words. Return goes to your app whenever Atticus can’t tell whether you’re typing; macOS needs Accessibility access for Atticus.
 
